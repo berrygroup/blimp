@@ -4,21 +4,59 @@ Original author:
 Scott Berry <scott.berry@unsw.edu.au>
 """
 import pandas as pd
+import numpy as np
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import List, Union
 
-def _remove_ns(str):
+image_metadata_dtypes = {'id': str,
+ 'State': str,
+ 'URL': str,
+ 'Row': np.uint8,
+ 'Col': np.uint8,
+ 'FieldID': np.uint16,
+ 'PlaneID': np.uint16,
+ 'TimepointID': np.int64,
+ 'ChannelID': np.uint8,
+ 'FlimID': np.uint8,
+ 'ChannelName': str,
+ 'ImageType': str,
+ 'AcquisitionType': str,
+ 'IlluminationType': str,
+ 'ChannelType': str,
+ 'ImageResolutionX': float,
+ 'ImageResolutionY': float,
+ 'ImageSizeX': np.uint16,
+ 'ImageSizeY': np.uint16,
+ 'BinningX': np.uint8,
+ 'BinningY': np.uint8,
+ 'MaxIntensity': int,
+ 'CameraType': str,
+ 'PositionX': float,
+ 'PositionY': float,
+ 'PositionZ': float,
+ 'AbsPositionZ': float,
+ 'MeasurementTimeOffset': float,
+ 'AbsTime': 'datetime64[ns]',
+ 'MainExcitationWavelength': np.uint16,
+ 'MainEmissionWavelength': np.uint16,
+ 'ObjectiveMagnification': np.uint8,
+ 'ObjectiveNA': float,
+ 'ExposureTime': float,
+ 'OrientationMatrix': str,
+ 'StandardFieldID': np.uint16}
+
+def _remove_ns(s : str) -> str:
     """
     Strip text before "}"
     
     Parameters
     ----------
-    str : string
+    s : string
         string to be modified
     
     Returns
-    -------
-    string
+    str
         string with text up to and including "}" removed
     
     Examples
@@ -27,21 +65,23 @@ def _remove_ns(str):
     'Plates'
     
     """
-    return str.split("}")[1][0:]
+    return s.split("}")[1][0:]
 
 
-def _xml_to_df(xmls,ns_key,ns_dict):
+def _xml_to_df(xmls,
+               ns_key : str,
+               ns_dict : dict) -> pd.DataFrame :
     """
     Convert a list of xmls into a pandas dataframe, 
     where each xml forms a row.
 
     Parameters
     ----------
-    xmls : xml.etree.ElementTree
+    xmls
         XML element tree to parse
-    ns_key : string
+    ns_key
         namespace key to use
-    ns_dict : dict
+    ns_dict
         namespace dictionary
 
     Returns
@@ -70,7 +110,32 @@ def _xml_to_df(xmls,ns_key,ns_dict):
     return(pd.DataFrame(metadata))
 
 
-def get_plate_metadata(metadata_file, out_file=""):
+def _to_well_name(row : int, column : int) -> str :
+    """
+    Convert row and column numbers to well name
+
+    Parameters
+    ----------
+    row : int
+        Row of the plate
+    column : int
+        Column of the plate
+    
+    Returns
+    -------
+    str
+        Well name
+
+    Examples
+    --------
+    >>> _to_well_name(1,13)
+    A13
+    
+    """
+    return(chr(96 + row).upper() + "%0.2d" % column)
+
+
+def get_plate_metadata(metadata_file : Union[str,Path], out_file : Union[str,Path,None]=None) -> pd.DataFrame:
     """
     Extracts plate metadata from the operetta xml file
 
@@ -98,16 +163,16 @@ def get_plate_metadata(metadata_file, out_file=""):
     plate_metadata = _xml_to_df(plates_xml,"harmony",ns)
 
     # write file if requested
-    if (out_file!=""):
+    if out_file is not None:
         if (Path(out_file).suffix==".csv"):
-            plate_metadata.to_csv(out_file)
-        elif(Path(out_file).suffix==".pkl")
+            plate_metadata.to_csv(out_file, index=False)
+        elif(Path(out_file).suffix==".pkl"):
             plate_metadata.to_pickle(out_file)
 
     return(plate_metadata)
 
 
-def get_images_metadata(metadata_file, out_file=""):
+def get_image_metadata(metadata_file : Union[str,Path], out_file : Union[str,Path,None]=None) -> pd.DataFrame:
     """
     Extracts image metadata from the operetta xml file
 
@@ -146,12 +211,18 @@ def get_images_metadata(metadata_file, out_file=""):
 
     # keep this as StandardFieldID
     image_metadata['StandardFieldID'] = image_metadata['XYCoordinates'].map(coord_index)
+    image_metadata = image_metadata.drop(columns=['XYCoordinates','XCoordinate','YCoordinate'])
 
+    image_metadata = image_metadata.astype(image_metadata_dtypes)
+    
+    # add a "WellName" identifier
+    image_metadata["WellName"] = image_metadata[["Row","Col"]].apply(lambda x: _to_well_name(x.Row, x.Col), axis=1)
+    
     # write file if requested
-    if (out_file!=""):
+    if out_file is not None:
         if (Path(out_file).suffix==".csv"):
-            image_metadata.to_csv(out_file)
-        elif(Path(out_file).suffix==".pkl")
+            image_metadata.to_csv(out_file, index=False)
+        elif(Path(out_file).suffix==".pkl"):
             image_metadata.to_pickle(out_file)
 
     return(image_metadata)
