@@ -237,6 +237,8 @@ def operetta_to_ome_tiff(
     init_logging()
     log = logging.getLogger("operetta_to_ome_tiff")
     
+    # TODO: implement batches (note: may need to make metadata saving only active for batch 1)
+    
     in_path = Path(in_path)
     out_path = Path(out_path)
     metadata_path = in_path / metadata_file
@@ -261,8 +263,7 @@ def operetta_to_ome_tiff(
     
     # get unique sites (fields-of-view)
     timepoints = image_metadata[["TimepointID"]].drop_duplicates()
-    # FIXME: test on a single site using iloc
-    sites = image_metadata[["Row","Col","StandardFieldID"]].drop_duplicates().iloc[:1]
+    sites = image_metadata[["Row","Col","StandardFieldID"]].drop_duplicates()
     channels = image_metadata[["ChannelID"]].drop_duplicates()
     
     # get channel names
@@ -390,6 +391,16 @@ if __name__ == "__main__":
         default=False,
         action="store_true",
         help="whether to save maximum intensity projections"
+    )
+    
+    parser.add_argument(
+        "--batch_number_and_size",
+        nargs=2,
+        help="""
+            If files are processed as batches, provide the batch 
+            number and size. Batches refer to number of sites 
+            (fields-of-view) and batch numbers start at 1.
+        """
     )
 
     args = parser.parse_args()
