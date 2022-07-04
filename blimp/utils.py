@@ -16,3 +16,4 @@ def init_logging(level: int = logging.INFO) -> None:
 
     logging.basicConfig(level=level)
     logging.getLogger().setLevel(level)
+    warnings.filterwarnings("ignore", message="Failed to parse XML for the provided file.")
