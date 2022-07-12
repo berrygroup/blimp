@@ -67,7 +67,8 @@ def convert_operetta(
     mip : bool=False,
     submit : bool=False,
     user : str="z1234567",
-    email : str="foo@bar.com") -> None:
+    email : str="foo@bar.com",
+    dryrun : bool=False) -> None:
     """
     Recursively searches for 'Images' directories and creates a job
     script to submit a batch of operetta-generated TIFFs for export in
@@ -99,6 +100,8 @@ def convert_operetta(
         username (your zID, must match the path to your data)
     email
         email address for job notifications
+    dryrun
+        prepare scripts and echo commands without submitting
     """
     init_logging()
     log = logging.getLogger("convert_operetta")
@@ -120,10 +123,16 @@ def convert_operetta(
         with open(jobscript_path,"w+") as f:
             f.writelines(jobscript)
 
-    # submit jobs
-    if (submit):
+    # dryrun
+    if dryrun:
         for j in jobscript_paths:
             os.system("echo qsub " + str(j))
+
+    # submit jobs
+    if submit:
+        for j in jobscript_paths:
+            os.system("qsub " + str(j))
+    
 
 
 if __name__ == "__main__":
@@ -173,6 +182,14 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "-n",
+        "--dryrun",
+        default=False,
+        action="store_true",
+        help="Dry-run mode. Echo submission commands without submitting"
+    )
+
+    parser.add_argument(
         "--user",
         help="Your zID",
         required=True
@@ -195,4 +212,5 @@ if __name__ == "__main__":
         submit=args.submit,
         user=args.user,
         email=args.email,
+        dryrun=args.dryrun
     )
