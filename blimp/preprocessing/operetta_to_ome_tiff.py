@@ -306,11 +306,10 @@ def operetta_to_ome_tiff(
     image_metadata_file = in_path / "image_metadata.csv" if save_metadata_files else None
 
     # make output directories
-    if batch_id==0:
-        if not out_path.exists():
-            out_path.mkdir(parents=True)
-        if mip and not out_path_mip.exists():
-            out_path_mip.mkdir(parents=True)
+    if not out_path.exists():
+        out_path.mkdir(parents=True, exist_ok=True)
+    if mip and not out_path_mip.exists():
+        out_path_mip.mkdir(parents=True, exist_ok=True)
     
     # get metadata dataframes
     plate_metadata = get_plate_metadata(metadata_path,plate_metadata_file)
