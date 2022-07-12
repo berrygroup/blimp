@@ -5,6 +5,7 @@ Scott Berry <scott.berry@unsw.edu.au>
 """
 import pandas as pd
 import numpy as np
+import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Union
@@ -164,6 +165,7 @@ def get_plate_metadata(metadata_file : Union[str,Path], out_file : Union[str,Pat
 
     # write file if requested
     if out_file is not None:
+        logging.info("Save plate metadata to file: {}".format(str(out_file)))
         if (Path(out_file).suffix==".csv"):
             plate_metadata.to_csv(out_file, index=False)
         elif(Path(out_file).suffix==".pkl"):
@@ -220,9 +222,11 @@ def get_image_metadata(metadata_file : Union[str,Path], out_file : Union[str,Pat
     
     # write file if requested
     if out_file is not None:
+        logging.info("Save plate metadata to file: {}".format(str(out_file)))
         if (Path(out_file).suffix==".csv"):
             image_metadata.to_csv(out_file, index=False)
         elif(Path(out_file).suffix==".pkl"):
             image_metadata.to_pickle(out_file)
 
+    print(out_file)
     return(image_metadata)
