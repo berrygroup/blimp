@@ -286,6 +286,8 @@ def operetta_to_ome_tiff(
         current batch to process
     save_metadata_files
         whether the metadata files should be saved after XML parsing
+    mip
+        whether to save maximum-intensity-projections
 
     """
     init_logging()
@@ -429,6 +431,12 @@ if __name__ == "__main__":
         "--out_path",
         help="directory to write the output files",
         required=True
+    )
+
+    parser.add_argument(
+        "--image_format",
+        default="TIFF",
+        help="output format for images (currently only TIFF implemented)"
     )
 
     parser.add_argument(
