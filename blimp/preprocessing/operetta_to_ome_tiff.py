@@ -322,13 +322,13 @@ def operetta_to_ome_tiff(
     image_metadata_ome_tiff = _aggregate_TCZ_metadata(image_metadata)    
     
     # save metadata files (for the first batch only)
-    if (save_metadata_files and batch_id==0):
+    if (save_metadata_files and int(batch_id)==0):
         image_metadata_ome_tiff.to_csv(Path(out_path) / "image_metadata.csv", index=False)
         image_metadata_ome_tiff.to_pickle(Path(out_path) / "image_metadata.pkl")
         
     if (mip):
         image_metadata_mip_ome_tiff = _aggregate_TCZ_metadata(image_metadata,mip=True)
-        if (save_metadata_files and batch_id==0):
+        if (save_metadata_files and int(batch_id)==0):
             image_metadata_mip_ome_tiff.to_csv(Path(out_path_mip) / "image_metadata.csv", index=False)
             image_metadata_mip_ome_tiff.to_pickle(Path(out_path_mip) / "image_metadata.pkl")
     
