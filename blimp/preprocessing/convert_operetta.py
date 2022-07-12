@@ -1,3 +1,8 @@
+"""
+Copyright 2022 (C) University of New South Wales
+Original author:
+Scott Berry <scott.berry@unsw.edu.au>
+"""
 import os
 import glob
 import logging
