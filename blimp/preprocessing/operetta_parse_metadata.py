@@ -111,7 +111,9 @@ def _xml_to_df(xmls,
     return(pd.DataFrame(metadata))
 
 
-def _to_well_name(row : int, column : int) -> str :
+def _to_well_name(
+    row : int,
+    column : int) -> str :
     """
     Convert row and column numbers to well name
 
@@ -136,15 +138,17 @@ def _to_well_name(row : int, column : int) -> str :
     return(chr(96 + row).upper() + "%0.2d" % column)
 
 
-def get_plate_metadata(metadata_file : Union[str,Path], out_file : Union[str,Path,None]=None) -> pd.DataFrame:
+def get_plate_metadata(
+    metadata_file : Union[str,Path],
+    out_file : Union[str,Path,None]=None) -> pd.DataFrame:
     """
     Extracts plate metadata from the operetta xml file
 
     Parameters
     ----------
-    metadata_file : str or Path
+    metadata_file
         path to the xml metadata file
-    out_file : str or Path, optional
+    out_file
         enter a file path if this dataframe should be written to file 
         (possible extensions are .csv or .pkl)
 
@@ -174,15 +178,17 @@ def get_plate_metadata(metadata_file : Union[str,Path], out_file : Union[str,Pat
     return(plate_metadata)
 
 
-def get_image_metadata(metadata_file : Union[str,Path], out_file : Union[str,Path,None]=None) -> pd.DataFrame:
+def get_image_metadata(
+    metadata_file : Union[str,Path],
+    out_file : Union[str,Path,None]=None) -> pd.DataFrame:
     """
     Extracts image metadata from the operetta xml file
 
     Parameters
     ----------
-    metadata_file : str or Path
+    metadata_file
         path to the xml metadata file
-    out_file : str or Path, optional
+    out_file
         enter a file path if this dataframe should be written to file 
         (possible extensions are .csv or .pkl)
 
@@ -230,3 +236,27 @@ def get_image_metadata(metadata_file : Union[str,Path], out_file : Union[str,Pat
 
     print(out_file)
     return(image_metadata)
+
+
+def load_image_metadata(metadata_file: Union[str,Path]):
+    """
+    Loads image metadata previously saved during image conversion
+
+    Parameters
+    ----------
+    metadata_file
+        path to the pkl or csv metadata file
+
+    Returns
+    -------
+    pandas.DataFrame
+        Dimensions (n_rows = # fields-of-view, n_cols = # xml fields)
+    """
+    metadata_file = Path(metadata_file)
+    if metadata_file.suffix==".pkl":
+        metadata = pd.read_pickle(metadata_file)
+    elif metadata_file.suffix==".csv":
+        metadata = pd.read_csv(metadata_file)
+    else:
+        logging.error("Unknown metadata file: {}".format(str(metadata_file)))
+    return(metadata)
