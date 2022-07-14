@@ -384,15 +384,21 @@ def operetta_to_ome_tiff(
             image_metadata,site.Row,site.Col,site.StandardFieldID,1,0)
         
         # get new filenames from restructured metadata dataframe
-        out_file_path = image_metadata_ome_tiff.query(
+        out_file_path = Path(out_path) / (
+            image_metadata_ome_tiff.query(
             "Row==" + str(site.Row) + \
             " & Col==" + str(site.Col) + \
             " & StandardFieldID==" + str(site.StandardFieldID)).URL.iloc[0]
-        if (mip):
-            out_file_path_mip = Path(out_path_mip) / out_file_path
-        out_file_path = Path(out_path) / out_file_path
+            )
 
-        
+        if (mip):
+            out_file_path_mip = Path(out_path_mip) / (
+                image_metadata_mip_ome_tiff.query(
+                "Row==" + str(site.Row) + \
+                " & Col==" + str(site.Col) + \
+                " & StandardFieldID==" + str(site.StandardFieldID)).URL.iloc[0]
+                )
+
         # write to OME TIFF (metadata provided is written to TIFF file)
         OmeTiffWriter.save(
             data = multi_timepoint_img,
