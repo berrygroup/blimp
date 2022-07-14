@@ -15,8 +15,8 @@ operetta_to_tiff_jobscript_template = """#!/bin/bash
 ### Splits a set of operetta images into batches and converts to OME-TIFF
 
 #PBS -N ConvertOperetta
-#PBS -l select=1:ncpus=1:mem=32gb
-#PBS -l walltime=02:00:00
+#PBS -l select=1:ncpus=1:mem=128gb
+#PBS -l walltime=04:00:00
 #PBS -j oe
 #PBS -k oed
 #PBS -M {USER_EMAIL}
