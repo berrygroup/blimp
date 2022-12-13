@@ -7,12 +7,12 @@ from aicsimageio import AICSImage
 from cellpose import models
 from typing import Union
 from pathlib import Path
-from blimp.preprocessing import load_image_metadata
 
 
 def segment_nuclei_cellpose(
     intensity_image : AICSImage,
     nuclei_channel : int=0,
+    threshold : float=0,
     timepoint : Union[int,None]=None) -> AICSImage:
     """
     Segment nuclei
@@ -23,6 +23,8 @@ def segment_nuclei_cellpose(
         intensity image (possibly 5D: "TCZYX")
     nuclei_channel
         channel number corresponding to nuclear stain
+    threshold
+        cellprob_threshold, float between [-6,+6] after which objects are discarded
     timepoint
         which timepoint should be segmented (optional, 
         default None will segment all time-points)
@@ -44,6 +46,7 @@ def segment_nuclei_cellpose(
         diameter=None,
         channels=[0,0],
         flow_threshold=0.4,
+        cellprob_threshold=threshold,
         do_3D=False)
 
     segmentation = AICSImage(
@@ -163,6 +166,7 @@ def segment_and_quantify(
     Segment objects and quantify intensities of all channels 
     relative to objects.
     """
+    from blimp.preprocessing.operetta_parse_metadata import load_image_metadata
 
     # read intensity image and metadata
     intensity_image = AICSImage(image_file)
