@@ -23,7 +23,7 @@ def _nd2_to_ome_tiff(
     out_path_mip : Union[str,Path]=None):
     """
     Reads a set of images corresponding to a single imaging 
-    site (field of view) from inividual files on disk.
+    site (field of view) from individual files on disk.
 
     Parameters
     ----------
