@@ -15,6 +15,8 @@ from aicsimageio.types import PhysicalPixelSizes
 from blimp.utils import init_logging
 from blimp.preprocessing.nd2_parse_metadata import nd2_extract_metadata_and_save
 
+log = logging.getLogger(__name__)
+
 
 def convert_individual_nd2_to_ome_tiff(
     in_file_path : Union[str,Path],
@@ -127,8 +129,8 @@ def _get_list_of_files_current_batch(
     filepaths.sort()
     n_files_per_batch = int(np.ceil(float(len(filepaths)) / float(n_batches)))
 
-    logging.info("Splitting nd2 file list into {} batches of size {}".format(n_batches,n_files_per_batch))
-    logging.info("Processing batch {}".format(batch_id))
+    log.info("Splitting nd2 file list into {} batches of size {}".format(n_batches,n_files_per_batch))
+    log.info("Processing batch {}".format(batch_id))
 
     return(filepaths[
         batch_id * n_files_per_batch:
@@ -162,9 +164,7 @@ def nd2_to_ome_tiff(
     -------
 
     """
-    init_logging()
-    log = logging.getLogger("nd2_to_ome_tiff")
-    
+
     # setup paths
     in_path = Path(in_path)
     out_path = Path(out_path)
@@ -177,8 +177,10 @@ def nd2_to_ome_tiff(
 
     # make output directories
     if not out_path.exists():
+        log.info("Created output directory: {}".format(out_path))
         out_path.mkdir(parents=True, exist_ok=True)
     if mip and not out_path_mip.exists():
+        log.info("Created output directory: {}".format(out_path_mip))
         out_path_mip.mkdir(parents=True, exist_ok=True)
 
     # get list of files to process
@@ -187,7 +189,7 @@ def nd2_to_ome_tiff(
         n_batches=n_batches,
         batch_id=batch_id)
 
-    # convert files
+    log.info("Converting nd2 files: {}".format(filename_list))
     for f in filename_list:
         convert_individual_nd2_to_ome_tiff(
             in_file_path=in_path / f,
@@ -243,7 +245,10 @@ if __name__ == "__main__":
         help="whether to save maximum intensity projections"
     )
 
+    parser.add_argument('-v', '--verbose', action='count', default=0)
     args = parser.parse_args()
+
+    init_logging(VERBOSITY_TO_LEVELS[args.v])
 
     nd2_to_ome_tiff(
         in_path=args.in_path,
