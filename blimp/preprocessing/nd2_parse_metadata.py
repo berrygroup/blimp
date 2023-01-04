@@ -17,7 +17,7 @@ image_metadata_dtypes = {
     'n_pixels_y': str,
     'n_pixels_x': str,
     'objective_name' : str,
-    'pixel_size_microns' : str,
+    'pixel_size_microns' : float,
     'stage_x_abs' : float,
     'stage_y_abs' : float,
     'stage_z_abs' : float,
