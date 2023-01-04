@@ -137,7 +137,8 @@ def get_standard_field_id_mapping(df : pd.DataFrame) -> pd.DataFrame:
 
 def nd2_extract_metadata_and_save(
     in_file_path : Union[str,Path],
-    out_path : Union[str,Path]) -> pd.DataFrame:
+    out_path : Union[str,Path],
+    mip : bool=False) -> pd.DataFrame:
     """
     Extract metadata from .nd2 file using ND2Reader,
     parse and save metadata files.
@@ -148,6 +149,9 @@ def nd2_extract_metadata_and_save(
         Full path to the .nd2 image file
     out_path
         Full path to the folder for OME-TIFFs
+    mip
+        Should the metadata be processed to reflect 
+        maximum-intensity projection
 
     Returns
     -------
@@ -201,6 +205,10 @@ def nd2_extract_metadata_and_save(
 
     # enforce types
     metadata_df = metadata_df.astype(image_metadata_dtypes)
+
+    # TODO implement MIP average over planes
+    if (mip):
+        metadata_df.drop(['stage_z_abs','stage_z_id'])
 
     # write metadata to file
     with Path(out_path) / Path(Path(in_file_path).stem +'_metadata.csv') as out_file_path:
