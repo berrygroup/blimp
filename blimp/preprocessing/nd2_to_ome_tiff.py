@@ -12,10 +12,10 @@ from typing import Union
 from nd2reader import ND2Reader
 from aicsimageio.writers import OmeTiffWriter
 from aicsimageio.types import PhysicalPixelSizes
-from blimp.utils import init_logging
+from blimp.utils import init_logging, VERBOSITY_TO_LEVELS
 from blimp.preprocessing.nd2_parse_metadata import nd2_extract_metadata_and_save
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("nd2_to_ome_tiff")
 
 
 def convert_individual_nd2_to_ome_tiff(
@@ -39,11 +39,15 @@ def convert_individual_nd2_to_ome_tiff(
 
     """
 
-    images = ND2Reader(in_file_path)
+    log.info('Reading individual ND2 file {}'.format(in_file_path))
+    images = ND2Reader(str(in_file_path))
+
+    log.info('Saving metadata for {} in {}'.format(in_file_path, out_path))
     nd2_metadata = nd2_extract_metadata_and_save(in_file_path,out_path)
 
     # save mip metadata
     if (out_path_mip is not None):
+        log.info('Saving MIP metadata for {} in {}'.format(in_file_path,out_path_mip))
         nd2_metadata = nd2_extract_metadata_and_save(in_file_path,out_path_mip,mip=True)
 
     n_sites = images.sizes['v']
@@ -57,6 +61,7 @@ def convert_individual_nd2_to_ome_tiff(
         
         voxel_dimensions = _get_zyx_resolution(img.metadata)
         
+        log.debug('Writing OME-TIFF, field-of-view #{}'.format(i))
         OmeTiffWriter.save(
             data = img,
             uri = out_file_path,
@@ -69,6 +74,7 @@ def convert_individual_nd2_to_ome_tiff(
             
             out_file_path_mip = Path(out_path_mip) / Path(Path(in_file_path).stem + '_' + str(i+1).zfill(4) +'.ome.tiff')
             
+            log.debug('Writing OME-TIFF MIP, field-of-view #{}'.format(i))
             OmeTiffWriter.save(
                 data = np.max(img,axis=2,keepdims=True),
                 uri = out_file_path_mip,
@@ -95,6 +101,7 @@ def _get_zyx_resolution(
     PhysicalPixelSizes
         AICSImage object for containing pixel dimensions
     """
+    log.debug('Getting voxel dimensions')
     xy = image_metadata['pixel_microns']
     n_z = 1 + max([i for i in image_metadata['z_levels']])
     return(PhysicalPixelSizes(Z=(max(image_metadata['z_coordinates'][0:n_z]) - 
@@ -105,7 +112,7 @@ def _get_zyx_resolution(
 def _get_list_of_files_current_batch(
     in_path : Union[str,Path],
     batch_id : int,
-    n_batches : int) -> List[str]:
+    n_batches : int) -> list:
     """
     Get a list of files to process in batch mode
 
@@ -124,9 +131,16 @@ def _get_list_of_files_current_batch(
         list of files to process in this batch
     """
 
+    batch_id = int(batch_id)
+    n_batches = int(n_batches)
+
     # get reproducible list of nd2 files in 'in_path'
     filepaths = glob(str(in_path / "*.nd2"))
     filepaths.sort()
+    log.debug("{} files found:".format(len(filepaths)))
+    for i, f in enumerate(filepaths):
+        log.debug("Input file {}: {}".format(i,f))
+
     n_files_per_batch = int(np.ceil(float(len(filepaths)) / float(n_batches)))
 
     log.info("Splitting nd2 file list into {} batches of size {}".format(n_batches,n_files_per_batch))
@@ -170,6 +184,8 @@ def nd2_to_ome_tiff(
     out_path = Path(out_path)
     if mip:
         out_path_mip = out_path.parent / (str(out_path.stem) + '-MIP')
+    else:
+        out_path_mip = None
     
     if in_path==out_path:
         log.error("Input and output paths are the same.")
@@ -245,10 +261,11 @@ if __name__ == "__main__":
         help="whether to save maximum intensity projections"
     )
 
-    parser.add_argument('-v', '--verbose', action='count', default=0)
+    parser.add_argument('-v', '--verbose', action='count', default=0,
+    help="Increase verbosity (e.g. -vvv)")
     args = parser.parse_args()
 
-    init_logging(VERBOSITY_TO_LEVELS[args.v])
+    init_logging(VERBOSITY_TO_LEVELS[args.verbose])
 
     nd2_to_ome_tiff(
         in_path=args.in_path,
