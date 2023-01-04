@@ -4,10 +4,12 @@ Original author:
 Scott Berry <scott.berry@unsw.edu.au>
 """
 import re
+import logging
 import numpy as np
 import pandas as pd
 import datetime
 import json
+from blimp.utils import init_logging
 from nd2reader import ND2Reader
 from pathlib import Path
 from typing import Dict, List, Union
@@ -23,11 +25,7 @@ image_metadata_dtypes = {
     'stage_z_abs' : float,
     'acquisition_time_rel' : float,
     'stage_z_id' : np.uint16,
-    'field_id' : np.uint16,
-    'filename_ome_tiff': str,
-    'acquisition_time_abs': 'datetime64[ns]',
-    'standard_field_id' : np.uint16
-    }
+    'field_id' : np.uint16}
 
 
 def split_acquisition_metadata_planes(
@@ -138,6 +136,7 @@ def get_standard_field_id_mapping(df : pd.DataFrame) -> pd.DataFrame:
 def nd2_extract_metadata_and_save(
     in_file_path : Union[str,Path],
     out_path : Union[str,Path],
+    acquisition_increment_order : str='TFZ',
     mip : bool=False) -> pd.DataFrame:
     """
     Extract metadata from .nd2 file using ND2Reader,
@@ -149,21 +148,37 @@ def nd2_extract_metadata_and_save(
         Full path to the .nd2 image file
     out_path
         Full path to the folder for OME-TIFFs
+    acquisition_increment_order
+        order in which field-of-view (F), time-point (T), 
+        and Z-position (Z) were incremented during acquisition
+        (written from outer-most to inner-most loop)
+        Note: only 'TFZ' currently supported. 
     mip
-        Should the metadata be processed to reflect 
-        maximum-intensity projection
+        Should metadata be processed to reflect 
+        maximum-intensity projection?
 
     Returns
     -------
     Dataframe containing the metadata written to file
     """
 
+    init_logging()
+    log = logging.getLogger("nd2_parse_metadata")
+
+    if (acquisition_increment_order != 'TFZ'):
+        log.error("""
+        acquisition_increment_order is {}. 
+        Only 'TFZ' is currently supported. 
+        Please implement others if necessary.
+        """.format(acquisition_increment_order))
+        os._exit(1)
+
     nd2_file = ND2Reader(in_file_path)
     acquisition_times = [t for t in nd2_file.parser._raw_metadata.acquisition_times]
     common_metadata = nd2_file.parser._raw_metadata.image_text_info[b'SLxImageTextInfo']
     common_metadata = { key.decode(): val.decode() for key, val in common_metadata.items() }
 
-    # save 'SLxImageTextInfo' as JSON
+    # save 'SLxImageTextInfo' as JSON (as backup)
     json_file_path = Path(out_path) / Path(Path(in_file_path).stem +'.json')
     with open(json_file_path, "w") as outfile:
         json.dump(common_metadata, outfile)
@@ -188,10 +203,28 @@ def nd2_extract_metadata_and_save(
             'stage_z_abs' : nd2_file.parser._raw_metadata.z_data,
             'acquisition_time_rel' : acquisition_times,
             'stage_z_id' : list(metadata_dict['z_levels'])*(nd2_file.sizes['t']*nd2_file.sizes['v']),
-            'field_id' : list(np.repeat(range(1,1 + nd2_file.sizes['v']),nd2_file.sizes['z']))*nd2_file.sizes['t']})
+            'field_id' : list(np.repeat(range(1,1 + nd2_file.sizes['v']),nd2_file.sizes['z']))*nd2_file.sizes['t'],
+            'timepoint_id' : list(np.repeat(range(nd2_file.sizes['t']),nd2_file.sizes['z']*nd2_file.sizes['v']))})
 
     metadata_df['filename_ome_tiff'] = [Path(in_file_path).stem + '_' + str(f).zfill(4) + '.ome.tiff' for f in metadata_df['field_id']]
 
+    # enforce types
+    metadata_df = metadata_df.astype(image_metadata_dtypes)
+
+    # remove z positions and average over z-planes for MIP metadata
+    if (mip):
+        aggregated = metadata_df.groupby(['field_id','timepoint_id'])[['acquisition_time_rel','stage_y_abs','stage_x_abs']].mean()
+        metadata_df = metadata_df.drop(
+            ['stage_y_abs',
+            'stage_x_abs',
+            'stage_z_abs',
+            'stage_z_id',
+            'acquisition_time_rel'],
+            axis=1).drop_duplicates()
+        metadata_df = metadata_df.merge(aggregated, how='left', on=['field_id','timepoint_id'])
+        metadata_df['stage_z_n'] = len(metadata_dict['z_levels'])
+
+    # generate absolute time column
     start_time_abs = get_start_time_abs(metadata_dict,common_metadata)
     if (start_time_abs is not None):
         metadata_df['acquisition_time_abs']=[start_time_abs + datetime.timedelta(seconds=x) for x in metadata_df['acquisition_time_rel']]
@@ -202,13 +235,6 @@ def nd2_extract_metadata_and_save(
 
     # add additional metadata as columns
     metadata_df = pd.merge(metadata_df, additional_metadata_df,how='cross')
-
-    # enforce types
-    metadata_df = metadata_df.astype(image_metadata_dtypes)
-
-    # TODO implement MIP average over planes
-    if (mip):
-        metadata_df.drop(['stage_z_abs','stage_z_id'])
 
     # write metadata to file
     with Path(out_path) / Path(Path(in_file_path).stem +'_metadata.csv') as out_file_path:
