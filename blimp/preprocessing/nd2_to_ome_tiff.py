@@ -3,27 +3,26 @@ Copyright 2022 (C) University of New South Wales
 Original author:
 Scott Berry <scott.berry@unsw.edu.au>
 """
-#import os
-#import re
-#import logging
+import os
+import logging
 import numpy as np
-#import pandas as pd
+from glob import glob
 from pathlib import Path
-from typing import List, Union, Pattern
+from typing import Union
 from nd2reader import ND2Reader
-from aicsimageio import AICSImage
 from aicsimageio.writers import OmeTiffWriter
 from aicsimageio.types import PhysicalPixelSizes
 from blimp.utils import init_logging
-#from blimp.preprocessing.operetta_parse_metadata import get_image_metadata, get_plate_metadata
+from blimp.preprocessing.nd2_parse_metadata import nd2_extract_metadata_and_save
 
-def _nd2_to_ome_tiff(
+
+def convert_individual_nd2_to_ome_tiff(
     in_file_path : Union[str,Path],
     out_path : Union[str,Path],
     out_path_mip : Union[str,Path]=None):
     """
-    Reads a set of images corresponding to a single imaging 
-    site (field of view) from individual files on disk.
+    Reads an nd2 file and writes a set of image files corresponding
+    to single imaging sites (field of view).
 
     Parameters
     ----------
@@ -37,7 +36,14 @@ def _nd2_to_ome_tiff(
     -------
 
     """
+
     images = ND2Reader(in_file_path)
+    nd2_metadata = nd2_extract_metadata_and_save(in_file_path,out_path)
+
+    # save mip metadata
+    if (out_path_mip is not None):
+        nd2_metadata = nd2_extract_metadata_and_save(in_file_path,out_path_mip,mip=True)
+
     n_sites = images.sizes['v']
     
     images.bundle_axes = 'tczyx'
@@ -87,7 +93,6 @@ def _get_zyx_resolution(
     PhysicalPixelSizes
         AICSImage object for containing pixel dimensions
     """
-    
     xy = image_metadata['pixel_microns']
     n_z = 1 + max([i for i in image_metadata['z_levels']])
     return(PhysicalPixelSizes(Z=(max(image_metadata['z_coordinates'][0:n_z]) - 
@@ -95,12 +100,108 @@ def _get_zyx_resolution(
                               Y=image_metadata['pixel_microns'],
                               X=image_metadata['pixel_microns']))
 
+def _get_list_of_files_current_batch(
+    in_path : Union[str,Path],
+    batch_id : int,
+    n_batches : int) -> List[str]:
+    """
+    Get a list of files to process in batch mode
+
+    Parameters
+    ----------
+    in_path
+        Full path to the folder of .nd2 image files
+    batch_id
+        0-indexed batch id
+    n_batches
+        How many batches the files should be processed in
+
+    Returns
+    -------
+    List[str]
+        list of files to process in this batch
+    """
+
+    # get reproducible list of nd2 files in 'in_path'
+    filepaths = glob(str(in_path / "*.nd2"))
+    filepaths.sort()
+    n_files_per_batch = int(np.ceil(float(len(filepaths)) / float(n_batches)))
+
+    logging.info("Splitting nd2 file list into {} batches of size {}".format(n_batches,n_files_per_batch))
+    logging.info("Processing batch {}".format(batch_id))
+
+    return(filepaths[
+        batch_id * n_files_per_batch:
+        (batch_id+1) * n_files_per_batch])
+
+
+def nd2_to_ome_tiff(
+    in_path : Union[str,Path],
+    out_path : Union[str,Path],
+    n_batches : int=1,
+    batch_id : int=0,
+    mip : bool=False) -> None:
+    """
+    Reads an folder of nd2 files and converts to OME-TIFFs. 
+    Can perform batch processing.
+
+    Parameters
+    ----------
+    in_path
+        Full path to the folder of .nd2 image files
+    out_path
+        Full path to the folder for OME-TIFFs
+    n_batches
+        number of batches into which the processing should be split.
+    batch_id
+        current batch to process
+    mip
+        whether to save maximum-intensity-projections
+
+    Returns
+    -------
+
+    """
+    init_logging()
+    log = logging.getLogger("nd2_to_ome_tiff")
+    
+    # setup paths
+    in_path = Path(in_path)
+    out_path = Path(out_path)
+    if mip:
+        out_path_mip = out_path.parent / (str(out_path.stem) + '-MIP')
+    
+    if in_path==out_path:
+        log.error("Input and output paths are the same.")
+        os._exit(1)
+
+    # make output directories
+    if not out_path.exists():
+        out_path.mkdir(parents=True, exist_ok=True)
+    if mip and not out_path_mip.exists():
+        out_path_mip.mkdir(parents=True, exist_ok=True)
+
+    # get list of files to process
+    filename_list = _get_list_of_files_current_batch(
+        in_path=in_path,
+        n_batches=n_batches,
+        batch_id=batch_id)
+
+    # convert files
+    for f in filename_list:
+        convert_individual_nd2_to_ome_tiff(
+            in_file_path=in_path / f,
+            out_path=out_path,
+            out_path_mip=out_path_mip,
+        )
+
+    return()
 
 
 if __name__ == "__main__":
     from argparse import ArgumentParser
 
-    parser = ArgumentParser(prog="operetta_to_ome_tiff")
+    parser = ArgumentParser(prog="nd2_to_ome_tiff")
 
     parser.add_argument(
         "-i",
@@ -122,13 +223,6 @@ if __name__ == "__main__":
         help="output format for images (currently only TIFF implemented)"
     )
 
-    parser.add_argument(
-        "-f",
-        "--metadata_file",
-        default="Index.idx.xml",
-        help="name of the metadata file",
-        required=True
-    )
         
     parser.add_argument(
         "--batch",
@@ -141,15 +235,7 @@ if __name__ == "__main__":
             numbers start at 0.
         """
     )
-    
-    parser.add_argument(
-        "-s",
-        "--save_metadata_files",
-        default=False,
-        action="store_true",
-        help="flag to indicate that metadata files should be saved"
-    )
-    
+
     parser.add_argument(
         "-m", "--mip",
         default=False,
@@ -159,13 +245,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    operetta_to_ome_tiff(
+    nd2_to_ome_tiff(
         in_path=args.in_path,
         out_path=args.out_path,
-        metadata_file=args.metadata_file,
         n_batches=args.batch[0],
         batch_id=args.batch[1],
-        save_metadata_files=args.save_metadata_files,
         mip=args.mip
     )
 
