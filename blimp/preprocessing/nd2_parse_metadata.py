@@ -151,8 +151,7 @@ def nd2_extract_metadata_and_save(
 
     Returns
     -------
-    Dataframe containing the metadata that is written to file
-
+    Dataframe containing the metadata written to file
     """
 
     nd2_file = ND2Reader(in_file_path)
@@ -186,9 +185,9 @@ def nd2_extract_metadata_and_save(
             'acquisition_time_rel' : acquisition_times,
             'stage_z_id' : list(metadata_dict['z_levels'])*(nd2_file.sizes['t']*nd2_file.sizes['v']),
             'field_id' : list(np.repeat(range(1,1 + nd2_file.sizes['v']),nd2_file.sizes['z']))*nd2_file.sizes['t']})
-    
+
     metadata_df['filename_ome_tiff'] = [Path(in_file_path).stem + '_' + str(f).zfill(4) + '.ome.tiff' for f in metadata_df['field_id']]
-    
+
     start_time_abs = get_start_time_abs(metadata_dict,common_metadata)
     if (start_time_abs is not None):
         metadata_df['acquisition_time_abs']=[start_time_abs + datetime.timedelta(seconds=x) for x in metadata_df['acquisition_time_rel']]
@@ -196,14 +195,17 @@ def nd2_extract_metadata_and_save(
     # standardise field id (top-left to bottom-right)
     standard_field_id_mapping = get_standard_field_id_mapping(metadata_df)
     metadata_df = pd.merge(metadata_df, standard_field_id_mapping,on = 'field_id', how = 'left')
-    
+
     # add additional metadata as columns
     metadata_df = pd.merge(metadata_df, additional_metadata_df,how='cross')
-    
+
+    # enforce types
+    metadata_df = metadata_df.astype(image_metadata_dtypes)
+
     # write metadata to file
     with Path(out_path) / Path(Path(in_file_path).stem +'_metadata.csv') as out_file_path:
         metadata_df.to_csv(out_file_path, index=False)
     with Path(out_path) / Path(Path(in_file_path).stem +'_metadata.pkl') as out_file_path:
         metadata_df.to_pickle(out_file_path)
-    
-    return(metadata_df)  
+
+    return(metadata_df)
