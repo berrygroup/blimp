@@ -29,9 +29,18 @@ However, it is more common to process files in batches using HPC. To facilitate 
 
 ```
 python blimp/preprocessing/convert_nd2.py -i /path/to/imput/dir -o /path/to/output/dir -j /path/to/write/pbs/jobscripts --submit
-python blimp/preprocessing/convert_nd2.py -i /path/to/imput/dir -o /path/to/output/dir -j /path/to/write/pbs/jobscripts --submit
+python blimp/preprocessing/convert_operetta.py -i /path/to/imput/dir -o /path/to/output/dir -j /path/to/write/pbs/jobscripts --submit
 
 ```
+
+In this case PBS scripts use the following,
+```
+source /home/{USER}/.bashrc
+conda activate berrylab-default
+```
+which depends on conda being correctly setup within `.bashrc` and a functional `berrylab-default` conda env.
+
+Alternatives using virtualenv are of course possible, however this require changes to source code.
 
 #### Metadata
 

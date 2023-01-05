@@ -106,10 +106,15 @@ def convert_operetta(
         prepare scripts and echo commands without submitting
     """
 
+    # create jobdir if it does not exist
+    job_path = Path(job_path)
+    if not job_path.exists():
+        job_path.mkdir(parents=True, exist_ok=True)
+
     # search recursively for "Images" directories
     images_paths = find_images_dirs(in_path)
     images_parent_paths = [Path(p).parent for p in images_paths]
-    jobscript_paths = [Path(job_path) / ("batch_convert_" + str(p.stem) + ".pbs") for p in images_parent_paths]
+    jobscript_paths = [job_path / ("batch_convert_" + str(p.stem) + ".pbs") for p in images_parent_paths]
 
     # create jobscripts using template
     for images_parent_path, jobscript_path in zip(images_parent_paths,jobscript_paths):

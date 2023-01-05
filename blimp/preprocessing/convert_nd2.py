@@ -110,10 +110,15 @@ def convert_nd2(
         prepare scripts and echo commands without submitting
     """
 
+    # create jobdir if it does not exist
+    job_path = Path(job_path)
+    if not job_path.exists():
+        job_path.mkdir(parents=True, exist_ok=True)
+
     # search recursively for directories containing nd2 files
     nd2_paths = find_nd2_files(in_path)
     nd2_parent_paths = list(set([Path(p).parent for p in nd2_paths]))
-    jobscript_paths = [Path(job_path) / ("batch_convert_" + str(p.stem) + ".pbs") for p in nd2_parent_paths]
+    jobscript_paths = [job_path / ("batch_convert_" + str(p.stem) + ".pbs") for p in nd2_parent_paths]
 
     # create jobscripts using template
     for images_parent_path, jobscript_path in zip(nd2_parent_paths,jobscript_paths):
