@@ -3,6 +3,7 @@ Copyright 2023 (C) University of New South Wales
 Original author:
 Scott Berry <scott.berry@unsw.edu.au>
 """
+import os
 import re
 import logging
 import numpy as np
@@ -113,7 +114,9 @@ def get_start_time_abs(
     return(start_time_abs)
     
 
-def get_standard_field_id_mapping(df : pd.DataFrame) -> pd.DataFrame:
+def get_standard_field_id_mapping(
+    df : pd.DataFrame,
+    y_direction : str="down") -> pd.DataFrame:
     """
     Convert field ids to standard field ids, with top-left 
     to bottom-right ordering.
@@ -122,6 +125,9 @@ def get_standard_field_id_mapping(df : pd.DataFrame) -> pd.DataFrame:
     ----------
     df
         metadata dataframe containing coordinates are field_ids
+    y_direction
+        direction of increasing (stage) y-coordinates (possible
+        values are "up" and "down")
 
     Returns
     -------
@@ -129,13 +135,21 @@ def get_standard_field_id_mapping(df : pd.DataFrame) -> pd.DataFrame:
         dataframe containing a mapping of field_ids to standard_field_ids
     """
     log.debug('Getting standard_field_id from stage coordinates')
+    log.debug('Y-axis direction : {}'.format(y_direction))
+    if (y_direction not in set(['up','down'])):
+        log.error('Y-axis direction : {}, only "up" or "down" are possible'.format(y_direction))
+        os._exit(1)
+
     df = df[['field_id','stage_x_abs','stage_y_abs']].groupby('field_id').mean()
     df[['stage_x_abs','stage_y_abs']] = df[['stage_x_abs','stage_y_abs']].round()
     df['XYCoordinates']= df[['stage_x_abs','stage_y_abs']].apply(tuple, axis=1)
     df = df.reset_index()
 
     # Number fields from top-left to bottom-right (increase x first)
-    unique_int_coords_sorted = sorted(list(set(df['XYCoordinates'])) , key=lambda k: [-k[1], k[0]])
+    if (y_direction=="up"):
+        unique_int_coords_sorted = sorted(list(set(df['XYCoordinates'])) , key=lambda k: [-k[1], k[0]])
+    elif (y_direction=="down"):
+        unique_int_coords_sorted = sorted(list(set(df['XYCoordinates'])) , key=lambda k: [k[1], k[0]])
     coord_index = dict(zip(unique_int_coords_sorted, ["%0d" %i for i in range(1,len(unique_int_coords_sorted)+1)])) 
 
     # keep this as StandardFieldID
@@ -148,7 +162,8 @@ def nd2_extract_metadata_and_save(
     in_file_path : Union[str,Path],
     out_path : Union[str,Path],
     acquisition_increment_order : str='TFZ',
-    mip : bool=False) -> pd.DataFrame:
+    mip : bool=False,
+    y_direction : str="down") -> pd.DataFrame:
     """
     Extract metadata from .nd2 file using ND2Reader,
     parse and save metadata files.
@@ -167,6 +182,9 @@ def nd2_extract_metadata_and_save(
     mip
         Should metadata be processed to reflect 
         maximum-intensity projection?
+    y_direction
+        direction of increasing (stage) y-coordinates (possible
+        values are "up" and "down")
 
     Returns
     -------
@@ -241,7 +259,7 @@ def nd2_extract_metadata_and_save(
         metadata_df['acquisition_time_abs']=[start_time_abs + datetime.timedelta(seconds=x) for x in metadata_df['acquisition_time_rel']]
 
     # standardise field id (top-left to bottom-right)
-    standard_field_id_mapping = get_standard_field_id_mapping(metadata_df)
+    standard_field_id_mapping = get_standard_field_id_mapping(metadata_df,y_direction)
     metadata_df = pd.merge(metadata_df, standard_field_id_mapping,on = 'field_id', how = 'left')
 
     # add additional metadata as columns

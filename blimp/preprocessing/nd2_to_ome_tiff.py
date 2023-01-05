@@ -32,7 +32,7 @@ def convert_individual_nd2_to_ome_tiff(
         Full path to the .nd2 image file
     out_path
         Full path to the folder for OME-TIFFs
-    out_path_mips
+    out_path_mip
         Full path to the folder z-projected OME-TIFFs
     Returns
     -------
@@ -41,14 +41,6 @@ def convert_individual_nd2_to_ome_tiff(
 
     log.info('Reading individual ND2 file {}'.format(in_file_path))
     images = ND2Reader(str(in_file_path))
-
-    log.info('Saving metadata for {} in {}'.format(in_file_path, out_path))
-    nd2_metadata = nd2_extract_metadata_and_save(in_file_path,out_path)
-
-    # save mip metadata
-    if (out_path_mip is not None):
-        log.info('Saving MIP metadata for {} in {}'.format(in_file_path,out_path_mip))
-        nd2_metadata = nd2_extract_metadata_and_save(in_file_path,out_path_mip,mip=True)
 
     n_sites = images.sizes['v']
     
@@ -156,7 +148,8 @@ def nd2_to_ome_tiff(
     out_path : Union[str,Path],
     n_batches : int=1,
     batch_id : int=0,
-    mip : bool=False) -> None:
+    mip : bool=False,
+    y_direction : str="down") -> None:
     """
     Reads an folder of nd2 files and converts to OME-TIFFs. 
     Can perform batch processing.
@@ -173,6 +166,9 @@ def nd2_to_ome_tiff(
         current batch to process
     mip
         whether to save maximum-intensity-projections
+    y_direction
+        direction of increasing (stage) y-coordinates (possible
+        values are "up" and "down")
 
     Returns
     -------
@@ -207,11 +203,26 @@ def nd2_to_ome_tiff(
 
     log.info("Converting nd2 files: {}".format(filename_list))
     for f in filename_list:
+        in_file_path = in_path / f
         convert_individual_nd2_to_ome_tiff(
-            in_file_path=in_path / f,
+            in_file_path=in_file_path,
             out_path=out_path,
             out_path_mip=out_path_mip,
         )
+        log.info('Saving metadata for {} in {}'.format(in_file_path, out_path))
+        nd2_metadata = nd2_extract_metadata_and_save(
+            in_file_path=in_file_path,
+            out_path=out_path,
+            y_direction=y_direction)
+
+        # save mip metadata
+        if (out_path_mip is not None):
+            log.info('Saving MIP metadata for {} in {}'.format(in_file_path,out_path_mip))
+            nd2_metadata = nd2_extract_metadata_and_save(
+                in_file_path=in_file_path,
+                out_path=out_path_mip,
+                mip=True,
+                y_direction=y_direction)
 
     return()
 
@@ -261,6 +272,22 @@ if __name__ == "__main__":
         help="whether to save maximum intensity projections"
     )
 
+    parser.add_argument(
+        "-y", "--y_direction",
+        nargs=1,
+        default='down',
+        help="""
+        Microscope stages can have inconsistent y orientations
+        relative to images. Standardised field identifiers are
+        derived from microscope stage positions but to ensure 
+        the orientation of the y-axis relative to images, this 
+        must be specified. Default value is "down" so that
+        y-coordinate values increase as the stage moves toward
+        the eyepiece. Change to "up" if stiching doesn't look
+        right!
+        """
+    )
+
     parser.add_argument('-v', '--verbose', action='count', default=0,
     help="Increase verbosity (e.g. -vvv)")
     args = parser.parse_args()
@@ -272,6 +299,7 @@ if __name__ == "__main__":
         out_path=args.out_path,
         n_batches=args.batch[0],
         batch_id=args.batch[1],
-        mip=args.mip
+        mip=args.mip,
+        y_direction=args.y_direction
     )
 
