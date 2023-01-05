@@ -15,7 +15,7 @@ from nd2reader import ND2Reader
 from pathlib import Path
 from typing import Dict, List, Union
 
-log = logging.getLogger("nd2_parse_metadata")
+logger = logging.getLogger("nd2_parse_metadata")
 
 image_metadata_dtypes = {
     'n_pixels_y': str,
@@ -69,7 +69,7 @@ def parse_additional_metadata(
     metadata
         list of additional metadata as individual strings for each channel 
     """
-    log.debug('Parsing additional metadata')
+    logger.debug('Parsing additional metadata')
     metadata_planes = split_acquisition_metadata_planes(
         acq_metadata['TextInfoItem_5'].split('\r\n')
     )
@@ -99,17 +99,17 @@ def get_start_time_abs(
     """
     start_time_abs = raw_metadata['date']
     if (start_time_abs is None):
-        log.info("Absolute start time not found in ND2Reader.parser._raw_metadata.__dict__")
+        logger.info("Absolute start time not found in ND2Reader.parser._raw_metadata.__dict__")
     else:
-        log.info("Absolute start time {} found in ND2Reader.parser._raw_metadata.__dict__".format(start_time_abs))
+        logger.info("Absolute start time {} found in ND2Reader.parser._raw_metadata.__dict__".format(start_time_abs))
 
     if (start_time_abs is None):
-        log.info("Checking ND2Reader.parser._raw_metadata.image_text_info for absolute start time")
+        logger.info("Checking ND2Reader.parser._raw_metadata.image_text_info for absolute start time")
         start_time_abs = acq_metadata['TextInfoItem_9']
         start_time_abs = datetime.datetime.strptime(start_time_abs, '%d/%m/%Y  %I:%M:%S %p')
 
     if (start_time_abs is None):
-        log.warn("Absolute start time not found. Only relative time information available")
+        logger.warn("Absolute start time not found. Only relative time information available")
 
     return(start_time_abs)
     
@@ -134,10 +134,10 @@ def get_standard_field_id_mapping(
     df
         dataframe containing a mapping of field_ids to standard_field_ids
     """
-    log.debug('Getting standard_field_id from stage coordinates')
-    log.debug('Y-axis direction : {}'.format(y_direction))
+    logger.debug('Getting standard_field_id from stage coordinates')
+    logger.debug('Y-axis direction : {}'.format(y_direction))
     if (y_direction not in set(['up','down'])):
-        log.error('Y-axis direction : {}, only "up" or "down" are possible'.format(y_direction))
+        logger.error('Y-axis direction : {}, only "up" or "down" are possible'.format(y_direction))
         os._exit(1)
 
     df = df[['field_id','stage_x_abs','stage_y_abs']].groupby('field_id').mean()
@@ -191,9 +191,9 @@ def nd2_extract_metadata_and_save(
     Dataframe containing the metadata written to file
     """
 
-    log.info('Getting metadata from ND2, acquisition_increment_order = {}'.format(acquisition_increment_order))
+    logger.info('Getting metadata from ND2, acquisition_increment_order = {}'.format(acquisition_increment_order))
     if (acquisition_increment_order != 'TFZ'):
-        log.error("""
+        logger.error("""
         acquisition_increment_order is {}. 
         Only 'TFZ' is currently supported. 
         Please implement others if necessary.
@@ -206,7 +206,7 @@ def nd2_extract_metadata_and_save(
     common_metadata = { key.decode(): val.decode() for key, val in common_metadata.items() }
 
     # save 'SLxImageTextInfo' as JSON (as backup)
-    log.debug('Writing JSON of ND2 metadata for file {}'.format(in_file_path))
+    logger.debug('Writing JSON of ND2 metadata for file {}'.format(in_file_path))
     json_file_path = Path(out_path) / Path(Path(in_file_path).stem +'.json')
     with open(json_file_path, "w") as outfile:
         json.dump(common_metadata, outfile)
@@ -241,7 +241,7 @@ def nd2_extract_metadata_and_save(
 
     # remove z positions and average over z-planes for MIP metadata
     if (mip):
-        log.debug('Aggregating metadata for MIP: {}'.format(Path(out_path) / Path(Path(in_file_path).stem)))
+        logger.debug('Aggregating metadata for MIP: {}'.format(Path(out_path) / Path(Path(in_file_path).stem)))
         aggregated = metadata_df.groupby(['field_id','timepoint_id'])[['acquisition_time_rel','stage_y_abs','stage_x_abs']].mean()
         metadata_df = metadata_df.drop(
             ['stage_y_abs',

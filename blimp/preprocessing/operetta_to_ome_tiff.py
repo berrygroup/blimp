@@ -1,5 +1,5 @@
 """
-Copyright 2022 (C) University of New South Wales
+Copyright 2023 (C) University of New South Wales
 Original author:
 Scott Berry <scott.berry@unsw.edu.au>
 """
@@ -13,8 +13,10 @@ from typing import List, Union, Pattern
 from aicsimageio import AICSImage
 from aicsimageio.writers import OmeTiffWriter
 from aicsimageio.types import PhysicalPixelSizes
-from blimp.utils import init_logging
+from blimp.utils import init_logging, VERBOSITY_TO_LEVELS
 from blimp.preprocessing.operetta_parse_metadata import get_image_metadata, get_plate_metadata
+
+logger = logging.getLogger("operetta_to_ome_tiff")
 
 OPERETTA_REGEX = 'r(?P<Row>\d+)c(?P<Col>\d+)f(?P<FieldID>\d+)p(?P<PlaneID>\d+)' + \
                  '-ch(?P<ChannelID>\d+)sk(?P<TimepointID>\d+)(?P<End>fk\d+fl\d+)'
@@ -53,11 +55,11 @@ def _get_metadata_batch(
     n_sites_per_batch = int(np.ceil(float(n_sites) / float(n_batches)))
     row_min = int(batch_id) * n_sites_per_batch
     row_max = int(min(row_min + n_sites_per_batch,n_sites))
-    logging.info("Splitting metadata into {} batches of size {}".format(n_batches,n_sites_per_batch))
-    logging.info("Processing batch {}".format(batch_id))
+    logger.info("Splitting metadata into {} batches of size {}".format(n_batches,n_sites_per_batch))
+    logger.info("Processing batch {}".format(batch_id))
     
     if (row_min >= row_max):
-        logging.warning("batch_id exceeds metadata size, returning empty dataframe")
+        logger.warning("batch_id exceeds metadata size, returning empty dataframe")
     
     return(
         image_metadata_subset.iloc[row_min:row_max].merge(
@@ -290,8 +292,6 @@ def operetta_to_ome_tiff(
         whether to save maximum-intensity-projections
 
     """
-    init_logging()
-    log = logging.getLogger("operetta_to_ome_tiff")
     
     # setup paths
     in_path = Path(in_path)
@@ -301,7 +301,7 @@ def operetta_to_ome_tiff(
         out_path_mip = out_path.parent / (str(out_path.stem) + '-MIP')
     
     if in_path==out_path:
-        log.error("Input and output paths are the same.")
+        logger.error("Input and output paths are the same.")
         os._exit(1)
 
     plate_metadata_file = in_path / "plate_metadata.csv" if save_metadata_files else None
@@ -480,7 +480,11 @@ if __name__ == "__main__":
         help="whether to save maximum intensity projections"
     )
 
+    parser.add_argument('-v', '--verbose', action='count', default=0,
+    help="Increase verbosity (e.g. -vvv)")
     args = parser.parse_args()
+
+    init_logging(VERBOSITY_TO_LEVELS[args.verbose])
 
     operetta_to_ome_tiff(
         in_path=args.in_path,

@@ -1,5 +1,5 @@
 """
-Copyright 2022 (C) University of New South Wales
+Copyright 2023 (C) University of New South Wales
 Original author:
 Scott Berry <scott.berry@unsw.edu.au>
 """
@@ -9,6 +9,8 @@ import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Union
+
+logger = logging.getLogger("operetta_parse_metadata")
 
 image_metadata_dtypes = {'id': str,
  'State': str,
@@ -169,7 +171,7 @@ def get_plate_metadata(
 
     # write file if requested
     if out_file is not None:
-        logging.info("Save plate metadata to file: {}".format(str(out_file)))
+        logger.info("Save plate metadata to file: {}".format(str(out_file)))
         if (Path(out_file).suffix==".csv"):
             plate_metadata.to_csv(out_file, index=False)
         elif(Path(out_file).suffix==".pkl"):
@@ -228,7 +230,7 @@ def get_image_metadata(
     
     # write file if requested
     if out_file is not None:
-        logging.info("Save plate metadata to file: {}".format(str(out_file)))
+        logger.info("Save plate metadata to file: {}".format(str(out_file)))
         if (Path(out_file).suffix==".csv"):
             image_metadata.to_csv(out_file, index=False)
         elif(Path(out_file).suffix==".pkl"):
@@ -258,5 +260,5 @@ def load_image_metadata(metadata_file: Union[str,Path]):
     elif metadata_file.suffix==".csv":
         metadata = pd.read_csv(metadata_file)
     else:
-        logging.error("Unknown metadata file: {}".format(str(metadata_file)))
+        logger.error("Unknown metadata file: {}".format(str(metadata_file)))
     return(metadata)

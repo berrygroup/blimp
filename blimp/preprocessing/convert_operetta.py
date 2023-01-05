@@ -1,5 +1,5 @@
 """
-Copyright 2022 (C) University of New South Wales
+Copyright 2023 (C) University of New South Wales
 Original author:
 Scott Berry <scott.berry@unsw.edu.au>
 """
@@ -8,7 +8,9 @@ import glob
 import logging
 from pathlib import Path
 from typing import Union
-from blimp.utils import init_logging
+from blimp.utils import init_logging, VERBOSITY_TO_LEVELS
+
+logger = logging.getLogger("convert_operetta")
 
 operetta_to_tiff_jobscript_template = """#!/bin/bash
 
@@ -103,8 +105,6 @@ def convert_operetta(
     dryrun
         prepare scripts and echo commands without submitting
     """
-    init_logging()
-    log = logging.getLogger("convert_operetta")
 
     # search recursively for "Images" directories
     images_paths = find_images_dirs(in_path)
@@ -201,7 +201,11 @@ if __name__ == "__main__":
         required=False
     )
 
+    parser.add_argument('-v', '--verbose', action='count', default=0,
+    help="Increase verbosity (e.g. -vvv)")
     args = parser.parse_args()
+
+    init_logging(VERBOSITY_TO_LEVELS[args.verbose])
 
     convert_operetta(
         in_path=args.in_path,

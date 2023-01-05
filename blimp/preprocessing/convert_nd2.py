@@ -8,7 +8,9 @@ import glob
 import logging
 from pathlib import Path
 from typing import Union
-from blimp.utils import init_logging
+from blimp.utils import init_logging, VERBOSITY_TO_LEVELS
+
+logger = logging.getLogger("convert_nd2")
 
 nd2_to_tiff_jobscript_template = """#!/bin/bash
 
@@ -107,8 +109,6 @@ def convert_nd2(
     dryrun
         prepare scripts and echo commands without submitting
     """
-    init_logging()
-    log = logging.getLogger("convert_nd2")
 
     # search recursively for directories containing nd2 files
     nd2_paths = find_nd2_files(in_path)
@@ -222,7 +222,11 @@ if __name__ == "__main__":
         required=False
     )
 
+    parser.add_argument('-v', '--verbose', action='count', default=0,
+    help="Increase verbosity (e.g. -vvv)")
     args = parser.parse_args()
+
+    init_logging(VERBOSITY_TO_LEVELS[args.verbose])
 
     convert_nd2(
         in_path=args.in_path,
