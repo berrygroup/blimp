@@ -8,9 +8,9 @@ import glob
 import logging
 from pathlib import Path
 from typing import Union
-from blimp.utils import init_logging, VERBOSITY_TO_LEVELS
+from blimp.log import configure_logging
 
-logger = logging.getLogger("convert_nd2")
+logger = logging.getLogger(__name__)
 
 nd2_to_tiff_jobscript_template = """#!/bin/bash
 
@@ -186,7 +186,6 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "-y", "--y_direction",
-        nargs=1,
         default='down',
         help="""
         Microscope stages can have inconsistent y orientations
@@ -231,7 +230,7 @@ if __name__ == "__main__":
     help="Increase verbosity (e.g. -vvv)")
     args = parser.parse_args()
 
-    init_logging(VERBOSITY_TO_LEVELS[args.verbose])
+    configure_logging(args.verbose)
 
     convert_nd2(
         in_path=args.in_path,

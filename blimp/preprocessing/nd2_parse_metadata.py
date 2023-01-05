@@ -10,12 +10,11 @@ import numpy as np
 import pandas as pd
 import datetime
 import json
-from blimp.utils import init_logging
 from nd2reader import ND2Reader
 from pathlib import Path
 from typing import Dict, List, Union
 
-logger = logging.getLogger("nd2_parse_metadata")
+logger = logging.getLogger(__name__)
 
 image_metadata_dtypes = {
     'n_pixels_y': str,
@@ -191,7 +190,7 @@ def nd2_extract_metadata_and_save(
     Dataframe containing the metadata written to file
     """
 
-    logger.info('Getting metadata from ND2, acquisition_increment_order = {}'.format(acquisition_increment_order))
+    logger.info('Acquisition_increment_order specified as {}'.format(acquisition_increment_order))
     if (acquisition_increment_order != 'TFZ'):
         logger.error("""
         acquisition_increment_order is {}. 

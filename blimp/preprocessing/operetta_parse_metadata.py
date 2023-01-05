@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Union
 
-logger = logging.getLogger("operetta_parse_metadata")
+logger = logging.getLogger(__name__)
 
 image_metadata_dtypes = {'id': str,
  'State': str,

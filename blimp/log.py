@@ -22,14 +22,20 @@ LEVELS_TO_VERBOSITY = {
     logging.DEBUG: 3,
 }
 
+
 def map_logging_verbosity(verbosity : int) -> int:
     """
-    Maps logging verbosity to 'logging' level
+    Maps logging verbosity to 'logging level', expected
+    in the `logging` module
 
     Parameters
     ----------
     verbosity
         logging verbosity
+            * 0 = NOTSET
+            * 1 = WARN
+            * 2 = INFO
+            * 3 = DEBUG
 
     Returns
     -------
@@ -51,32 +57,35 @@ def map_logging_verbosity(verbosity : int) -> int:
     return VERBOSITY_TO_LEVELS.get(verbosity)
 
 
-def configure_logging(verbosity : int):
-    '''Configures the root logger for command line applications.
-    Two stream handlers will be added to the logger:
-        * "out" that will direct INFO & DEBUG messages to the standard output
-        stream
-        * "err" that will direct WARN, WARNING, ERROR, & CRITICAL messages to
-        the standard error stream
-    Note
-    ----
-    The level for individual loggers can be fine-tuned as follows (exemplified
-    for the `tmlib` logger)::
-        import logging
-        logger = logging.getLogger('tmlib')
-        logger.setLevel(logging.INFO)
-    Warning
-    -------
-    Logging should only be configured once at the main entry point of the
-    application!
-    '''
+def configure_logging(verbosity : int) -> None:
+    """
+    Configures a logger for command line applications.
+    Two stream handlers are added:
+        * "out" directs INFO & DEBUG messages to the 
+        standard output stream
+        * "err" directs WARN, WARNING, ERROR, & CRITICAL 
+        messages to the standard error stream
+
+    Parameters
+    ----------
+    verbosity
+        logging verbosity
+            * 0 = NOTSET
+            * 1 = WARN
+            * 2 = INFO
+            * 3 = DEBUG
+
+    """
     fmt = '%(asctime)s | %(levelname)-8s | %(message)s [[%(funcName)s @ %(pathname)s:%(lineno)d]]'
 
     datefmt = '%Y-%m-%d %H:%M:%S'
     formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
 
     logger = logging.getLogger()  # returns the root logger
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(0) 
+
+    # remove any handlers loaded from imports
+    logger.handlers.clear()
 
     stderr_handler = logging.StreamHandler(stream=sys.stderr)
     stderr_handler.name = 'err'
@@ -93,13 +102,8 @@ def configure_logging(verbosity : int):
 
 
 class InfoFilter(logging.Filter):
+    """
+    Filter for allowing only INFO and DEBUG messages
+    """
     def filter(self, rec):
         return rec.levelno in (logging.DEBUG, logging.INFO)
-
-
-class Whitelist(logging.Filter):
-    def __init__(self, *whitelist):
-        self.whitelist = [logging.Filter(name) for name in whitelist]
-
-    def filter(self, record):
-        return any([f.filter(record) for f in self.whitelist])

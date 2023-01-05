@@ -8,9 +8,9 @@ import glob
 import logging
 from pathlib import Path
 from typing import Union
-from blimp.utils import init_logging, VERBOSITY_TO_LEVELS
+from blimp.log import configure_logging
 
-logger = logging.getLogger("convert_operetta")
+logger = logging.getLogger(__name__)
 
 operetta_to_tiff_jobscript_template = """#!/bin/bash
 
@@ -210,7 +210,7 @@ if __name__ == "__main__":
     help="Increase verbosity (e.g. -vvv)")
     args = parser.parse_args()
 
-    init_logging(VERBOSITY_TO_LEVELS[args.verbose])
+    configure_logging(args.verbose)
 
     convert_operetta(
         in_path=args.in_path,

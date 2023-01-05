@@ -12,11 +12,10 @@ from typing import Union
 from nd2reader import ND2Reader
 from aicsimageio.writers import OmeTiffWriter
 from aicsimageio.types import PhysicalPixelSizes
-from blimp.utils import init_logging, VERBOSITY_TO_LEVELS
+from blimp.log import configure_logging
 from blimp.preprocessing.nd2_parse_metadata import nd2_extract_metadata_and_save
 
-log = logging.getLogger("nd2_to_ome_tiff")
-
+logger = logging.getLogger(__name__)
 
 def convert_individual_nd2_to_ome_tiff(
     in_file_path : Union[str,Path],
@@ -39,7 +38,7 @@ def convert_individual_nd2_to_ome_tiff(
 
     """
 
-    log.info('Reading individual ND2 file {}'.format(in_file_path))
+    logger.info('Reading individual ND2 file {}'.format(in_file_path))
     images = ND2Reader(str(in_file_path))
 
     n_sites = images.sizes['v']
@@ -53,7 +52,7 @@ def convert_individual_nd2_to_ome_tiff(
         
         voxel_dimensions = _get_zyx_resolution(img.metadata)
         
-        log.debug('Writing OME-TIFF, field-of-view #{}'.format(i))
+        logger.debug('Writing OME-TIFF, field-of-view #{}'.format(i))
         OmeTiffWriter.save(
             data = img,
             uri = out_file_path,
@@ -66,7 +65,7 @@ def convert_individual_nd2_to_ome_tiff(
             
             out_file_path_mip = Path(out_path_mip) / Path(Path(in_file_path).stem + '_' + str(i+1).zfill(4) +'.ome.tiff')
             
-            log.debug('Writing OME-TIFF MIP, field-of-view #{}'.format(i))
+            logger.debug('Writing OME-TIFF MIP, field-of-view #{}'.format(i))
             OmeTiffWriter.save(
                 data = np.max(img,axis=2,keepdims=True),
                 uri = out_file_path_mip,
@@ -93,7 +92,7 @@ def _get_zyx_resolution(
     PhysicalPixelSizes
         AICSImage object for containing pixel dimensions
     """
-    log.debug('Getting voxel dimensions')
+    logger.debug('Getting voxel dimensions')
     xy = image_metadata['pixel_microns']
     n_z = 1 + max([i for i in image_metadata['z_levels']])
     return(PhysicalPixelSizes(Z=(max(image_metadata['z_coordinates'][0:n_z]) - 
@@ -129,14 +128,14 @@ def _get_list_of_files_current_batch(
     # get reproducible list of nd2 files in 'in_path'
     filepaths = glob(str(in_path / "*.nd2"))
     filepaths.sort()
-    log.debug("{} files found:".format(len(filepaths)))
+    logger.debug("{} files found:".format(len(filepaths)))
     for i, f in enumerate(filepaths):
-        log.debug("Input file {}: {}".format(i,f))
+        logger.debug("Input file {}: {}".format(i,f))
 
     n_files_per_batch = int(np.ceil(float(len(filepaths)) / float(n_batches)))
 
-    log.info("Splitting nd2 file list into {} batches of size {}".format(n_batches,n_files_per_batch))
-    log.info("Processing batch {}".format(batch_id))
+    logger.info("Splitting nd2 file list into {} batches of size {}".format(n_batches,n_files_per_batch))
+    logger.info("Processing batch {}".format(batch_id))
 
     return(filepaths[
         batch_id * n_files_per_batch:
@@ -184,15 +183,15 @@ def nd2_to_ome_tiff(
         out_path_mip = None
     
     if in_path==out_path:
-        log.error("Input and output paths are the same.")
+        logger.error("Input and output paths are the same.")
         os._exit(1)
 
     # make output directories
     if not out_path.exists():
-        log.info("Created output directory: {}".format(out_path))
+        logger.info("Created output directory: {}".format(out_path))
         out_path.mkdir(parents=True, exist_ok=True)
     if mip and not out_path_mip.exists():
-        log.info("Created output directory: {}".format(out_path_mip))
+        logger.info("Created output directory: {}".format(out_path_mip))
         out_path_mip.mkdir(parents=True, exist_ok=True)
 
     # get list of files to process
@@ -201,7 +200,7 @@ def nd2_to_ome_tiff(
         n_batches=n_batches,
         batch_id=batch_id)
 
-    log.info("Converting nd2 files: {}".format(filename_list))
+    logger.info("Converting nd2 files: {}".format(filename_list))
     for f in filename_list:
         in_file_path = in_path / f
         convert_individual_nd2_to_ome_tiff(
@@ -209,7 +208,7 @@ def nd2_to_ome_tiff(
             out_path=out_path,
             out_path_mip=out_path_mip,
         )
-        log.info('Saving metadata for {} in {}'.format(in_file_path, out_path))
+        logger.info('Saving metadata for {} in {}'.format(in_file_path, out_path))
         nd2_metadata = nd2_extract_metadata_and_save(
             in_file_path=in_file_path,
             out_path=out_path,
@@ -217,7 +216,7 @@ def nd2_to_ome_tiff(
 
         # save mip metadata
         if (out_path_mip is not None):
-            log.info('Saving MIP metadata for {} in {}'.format(in_file_path,out_path_mip))
+            logger.info('Saving MIP metadata for {} in {}'.format(in_file_path,out_path_mip))
             nd2_metadata = nd2_extract_metadata_and_save(
                 in_file_path=in_file_path,
                 out_path=out_path_mip,
@@ -274,7 +273,6 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "-y", "--y_direction",
-        nargs=1,
         default='down',
         help="""
         Microscope stages can have inconsistent y orientations
@@ -292,7 +290,7 @@ if __name__ == "__main__":
     help="Increase verbosity (e.g. -vvv)")
     args = parser.parse_args()
 
-    init_logging(VERBOSITY_TO_LEVELS[args.verbose])
+    configure_logging(args.verbose)
 
     nd2_to_ome_tiff(
         in_path=args.in_path,

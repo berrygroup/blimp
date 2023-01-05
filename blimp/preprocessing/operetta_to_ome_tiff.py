@@ -13,10 +13,10 @@ from typing import List, Union, Pattern
 from aicsimageio import AICSImage
 from aicsimageio.writers import OmeTiffWriter
 from aicsimageio.types import PhysicalPixelSizes
-from blimp.utils import init_logging, VERBOSITY_TO_LEVELS
+from blimp.log import configure_logging
 from blimp.preprocessing.operetta_parse_metadata import get_image_metadata, get_plate_metadata
 
-logger = logging.getLogger("operetta_to_ome_tiff")
+logger = logging.getLogger(__name__)
 
 OPERETTA_REGEX = 'r(?P<Row>\d+)c(?P<Col>\d+)f(?P<FieldID>\d+)p(?P<PlaneID>\d+)' + \
                  '-ch(?P<ChannelID>\d+)sk(?P<TimepointID>\d+)(?P<End>fk\d+fl\d+)'
@@ -484,7 +484,7 @@ if __name__ == "__main__":
     help="Increase verbosity (e.g. -vvv)")
     args = parser.parse_args()
 
-    init_logging(VERBOSITY_TO_LEVELS[args.verbose])
+    configure_logging(args.verbose)
 
     operetta_to_ome_tiff(
         in_path=args.in_path,
