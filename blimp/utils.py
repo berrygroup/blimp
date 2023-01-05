@@ -24,7 +24,9 @@ LEVELS_TO_VERBOSITY = {
 
 def init_logging(level: int = logging.INFO) -> None:
     """
-    Setup logging for BLIMP
+    Setup logging for BLIMP. 
+    This is called for applications invoked through the 
+    __main__ function to configure command-line logging.
 
     Parameters
     ----------
