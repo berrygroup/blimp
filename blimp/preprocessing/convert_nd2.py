@@ -38,7 +38,9 @@ conda activate berrylab-default
 
 cd $PBS_O_WORKDIR
 
-python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/nd2_to_ome_tiff.py -i $INPUT_DIR -o $OUTPUT_DIR --batch {N_BATCHES} ${{PBS_ARRAY_INDEX}} {MIP} -y {Y_DIRECTION}
+python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/nd2_to_ome_tiff.py \
+-i $INPUT_DIR -o $OUTPUT_DIR --batch {N_BATCHES} ${{PBS_ARRAY_INDEX}} \
+{MIP} -y {Y_DIRECTION}
 
 conda deactivate
 """
@@ -177,16 +179,16 @@ def convert_nd2(
     for i, p in enumerate(nd2_paths):
         logger.debug(f"nd2 file #{i}: {p}")
 
-    jobscript_paths = [
+    job_paths = [
         job_path / ("batch_convert_nd2_" + str(p.stem) + ".pbs")
         for p in nd2_parent_paths
     ]
 
     # create jobscripts using template
-    for images_parent_path, jobscript_path in zip(nd2_parent_paths, jobscript_paths):
+    for im_par_path, job_path in zip(nd2_parent_paths, job_paths):
         jobscript = generate_pbs_script(
             template=nd2_to_tiff_jobscript_template,
-            input_dir=str(images_parent_path),
+            input_dir=str(im_par_path),
             log_dir=str(log_path),
             user=user,
             email=email,
@@ -195,17 +197,17 @@ def convert_nd2(
             y_direction=y_direction,
         )
         # write to files
-        with open(jobscript_path, "w+") as f:
+        with open(job_path, "w+") as f:
             f.writelines(jobscript)
 
     # dryrun
     if dryrun:
-        for j in jobscript_paths:
+        for j in job_paths:
             os.system("echo qsub " + str(j))
 
     # submit jobs
     if submit:
-        for j in jobscript_paths:
+        for j in job_paths:
             os.system("qsub " + str(j))
 
 
@@ -229,13 +231,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--image_format",
         default="TIFF",
-        help="output format for images (TIFF or NGFF, currently only TIFF implemented)",
+        help="""
+        output format for images (TIFF or NGFF,
+        currently only TIFF implemented)
+        """,
     )
 
     parser.add_argument(
         "--batch",
         default=1,
-        help="if files are processed as batches, provide the number of batches",
+        help="""
+        if files are processed as batches,
+        provide the number of batches
+        """,
     )
 
     parser.add_argument(
