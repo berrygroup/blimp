@@ -17,10 +17,12 @@ from blimp.preprocessing.nd2_parse_metadata import nd2_extract_metadata_and_save
 
 logger = logging.getLogger(__name__)
 
+
 def convert_individual_nd2_to_ome_tiff(
-    in_file_path : Union[str,Path],
-    out_path : Union[str,Path],
-    out_path_mip : Union[str,Path]=None):
+    in_file_path: Union[str, Path],
+    out_path: Union[str, Path],
+    out_path_mip: Union[str, Path] = None,
+):
     """
     Reads an nd2 file and writes a set of image files corresponding
     to single imaging sites (field of view).
@@ -38,47 +40,52 @@ def convert_individual_nd2_to_ome_tiff(
 
     """
 
-    logger.info('Reading individual ND2 file {}'.format(in_file_path))
+    logger.info("Reading individual ND2 file {}".format(in_file_path))
     images = ND2Reader(str(in_file_path))
 
-    n_sites = images.sizes['v']
-    
-    images.bundle_axes = 'tczyx'
-    images.iter_axes = 'v'
- 
+    n_sites = images.sizes["v"]
+
+    images.bundle_axes = "tczyx"
+    images.iter_axes = "v"
+
     for i, img in enumerate(images):
-        
-        out_file_path = Path(out_path) / Path(Path(in_file_path).stem + '_' + str(i+1).zfill(4) +'.ome.tiff')
-        
+
+        out_file_path = Path(out_path) / Path(
+            Path(in_file_path).stem + "_" + str(i + 1).zfill(4) + ".ome.tiff"
+        )
+
         voxel_dimensions = _get_zyx_resolution(img.metadata)
-        
-        logger.debug('Writing OME-TIFF, field-of-view #{}'.format(i))
+
+        logger.debug("Writing OME-TIFF, field-of-view #{}".format(i))
         OmeTiffWriter.save(
-            data = img,
-            uri = out_file_path,
+            data=img,
+            uri=out_file_path,
             dim_order="TCZYX",
-            channel_names=img.metadata['channels'],
+            channel_names=img.metadata["channels"],
             physical_pixel_sizes=voxel_dimensions,
-            parser='lxml')
-        
-        if (out_path_mip is not None):
-            
-            out_file_path_mip = Path(out_path_mip) / Path(Path(in_file_path).stem + '_' + str(i+1).zfill(4) +'.ome.tiff')
-            
-            logger.debug('Writing OME-TIFF MIP, field-of-view #{}'.format(i))
+            parser="lxml",
+        )
+
+        if out_path_mip is not None:
+
+            out_file_path_mip = Path(out_path_mip) / Path(
+                Path(in_file_path).stem + "_" + str(i + 1).zfill(4) + ".ome.tiff"
+            )
+
+            logger.debug("Writing OME-TIFF MIP, field-of-view #{}".format(i))
             OmeTiffWriter.save(
-                data = np.max(img,axis=2,keepdims=True),
-                uri = out_file_path_mip,
+                data=np.max(img, axis=2, keepdims=True),
+                uri=out_file_path_mip,
                 dim_order="TCZYX",
-                channel_names=img.metadata['channels'],
+                channel_names=img.metadata["channels"],
                 physical_pixel_sizes=voxel_dimensions,
-                parser='lxml')
-    
-    return(out_file_path)
+                parser="lxml",
+            )
+
+    return out_file_path
 
 
-def _get_zyx_resolution(
-    image_metadata : dict) -> PhysicalPixelSizes:
+def _get_zyx_resolution(image_metadata: dict) -> PhysicalPixelSizes:
     """
     Determines the z,y,x resolution from the metadata
 
@@ -92,18 +99,23 @@ def _get_zyx_resolution(
     PhysicalPixelSizes
         AICSImage object for containing pixel dimensions
     """
-    logger.debug('Getting voxel dimensions')
-    xy = image_metadata['pixel_microns']
-    n_z = 1 + max([i for i in image_metadata['z_levels']])
-    return(PhysicalPixelSizes(Z=(max(image_metadata['z_coordinates'][0:n_z]) - 
-                                 min(image_metadata['z_coordinates'][0:n_z])) / (n_z - 1),
-                              Y=image_metadata['pixel_microns'],
-                              X=image_metadata['pixel_microns']))
+    logger.debug("Getting voxel dimensions")
+    xy = image_metadata["pixel_microns"]
+    n_z = 1 + max([i for i in image_metadata["z_levels"]])
+    return PhysicalPixelSizes(
+        Z=(
+            max(image_metadata["z_coordinates"][0:n_z])
+            - min(image_metadata["z_coordinates"][0:n_z])
+        )
+        / (n_z - 1),
+        Y=image_metadata["pixel_microns"],
+        X=image_metadata["pixel_microns"],
+    )
+
 
 def _get_list_of_files_current_batch(
-    in_path : Union[str,Path],
-    batch_id : int,
-    n_batches : int) -> list:
+    in_path: Union[str, Path], batch_id: int, n_batches: int
+) -> list:
     """
     Get a list of files to process in batch mode
 
@@ -130,27 +142,30 @@ def _get_list_of_files_current_batch(
     filepaths.sort()
     logger.debug("{} files found:".format(len(filepaths)))
     for i, f in enumerate(filepaths):
-        logger.debug("Input file {}: {}".format(i,f))
+        logger.debug("Input file {}: {}".format(i, f))
 
     n_files_per_batch = int(np.ceil(float(len(filepaths)) / float(n_batches)))
 
-    logger.info("Splitting nd2 file list into {} batches of size {}".format(n_batches,n_files_per_batch))
+    logger.info(
+        "Splitting nd2 file list into {} batches of size {}".format(
+            n_batches, n_files_per_batch
+        )
+    )
     logger.info("Processing batch {}".format(batch_id))
 
-    return(filepaths[
-        batch_id * n_files_per_batch:
-        (batch_id+1) * n_files_per_batch])
+    return filepaths[batch_id * n_files_per_batch : (batch_id + 1) * n_files_per_batch]
 
 
 def nd2_to_ome_tiff(
-    in_path : Union[str,Path],
-    out_path : Union[str,Path],
-    n_batches : int=1,
-    batch_id : int=0,
-    mip : bool=False,
-    y_direction : str="down") -> None:
+    in_path: Union[str, Path],
+    out_path: Union[str, Path],
+    n_batches: int = 1,
+    batch_id: int = 0,
+    mip: bool = False,
+    y_direction: str = "down",
+) -> None:
     """
-    Reads an folder of nd2 files and converts to OME-TIFFs. 
+    Reads an folder of nd2 files and converts to OME-TIFFs.
     Can perform batch processing.
 
     Parameters
@@ -178,11 +193,11 @@ def nd2_to_ome_tiff(
     in_path = Path(in_path)
     out_path = Path(out_path)
     if mip:
-        out_path_mip = out_path.parent / (str(out_path.stem) + '-MIP')
+        out_path_mip = out_path.parent / (str(out_path.stem) + "-MIP")
     else:
         out_path_mip = None
-    
-    if in_path==out_path:
+
+    if in_path == out_path:
         logger.error("Input and output paths are the same.")
         os._exit(1)
 
@@ -196,9 +211,8 @@ def nd2_to_ome_tiff(
 
     # get list of files to process
     filename_list = _get_list_of_files_current_batch(
-        in_path=in_path,
-        n_batches=n_batches,
-        batch_id=batch_id)
+        in_path=in_path, n_batches=n_batches, batch_id=batch_id
+    )
 
     logger.info("Converting nd2 files: {}".format(filename_list))
     for f in filename_list:
@@ -208,22 +222,24 @@ def nd2_to_ome_tiff(
             out_path=out_path,
             out_path_mip=out_path_mip,
         )
-        logger.info('Saving metadata for {} in {}'.format(in_file_path, out_path))
+        logger.info("Saving metadata for {} in {}".format(in_file_path, out_path))
         nd2_metadata = nd2_extract_metadata_and_save(
-            in_file_path=in_file_path,
-            out_path=out_path,
-            y_direction=y_direction)
+            in_file_path=in_file_path, out_path=out_path, y_direction=y_direction
+        )
 
         # save mip metadata
-        if (out_path_mip is not None):
-            logger.info('Saving MIP metadata for {} in {}'.format(in_file_path,out_path_mip))
+        if out_path_mip is not None:
+            logger.info(
+                "Saving MIP metadata for {} in {}".format(in_file_path, out_path_mip)
+            )
             nd2_metadata = nd2_extract_metadata_and_save(
                 in_file_path=in_file_path,
                 out_path=out_path_mip,
                 mip=True,
-                y_direction=y_direction)
+                y_direction=y_direction,
+            )
 
-    return()
+    return ()
 
 
 if __name__ == "__main__":
@@ -232,48 +248,43 @@ if __name__ == "__main__":
     parser = ArgumentParser(prog="nd2_to_ome_tiff")
 
     parser.add_argument(
-        "-i",
-        "--in_path",
-        help="directory containing the input files",
-        required=True
+        "-i", "--in_path", help="directory containing the input files", required=True
     )
 
     parser.add_argument(
-        "-o",
-        "--out_path",
-        help="directory to write the output files",
-        required=True
+        "-o", "--out_path", help="directory to write the output files", required=True
     )
 
     parser.add_argument(
         "--image_format",
         default="TIFF",
-        help="output format for images (currently only TIFF implemented)"
+        help="output format for images (currently only TIFF implemented)",
     )
 
-        
     parser.add_argument(
         "--batch",
         nargs=2,
-        default=[1,0],
+        default=[1, 0],
         help="""
             If files are processed as batches, provide the number of 
             batches and the current batch to be processed. Batches
             refer to the number of sites (fields-of-view) and batch
             numbers start at 0.
-        """
+        """,
     )
 
     parser.add_argument(
-        "-m", "--mip",
+        "-m",
+        "--mip",
         default=False,
         action="store_true",
-        help="whether to save maximum intensity projections"
+        help="whether to save maximum intensity projections",
     )
 
     parser.add_argument(
-        "-y", "--y_direction",
-        default='down',
+        "-y",
+        "--y_direction",
+        default="down",
         help="""
         Microscope stages can have inconsistent y orientations
         relative to images. Standardised field identifiers are
@@ -283,11 +294,16 @@ if __name__ == "__main__":
         y-coordinate values increase as the stage moves toward
         the eyepiece. Change to "up" if stiching doesn't look
         right!
-        """
+        """,
     )
 
-    parser.add_argument('-v', '--verbose', action='count', default=0,
-    help="Increase verbosity (e.g. -vvv)")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity (e.g. -vvv)",
+    )
     args = parser.parse_args()
 
     configure_logging(args.verbose)
@@ -298,6 +314,5 @@ if __name__ == "__main__":
         n_batches=args.batch[0],
         batch_id=args.batch[1],
         mip=args.mip,
-        y_direction=args.y_direction
+        y_direction=args.y_direction,
     )
-

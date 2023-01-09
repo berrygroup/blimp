@@ -46,9 +46,10 @@ python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/nd2_to_ome_tiff.py -i $
 conda deactivate
 """
 
-def find_nd2_files(basepath : Union[Path,str]) -> list:
+
+def find_nd2_files(basepath: Union[Path, str]) -> list:
     """
-    Recursively searches an input directory for 
+    Recursively searches an input directory for
     .nd2 files and returns a list of the full paths
 
     Parameters
@@ -58,20 +59,21 @@ def find_nd2_files(basepath : Union[Path,str]) -> list:
 
     Returns
     ----------
-    list of full paths to nd2 files 
+    list of full paths to nd2 files
     """
-    return(glob.glob(str(basepath) + '/**/*.nd2', recursive=True))
+    return glob.glob(str(basepath) + "/**/*.nd2", recursive=True)
 
 
 def generate_pbs_script(
-    template : str,
-    input_dir : str,
-    log_dir : str,
-    user : str,
-    email : str,
-    n_batches : int,
-    mip : bool,
-    y_direction : str) -> str:
+    template: str,
+    input_dir: str,
+    log_dir: str,
+    user: str,
+    email: str,
+    n_batches: int,
+    mip: bool,
+    y_direction: str,
+) -> str:
     """
     Formats a PBS jobscript template using input arguments
 
@@ -88,7 +90,7 @@ def generate_pbs_script(
     email
         email address for notifications
     n_batches
-        how many batches into which processing should 
+        how many batches into which processing should
         be split
     mip
         whether to save maximum-intensity-projections
@@ -99,30 +101,30 @@ def generate_pbs_script(
     -------
     Template as a formatted string to be written to file
     """
-    return(
-        template.format(
-            INPUT_DIR=input_dir,
-            LOG_DIR=log_dir,
-            USER=user,
-            USER_EMAIL=email,
-            N_BATCHES=n_batches,
-            BATCH_MAX=n_batches-1,
-            MIP='-m' if mip else '',
-            Y_DIRECTION=y_direction)
+    return template.format(
+        INPUT_DIR=input_dir,
+        LOG_DIR=log_dir,
+        USER=user,
+        USER_EMAIL=email,
+        N_BATCHES=n_batches,
+        BATCH_MAX=n_batches - 1,
+        MIP="-m" if mip else "",
+        Y_DIRECTION=y_direction,
     )
 
 
 def convert_nd2(
-    in_path : Union[str,Path],
-    job_path : Union[str,Path],
+    in_path: Union[str, Path],
+    job_path: Union[str, Path],
     image_format: str,
-    n_batches : int=1,
-    y_direction : str="down",
-    mip : bool=False,
-    submit : bool=False,
-    user : str="z1234567",
-    email : str="foo@bar.com",
-    dryrun : bool=False) -> None:
+    n_batches: int = 1,
+    y_direction: str = "down",
+    mip: bool = False,
+    submit: bool = False,
+    user: str = "z1234567",
+    email: str = "foo@bar.com",
+    dryrun: bool = False,
+) -> None:
     """
     Recursively searches for .nd2 files and creates a job
     script to convert to OME-TIFF using blimp.nd2_to_ome_tiff.
@@ -133,7 +135,7 @@ def convert_nd2(
     in_path
         path to search for .nd2 files
     job_path
-        path where the jobscripts should be saved (logs are 
+        path where the jobscripts should be saved (logs are
         saved in the `log` subdirectory of this path)
     image_format
         "TIFF" or "NGFF" (currently only TIFF implemented)
@@ -154,8 +156,12 @@ def convert_nd2(
         prepare scripts and echo commands without submitting
     """
 
-    if (image_format!="TIFF"):
-        logger.error('image_format = {}. Only TIFF format currently implemented'.format(image_format))
+    if image_format != "TIFF":
+        logger.error(
+            "image_format = {}. Only TIFF format currently implemented".format(
+                image_format
+            )
+        )
         os._exit(1)
 
     # create job/log directory if it does not exist
@@ -169,14 +175,21 @@ def convert_nd2(
     nd2_paths = find_nd2_files(in_path)
     nd2_parent_paths = list(set([Path(p).parent for p in nd2_paths]))
 
-    logger.info("Found {} folders countaining {} .nd2 files".format(len(nd2_parent_paths),len(nd2_paths)))
+    logger.info(
+        "Found {} folders countaining {} .nd2 files".format(
+            len(nd2_parent_paths), len(nd2_paths)
+        )
+    )
     for i, p in enumerate(nd2_paths):
-        logger.debug("nd2 file #{}: {}".format(i,p))
+        logger.debug("nd2 file #{}: {}".format(i, p))
 
-    jobscript_paths = [job_path / ("batch_convert_nd2_" + str(p.stem) + ".pbs") for p in nd2_parent_paths]
+    jobscript_paths = [
+        job_path / ("batch_convert_nd2_" + str(p.stem) + ".pbs")
+        for p in nd2_parent_paths
+    ]
 
     # create jobscripts using template
-    for images_parent_path, jobscript_path in zip(nd2_parent_paths,jobscript_paths):
+    for images_parent_path, jobscript_path in zip(nd2_parent_paths, jobscript_paths):
         jobscript = generate_pbs_script(
             template=nd2_to_tiff_jobscript_template,
             input_dir=str(images_parent_path),
@@ -185,9 +198,10 @@ def convert_nd2(
             email=email,
             n_batches=int(n_batches),
             mip=mip,
-            y_direction=y_direction)
+            y_direction=y_direction,
+        )
         # write to files
-        with open(jobscript_path,"w+") as f:
+        with open(jobscript_path, "w+") as f:
             f.writelines(jobscript)
 
     # dryrun
@@ -199,7 +213,6 @@ def convert_nd2(
     if submit:
         for j in jobscript_paths:
             os.system("qsub " + str(j))
-    
 
 
 if __name__ == "__main__":
@@ -208,10 +221,7 @@ if __name__ == "__main__":
     parser = ArgumentParser(prog="convert_operetta")
 
     parser.add_argument(
-        "-i",
-        "--in_path",
-        help="directory containing the input files",
-        required=True
+        "-i", "--in_path", help="directory containing the input files", required=True
     )
 
     parser.add_argument(
@@ -219,31 +229,33 @@ if __name__ == "__main__":
         "--job_path",
         default=os.getcwd(),
         help="directory to write the jobscripts",
-        required=True
+        required=True,
     )
 
     parser.add_argument(
         "--image_format",
         default="TIFF",
-        help="output format for images (TIFF or NGFF, currently only TIFF implemented)"
+        help="output format for images (TIFF or NGFF, currently only TIFF implemented)",
     )
 
     parser.add_argument(
         "--batch",
         default=1,
-        help="if files are processed as batches, provide the number of batches"
+        help="if files are processed as batches, provide the number of batches",
     )
 
     parser.add_argument(
-        "-m", "--mip",
+        "-m",
+        "--mip",
         default=False,
         action="store_true",
-        help="whether to save maximum intensity projections"
+        help="whether to save maximum intensity projections",
     )
 
     parser.add_argument(
-        "-y", "--y_direction",
-        default='down',
+        "-y",
+        "--y_direction",
+        default="down",
         help="""
         Microscope stages can have inconsistent y orientations
         relative to images. Standardised field identifiers are
@@ -253,14 +265,14 @@ if __name__ == "__main__":
         y-coordinate values increase as the stage moves toward
         the eyepiece. Change to "up" if stiching doesn't look
         right!
-        """
+        """,
     )
 
     parser.add_argument(
         "--submit",
         default=False,
         action="store_true",
-        help="whether to submit jobs after creating jobscripts"
+        help="whether to submit jobs after creating jobscripts",
     )
 
     parser.add_argument(
@@ -268,23 +280,22 @@ if __name__ == "__main__":
         "--dryrun",
         default=False,
         action="store_true",
-        help="Dry-run mode. Echo submission commands without submitting"
+        help="Dry-run mode. Echo submission commands without submitting",
+    )
+
+    parser.add_argument("--user", help="Your zID", required=True)
+
+    parser.add_argument(
+        "--email", help="Email address for job notifications", required=False
     )
 
     parser.add_argument(
-        "--user",
-        help="Your zID",
-        required=True
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity (e.g. -vvv)",
     )
-
-    parser.add_argument(
-        "--email",
-        help="Email address for job notifications",
-        required=False
-    )
-
-    parser.add_argument('-v', '--verbose', action='count', default=0,
-    help="Increase verbosity (e.g. -vvv)")
     args = parser.parse_args()
 
     configure_logging(args.verbose)
@@ -299,5 +310,5 @@ if __name__ == "__main__":
         submit=args.submit,
         user=args.user,
         email=args.email,
-        dryrun=args.dryrun
+        dryrun=args.dryrun,
     )
