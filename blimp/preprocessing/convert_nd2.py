@@ -1,6 +1,5 @@
-"""
-Copyright 2023 (C) University of New South Wales
-Original author:
+"""Copyright 2023 (C) University of New South Wales Original author:
+
 Scott Berry <scott.berry@unsw.edu.au>
 """
 import os
@@ -48,8 +47,8 @@ conda deactivate
 
 
 def find_nd2_files(basepath: Union[Path, str]) -> list:
-    """
-    Recursively searches an input directory for
+    """Recursively searches an input directory for.
+
     .nd2 files and returns a list of the full paths
 
     Parameters
@@ -74,8 +73,7 @@ def generate_pbs_script(
     mip: bool,
     y_direction: str,
 ) -> str:
-    """
-    Formats a PBS jobscript template using input arguments
+    """Formats a PBS jobscript template using input arguments.
 
     Parameters
     ----------
@@ -125,10 +123,8 @@ def convert_nd2(
     email: str = "foo@bar.com",
     dryrun: bool = False,
 ) -> None:
-    """
-    Recursively searches for .nd2 files and creates a job
-    script to convert to OME-TIFF using blimp.nd2_to_ome_tiff.
-    Optionally submits the jobs.
+    """Recursively searches for .nd2 files and creates a job script to convert
+    to OME-TIFF using blimp.nd2_to_ome_tiff. Optionally submits the jobs.
 
     Parameters
     ----------

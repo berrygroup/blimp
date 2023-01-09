@@ -15,8 +15,7 @@ def segment_nuclei_cellpose(
     threshold: float = 0,
     timepoint: Union[int, None] = None,
 ) -> AICSImage:
-    """
-    Segment nuclei
+    """Segment nuclei.
 
     Parameters
     ----------
@@ -68,10 +67,8 @@ def segment_nuclei_cellpose(
 def _quantify_single_timepoint(
     intensity_image: AICSImage, label_image: AICSImage, timepoint: int = 0
 ) -> pd.DataFrame:
-    """
-    Quantify all channels in an image relative to a
-    matching segmentation label image. Singel time-point
-    only.
+    """Quantify all channels in an image relative to a matching segmentation
+    label image. Singel time-point only.
 
     Parameters
     ----------
@@ -141,9 +138,8 @@ def quantify(
     label_image: AICSImage,
     timepoint: Union[int, None] = None,
 ):
-    """
-    Quantify all channels in an image relative to a
-    matching segmentation label image.
+    """Quantify all channels in an image relative to a matching segmentation
+    label image.
 
     Parameters
     ----------
@@ -180,10 +176,8 @@ def segment_and_quantify(
     metadata_file: Union[str, Path, None] = None,
     timepoint: Union[int, None] = None,
 ) -> None:
-    """
-    Segment objects and quantify intensities of all channels
-    relative to objects.
-    """
+    """Segment objects and quantify intensities of all channels relative to
+    objects."""
     from blimp.preprocessing.operetta_parse_metadata import load_image_metadata
 
     # read intensity image and metadata

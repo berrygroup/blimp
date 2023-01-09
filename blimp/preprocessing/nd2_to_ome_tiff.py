@@ -1,6 +1,5 @@
-"""
-Copyright 2023 (C) University of New South Wales
-Original author:
+"""Copyright 2023 (C) University of New South Wales Original author:
+
 Scott Berry <scott.berry@unsw.edu.au>
 """
 import os
@@ -23,9 +22,8 @@ def convert_individual_nd2_to_ome_tiff(
     out_path: Union[str, Path],
     out_path_mip: Union[str, Path] = None,
 ):
-    """
-    Reads an nd2 file and writes a set of image files corresponding
-    to single imaging sites (field of view).
+    """Reads an nd2 file and writes a set of image files corresponding to
+    single imaging sites (field of view).
 
     Parameters
     ----------
@@ -37,7 +35,6 @@ def convert_individual_nd2_to_ome_tiff(
         Full path to the folder z-projected OME-TIFFs
     Returns
     -------
-
     """
 
     logger.info("Reading individual ND2 file {}".format(in_file_path))
@@ -86,8 +83,7 @@ def convert_individual_nd2_to_ome_tiff(
 
 
 def _get_zyx_resolution(image_metadata: dict) -> PhysicalPixelSizes:
-    """
-    Determines the z,y,x resolution from the metadata
+    """Determines the z,y,x resolution from the metadata.
 
     Parameters
     ----------
@@ -116,8 +112,7 @@ def _get_zyx_resolution(image_metadata: dict) -> PhysicalPixelSizes:
 def _get_list_of_files_current_batch(
     in_path: Union[str, Path], batch_id: int, n_batches: int
 ) -> list:
-    """
-    Get a list of files to process in batch mode
+    """Get a list of files to process in batch mode.
 
     Parameters
     ----------
@@ -164,9 +159,8 @@ def nd2_to_ome_tiff(
     mip: bool = False,
     y_direction: str = "down",
 ) -> None:
-    """
-    Reads an folder of nd2 files and converts to OME-TIFFs.
-    Can perform batch processing.
+    """Reads an folder of nd2 files and converts to OME-TIFFs. Can perform
+    batch processing.
 
     Parameters
     ----------
@@ -186,7 +180,6 @@ def nd2_to_ome_tiff(
 
     Returns
     -------
-
     """
 
     # setup paths

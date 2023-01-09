@@ -1,6 +1,5 @@
-"""
-Copyright 2023 (C) University of New South Wales
-Original author:
+"""Copyright 2023 (C) University of New South Wales Original author:
+
 Scott Berry <scott.berry@unsw.edu.au>
 """
 import os
@@ -31,9 +30,8 @@ operetta_regex_filename_pattern = re.compile(OPERETTA_REGEX)
 def _get_metadata_batch(
     image_metadata: pd.DataFrame, batch_id: int, n_batches: int
 ) -> pd.DataFrame:
-    """
-    When a batchnumber is specified, return a predictable
-    subset of the dataframe rows.
+    """When a batchnumber is specified, return a predictable subset of the
+    dataframe rows.
 
     Parameters
     ----------
@@ -86,9 +84,8 @@ def _read_images_single_site(
     ChannelID: int,
     TimepointID: int,
 ) -> List[AICSImage]:
-    """
-    Reads a set of images corresponding to a single imaging
-    site (field of view) from inividual files on disk.
+    """Reads a set of images corresponding to a single imaging site (field of
+    view) from inividual files on disk.
 
     Parameters
     ----------
@@ -157,8 +154,7 @@ def _get_zyx_resolution(
     ChannelID: int,
     TimepointID: int,
 ) -> PhysicalPixelSizes:
-    """
-    Determines the z,y,x resolution from the metadata
+    """Determines the z,y,x resolution from the metadata.
 
     Parameters
     ----------
@@ -210,9 +206,8 @@ def _get_zyx_resolution(
 
 
 def _remove_TCZ_filename(pattern: Pattern, filename: str, mip: bool = False):
-    """
-    Restructures a operetta tiff filename string to
-    remove reference to Time, Channel, Z
+    """Restructures a operetta tiff filename string to remove reference to
+    Time, Channel, Z.
 
     Parameters
     ----------
@@ -228,7 +223,6 @@ def _remove_TCZ_filename(pattern: Pattern, filename: str, mip: bool = False):
     -------
     str
         Filename with TCZ information removed
-
     """
     m = pattern.match(filename)
     new_filename = (
@@ -251,10 +245,9 @@ def _remove_TCZ_filename(pattern: Pattern, filename: str, mip: bool = False):
 def _aggregate_TCZ_metadata(
     image_metadata: pd.DataFrame, mip: bool = False
 ) -> pd.DataFrame:
-    """
-    Removes Time, Channel, Z-plane information from a dataframe.
-    Absolute imaging time information is averaged across all
-    acquisitions for a given time-point
+    """Removes Time, Channel, Z-plane information from a dataframe. Absolute
+    imaging time information is averaged across all acquisitions for a given
+    time-point.
 
     Parameters
     ----------
@@ -269,7 +262,6 @@ def _aggregate_TCZ_metadata(
     -------
     pandas.DataFrame
         Dimensions (n_rows = number of imaging sites (fields-of-view))
-
     """
     # get average absolute time for each unique imaging site
     mean_acq_time = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])[
@@ -327,10 +319,9 @@ def operetta_to_ome_tiff(
     save_metadata_files: bool = True,
     mip: bool = False,
 ) -> None:
-    """
-    Reads a metadata file and loads individual TIFF files exported from
-    the Perkin-Elmer Operetta. These are combined into multi-channel,
-    multi-z-plane stacks and saved as OME-TIFFs
+    """Reads a metadata file and loads individual TIFF files exported from the
+    Perkin-Elmer Operetta. These are combined into multi-channel, multi-z-plane
+    stacks and saved as OME-TIFFs.
 
     Parameters
     ----------
@@ -348,7 +339,6 @@ def operetta_to_ome_tiff(
         whether the metadata files should be saved after XML parsing
     mip
         whether to save maximum-intensity-projections
-
     """
 
     # setup paths

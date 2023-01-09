@@ -1,6 +1,5 @@
-"""
-Copyright 2023 (C) University of New South Wales
-Original author:
+"""Copyright 2023 (C) University of New South Wales Original author:
+
 Scott Berry <scott.berry@unsw.edu.au>
 """
 import os
@@ -72,10 +71,9 @@ def convert_operetta(
     email: str = "foo@bar.com",
     dryrun: bool = False,
 ) -> None:
-    """
-    Recursively searches for 'Images' directories and creates a job
-    script to submit a batch of operetta-generated TIFFs for export in
-    the specified format. Optionally submits the jobs.
+    """Recursively searches for 'Images' directories and creates a job script
+    to submit a batch of operetta-generated TIFFs for export in the specified
+    format. Optionally submits the jobs.
 
     Parameters
     ----------

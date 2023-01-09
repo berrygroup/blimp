@@ -1,6 +1,5 @@
-"""
-Copyright 2023 (C) University of New South Wales
-Original author:
+"""Copyright 2023 (C) University of New South Wales Original author:
+
 Scott Berry <scott.berry@unsw.edu.au>
 """
 import pandas as pd
@@ -53,8 +52,7 @@ image_metadata_dtypes = {
 
 
 def _remove_ns(s: str) -> str:
-    """
-    Strip text before "}"
+    """Strip text before "}".
 
     Parameters
     ----------
@@ -69,15 +67,13 @@ def _remove_ns(s: str) -> str:
     --------
     >>> _remove_ns("{http://www.perkinelmer.com/PEHH/HarmonyV5}Plates")
     'Plates'
-
     """
     return s.split("}")[1][0:]
 
 
 def _xml_to_df(xmls, ns_key: str, ns_dict: dict) -> pd.DataFrame:
-    """
-    Convert a list of xmls into a pandas dataframe,
-    where each xml forms a row.
+    """Convert a list of xmls into a pandas dataframe, where each xml forms a
+    row.
 
     Parameters
     ----------
@@ -100,7 +96,6 @@ def _xml_to_df(xmls, ns_key: str, ns_dict: dict) -> pd.DataFrame:
     >>> ns = {'harmony': "http://www.perkinelmer.com/PEHH/HarmonyV5"}
     >>> plates_xml = idx_xml.find('harmony:Plates',namespaces=ns).findall('harmony:Plate',namespaces=ns)
     >>> _xml_to_df(plates_xml,"harmony",ns)
-
     """
     metadata = []
     for xml in xmls:
@@ -118,8 +113,7 @@ def _xml_to_df(xmls, ns_key: str, ns_dict: dict) -> pd.DataFrame:
 
 
 def _to_well_name(row: int, column: int) -> str:
-    """
-    Convert row and column numbers to well name
+    """Convert row and column numbers to well name.
 
     Parameters
     ----------
@@ -137,7 +131,6 @@ def _to_well_name(row: int, column: int) -> str:
     --------
     >>> _to_well_name(1,13)
     A13
-
     """
     return chr(96 + row).upper() + "%0.2d" % column
 
@@ -145,8 +138,7 @@ def _to_well_name(row: int, column: int) -> str:
 def get_plate_metadata(
     metadata_file: Union[str, Path], out_file: Union[str, Path, None] = None
 ) -> pd.DataFrame:
-    """
-    Extracts plate metadata from the operetta xml file
+    """Extracts plate metadata from the operetta xml file.
 
     Parameters
     ----------
@@ -187,8 +179,7 @@ def get_plate_metadata(
 def get_image_metadata(
     metadata_file: Union[str, Path], out_file: Union[str, Path, None] = None
 ) -> pd.DataFrame:
-    """
-    Extracts image metadata from the operetta xml file
+    """Extracts image metadata from the operetta xml file.
 
     Parameters
     ----------
@@ -264,8 +255,7 @@ def get_image_metadata(
 
 
 def load_image_metadata(metadata_file: Union[str, Path]):
-    """
-    Loads image metadata previously saved during image conversion
+    """Loads image metadata previously saved during image conversion.
 
     Parameters
     ----------

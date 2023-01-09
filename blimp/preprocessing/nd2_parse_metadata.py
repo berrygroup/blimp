@@ -1,6 +1,5 @@
-"""
-Copyright 2023 (C) University of New South Wales
-Original author:
+"""Copyright 2023 (C) University of New South Wales Original author:
+
 Scott Berry <scott.berry@unsw.edu.au>
 """
 import os
@@ -31,9 +30,8 @@ image_metadata_dtypes = {
 
 
 def split_acquisition_metadata_planes(l: list) -> list:
-    """
-    Splits a list of metadata fields into channel-specific
-    metadata sublists by the occurrence of "Plane"
+    """Splits a list of metadata fields into channel-specific metadata sublists
+    by the occurrence of "Plane".
 
     Parameters
     ----------
@@ -53,9 +51,8 @@ def split_acquisition_metadata_planes(l: list) -> list:
 
 
 def parse_additional_metadata(acq_metadata: dict) -> list:
-    """
-    Extracts relevant info from a metadata dict from
-    ND2Reader.parser._raw_metadata.image_text_info
+    """Extracts relevant info from a metadata dict from
+    ND2Reader.parser._raw_metadata.image_text_info.
 
     Parameters
     ----------
@@ -78,8 +75,7 @@ def parse_additional_metadata(acq_metadata: dict) -> list:
 
 
 def get_start_time_abs(raw_metadata: dict, acq_metadata: dict) -> datetime.time:
-    """
-    Finds the absolute start time from the metadata
+    """Finds the absolute start time from the metadata.
 
     Parameters
     ----------
@@ -125,9 +121,8 @@ def get_start_time_abs(raw_metadata: dict, acq_metadata: dict) -> datetime.time:
 def get_standard_field_id_mapping(
     df: pd.DataFrame, y_direction: str = "down"
 ) -> pd.DataFrame:
-    """
-    Convert field ids to standard field ids, with top-left
-    to bottom-right ordering.
+    """Convert field ids to standard field ids, with top-left to bottom-right
+    ordering.
 
     Parameters
     ----------
@@ -186,9 +181,8 @@ def nd2_extract_metadata_and_save(
     mip: bool = False,
     y_direction: str = "down",
 ) -> pd.DataFrame:
-    """
-    Extract metadata from .nd2 file using ND2Reader,
-    parse and save metadata files.
+    """Extract metadata from .nd2 file using ND2Reader, parse and save metadata
+    files.
 
     Parameters
     ----------
