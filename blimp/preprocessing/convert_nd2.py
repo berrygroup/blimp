@@ -1,7 +1,4 @@
-"""Copyright 2023 (C) University of New South Wales Original author:
-
-Scott Berry <scott.berry@unsw.edu.au>
-"""
+"""Convert Nikon nd2 files to standard open microscopy environment formats."""
 import os
 import glob
 import logging

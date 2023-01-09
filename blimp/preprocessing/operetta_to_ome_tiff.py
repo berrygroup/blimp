@@ -1,7 +1,4 @@
-"""Copyright 2023 (C) University of New South Wales Original author:
-
-Scott Berry <scott.berry@unsw.edu.au>
-"""
+"""Extract and parse metadata from Perkin-Elmer Operetta metadata files."""
 import os
 import re
 import logging
