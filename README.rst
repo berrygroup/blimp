@@ -129,22 +129,26 @@ Codestyle and formatting
 To follow the black codestyle, please use the `black` tool that can be installed using
 
 ::
+
    pip install 'black[jupyter]'
 
 and run on the source code directories using,
 
 ::
+
    black /path/to/python/code
 
 
 Please use numpy docstrings. To generate properly formatted docstrings install docformatter
 
 ::
+
    pip install --upgrade docformatter
 
 and run using 
 
 ::
+
    docformatter --in-place /path/to/python/code
 
 
@@ -153,11 +157,13 @@ Documentation
 Documentation can be found `here <>`_. The package uses `Sphinx <https://www.sphinx-doc.org/en/master/>`_ and the `napoleon <https://www.sphinx-doc.org/en/master/usage/extensions/napoleon.html>`_ extension to autogenerate this directly from code. To regenerate documentation, install sphinx,
 
 ::
+
    python -m pip install sphinx
 
 and regenerate HTML documentation (from the root directory)
 
 ::
+   
    sphinx-apidoc -f -o docs .
    cd docs
    make html
