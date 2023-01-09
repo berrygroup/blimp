@@ -1,9 +1,10 @@
 """Convert Nikon nd2 files to standard open microscopy environment formats."""
-import os
 import glob
 import logging
+import os
 from pathlib import Path
 from typing import Union
+
 from blimp.log import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -162,11 +163,11 @@ def convert_nd2(
     log_path = job_path / "log"
     if not log_path.exists():
         log_path.mkdir(parents=True, exist_ok=True)
-    logger.info("Jobscripts will be written to {}".format(job_path))
+    logger.info(f"Jobscripts will be written to {job_path}")
 
     # search recursively for directories containing nd2 files
     nd2_paths = find_nd2_files(in_path)
-    nd2_parent_paths = list(set([Path(p).parent for p in nd2_paths]))
+    nd2_parent_paths = list({Path(p).parent for p in nd2_paths})
 
     logger.info(
         "Found {} folders countaining {} .nd2 files".format(
@@ -174,7 +175,7 @@ def convert_nd2(
         )
     )
     for i, p in enumerate(nd2_paths):
-        logger.debug("nd2 file #{}: {}".format(i, p))
+        logger.debug(f"nd2 file #{i}: {p}")
 
     jobscript_paths = [
         job_path / ("batch_convert_nd2_" + str(p.stem) + ".pbs")
@@ -252,8 +253,8 @@ if __name__ == "__main__":
         help="""
         Microscope stages can have inconsistent y orientations
         relative to images. Standardised field identifiers are
-        derived from microscope stage positions but to ensure 
-        the orientation of the y-axis relative to images, this 
+        derived from microscope stage positions but to ensure
+        the orientation of the y-axis relative to images, this
         must be specified. Default value is "down" so that
         y-coordinate values increase as the stage moves toward
         the eyepiece. Change to "up" if stiching doesn't look

@@ -1,14 +1,15 @@
 """Extract and parse metadata from Nikon nd2 files."""
-import os
-import re
-import logging
-import numpy as np
-import pandas as pd
 import datetime
 import json
-from nd2reader import ND2Reader
+import logging
+import os
+import re
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Union
+
+import numpy as np
+import pandas as pd
+from nd2reader import ND2Reader
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def parse_additional_metadata(acq_metadata: dict) -> list:
     return metadata
 
 
-def get_start_time_abs(raw_metadata: dict, acq_metadata: dict) -> datetime.time:
+def get_start_time_abs(raw_metadata: dict, acq_metadata: dict) -> datetime.datetime:
     """Finds the absolute start time from the metadata.
 
     Parameters
@@ -135,8 +136,8 @@ def get_standard_field_id_mapping(
         dataframe containing a mapping of field_ids to standard_field_ids
     """
     logger.debug("Getting standard_field_id from stage coordinates")
-    logger.debug("Y-axis direction : {}".format(y_direction))
-    if y_direction not in set(["up", "down"]):
+    logger.debug(f"Y-axis direction : {y_direction}")
+    if y_direction not in {"up", "down"}:
         logger.error(
             'Y-axis direction : {}, only "up" or "down" are possible'.format(
                 y_direction
@@ -212,8 +213,8 @@ def nd2_extract_metadata_and_save(
     if acquisition_increment_order != "TFZ":
         logger.error(
             """
-        acquisition_increment_order is {}. 
-        Only 'TFZ' is currently supported. 
+        acquisition_increment_order is {}.
+        Only 'TFZ' is currently supported.
         Please implement others if necessary.
         """.format(
                 acquisition_increment_order
@@ -229,7 +230,7 @@ def nd2_extract_metadata_and_save(
     }
 
     # save 'SLxImageTextInfo' as JSON (as backup)
-    logger.debug("Writing JSON of ND2 metadata for file {}".format(in_file_path))
+    logger.debug(f"Writing JSON of ND2 metadata for file {in_file_path}")
     json_file_path = Path(out_path) / Path(Path(in_file_path).stem + ".json")
     with open(json_file_path, "w") as outfile:
         json.dump(common_metadata, outfile)

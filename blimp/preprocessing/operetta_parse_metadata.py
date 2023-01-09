@@ -2,12 +2,14 @@
 
 Scott Berry <scott.berry@unsw.edu.au>
 """
-import pandas as pd
-import numpy as np
 import logging
+import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import List, Union
+from typing import Union
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -158,16 +160,19 @@ def get_plate_metadata(
 
     # get xml
     metadata_xml = ET.parse(metadata_file).getroot()
-    plates_xml = metadata_xml.find("harmony:Plates", namespaces=ns).findall(
-        "harmony:Plate", namespaces=ns
-    )
+    plates_xml = metadata_xml.find("harmony:Plates", namespaces=ns)
+    if isinstance(plates_xml, ET.Element):
+        plates_xml = plates_xml.findall("harmony:Plate", namespaces=ns)
+    else:
+        logger.error("Operetta plate metadata XML not parsed correctly")
+        os._exit(1)
 
     # convert to dataframe
     plate_metadata = _xml_to_df(plates_xml, "harmony", ns)
 
     # write file if requested
     if out_file is not None:
-        logger.info("Save plate metadata to file: {}".format(str(out_file)))
+        logger.info(f"Save plate metadata to file: {str(out_file)}")
         if Path(out_file).suffix == ".csv":
             plate_metadata.to_csv(out_file, index=False)
         elif Path(out_file).suffix == ".pkl":
@@ -199,9 +204,12 @@ def get_image_metadata(
 
     # get xml
     metadata_xml = ET.parse(metadata_file).getroot()
-    images_xml = metadata_xml.find("harmony:Images", namespaces=ns).findall(
-        "harmony:Image", namespaces=ns
-    )
+    images_xml = metadata_xml.find("harmony:Images", namespaces=ns)
+    if isinstance(images_xml, ET.Element):
+        images_xml = images_xml.findall("harmony:Image", namespaces=ns)
+    else:
+        logger.error("Operetta image metadata XML not parsed correctly")
+        os._exit(1)
 
     # convert to dataframe
     image_metadata = _xml_to_df(images_xml, "harmony", ns)
@@ -244,7 +252,7 @@ def get_image_metadata(
 
     # write file if requested
     if out_file is not None:
-        logger.info("Save plate metadata to file: {}".format(str(out_file)))
+        logger.info(f"Save plate metadata to file: {str(out_file)}")
         if Path(out_file).suffix == ".csv":
             image_metadata.to_csv(out_file, index=False)
         elif Path(out_file).suffix == ".pkl":
@@ -273,5 +281,5 @@ def load_image_metadata(metadata_file: Union[str, Path]):
     elif metadata_file.suffix == ".csv":
         metadata = pd.read_csv(metadata_file)
     else:
-        logger.error("Unknown metadata file: {}".format(str(metadata_file)))
+        logger.error(f"Unknown metadata file: {str(metadata_file)}")
     return metadata

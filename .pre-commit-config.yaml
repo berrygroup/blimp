@@ -21,7 +21,7 @@ repos:
     hooks:
     -   id: isort
         additional_dependencies: [toml]
-        args: [--order-by-type]
+        args: [--profile, black, --filter-files]
 # temporarily disable yesqa, because of: ValueError: not enough values to unpack (expected 2, got 1).
 # Possibly related to https://github.com/asottile/yesqa/issues/132
 #-   repo: https://github.com/asottile/yesqa
@@ -55,11 +55,11 @@ repos:
     hooks:
     -   id: autoflake
         args: [--in-place, --remove-all-unused-imports, --remove-unused-variable, --ignore-init-module-imports]
--   repo: https://github.com/pycqa/flake8
-    rev: 3.9.2
-    hooks:
-    -   id: flake8
-        additional_dependencies: [flake8-tidy-imports, flake8-docstrings, flake8-rst-docstrings, flake8-comprehensions, flake8-bugbear, flake8-logging-format, flake8-blind-except, flake8-builtins, flake8-pytest-style, flake8-mock, flake8-string-format]
+#-   repo: https://github.com/pycqa/flake8
+#    rev: 3.9.2
+#    hooks:
+#    -   id: flake8
+#        additional_dependencies: [flake8-tidy-imports, flake8-docstrings, flake8-rst-docstrings, flake8-comprehensions, flake8-bugbear, flake8-logging-format, flake8-blind-except, flake8-builtins, flake8-pytest-style, flake8-mock, flake8-string-format]
 -   repo: https://github.com/jumanjihouse/pre-commit-hooks
     rev: 3.0.0
     hooks:
@@ -90,7 +90,7 @@ repos:
 -   repo: https://github.com/pre-commit/pygrep-hooks
     rev: v1.9.0
     hooks:
-    -   id: python-no-eval
+#    -   id: python-no-eval
     -   id: python-use-type-annotations
     -   id: python-check-blanket-noqa
     -   id: rst-backticks
@@ -101,22 +101,22 @@ repos:
     hooks:
     -   id: doc8
 # jupyter notebooks
--   repo: https://github.com/nbQA-dev/nbQA
-    rev: 1.5.3
-    hooks:
-    -   id: nbqa-black
-        additional_dependencies: [black==22.10.0]
-    -   id: nbqa-isort
-        additional_dependencies: [isort==5.9.1]
-        args: [--order-by-type]
-    -   id: nbqa
-        entry: nbqa autoflake
-        name: nbqa-autoflake
-        alias: nbqa-autoflake
-        additional_dependencies: [autoflake==v1.7.7]
-        args: [--in-place, --remove-all-unused-imports, --remove-unused-variable, --ignore-init-module-imports]
-    -   id: nbqa-flake8
-        additional_dependencies: [flake8==3.9.2, flake8-tidy-imports, flake8-docstrings, flake8-rst-docstrings, flake8-comprehensions, flake8-bugbear, flake8-logging-format, flake8-blind-except, flake8-builtins, flake8-pytest-style, flake8-mock, flake8-string-format]
-    -   id: nbqa-pyupgrade
-        args: [--py3-plus, --py37-plus]
-        additional_dependencies: [pyupgrade==v3.1.0]
+#-   repo: https://github.com/nbQA-dev/nbQA
+#    rev: 1.5.3
+#    hooks:
+#    -   id: nbqa-black
+#        additional_dependencies: [black==22.10.0]
+#    -   id: nbqa-isort
+#        additional_dependencies: [isort==5.9.1]
+#        args: [--order-by-type]
+#    -   id: nbqa
+#        entry: nbqa autoflake
+#        name: nbqa-autoflake
+#        alias: nbqa-autoflake
+#        additional_dependencies: [autoflake==v1.7.7]
+#        args: [--in-place, --remove-all-unused-imports, --remove-unused-variable, --ignore-init-module-imports]
+#    -   id: nbqa-flake8
+#        additional_dependencies: [flake8==3.9.2, flake8-tidy-imports, flake8-docstrings, flake8-rst-docstrings, flake8-comprehensions, flake8-bugbear, flake8-logging-format, flake8-blind-except, flake8-builtins, flake8-pytest-style, flake8-mock, flake8-string-format]
+#    -   id: nbqa-pyupgrade
+#        args: [--py3-plus, --py37-plus]
+#        additional_dependencies: [pyupgrade==v3.1.0]

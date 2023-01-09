@@ -1,14 +1,16 @@
 """Extract and parse metadata from Perkin-Elmer Operetta metadata files."""
+import logging
 import os
 import re
-import logging
+from pathlib import Path
+from typing import List, Pattern, Union
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
-from typing import List, Union, Pattern
 from aicsimageio import AICSImage
-from aicsimageio.writers import OmeTiffWriter
 from aicsimageio.types import PhysicalPixelSizes
+from aicsimageio.writers import OmeTiffWriter
+
 from blimp.log import configure_logging
 from blimp.preprocessing.operetta_parse_metadata import (
     get_image_metadata,
@@ -18,8 +20,8 @@ from blimp.preprocessing.operetta_parse_metadata import (
 logger = logging.getLogger(__name__)
 
 OPERETTA_REGEX = (
-    "r(?P<Row>\d+)c(?P<Col>\d+)f(?P<FieldID>\d+)p(?P<PlaneID>\d+)"
-    + "-ch(?P<ChannelID>\d+)sk(?P<TimepointID>\d+)(?P<End>fk\d+fl\d+)"
+    r"r(?P<Row>\d+)c(?P<Col>\d+)f(?P<FieldID>\d+)p(?P<PlaneID>\d+)"
+    + r"-ch(?P<ChannelID>\d+)sk(?P<TimepointID>\d+)(?P<End>fk\d+fl\d+)"
 )
 operetta_regex_filename_pattern = re.compile(OPERETTA_REGEX)
 
@@ -27,8 +29,7 @@ operetta_regex_filename_pattern = re.compile(OPERETTA_REGEX)
 def _get_metadata_batch(
     image_metadata: pd.DataFrame, batch_id: int, n_batches: int
 ) -> pd.DataFrame:
-    """When a batchnumber is specified, return a predictable subset of the
-    dataframe rows.
+    """Get a predictable subset of dataframe rows from metadata.
 
     Parameters
     ----------
@@ -62,7 +63,7 @@ def _get_metadata_batch(
             n_batches, n_sites_per_batch
         )
     )
-    logger.info("Processing batch {}".format(batch_id))
+    logger.info(f"Processing batch {batch_id}")
 
     if row_min >= row_max:
         logger.warning("batch_id exceeds metadata size, returning empty dataframe")
@@ -81,8 +82,10 @@ def _read_images_single_site(
     ChannelID: int,
     TimepointID: int,
 ) -> List[AICSImage]:
-    """Reads a set of images corresponding to a single imaging site (field of
-    view) from inividual files on disk.
+    """Load a set of image files for a single site.
+
+    Reads a set of images corresponding to a single imaging site (field of
+    view) from individual files on disk.
 
     Parameters
     ----------
@@ -203,8 +206,9 @@ def _get_zyx_resolution(
 
 
 def _remove_TCZ_filename(pattern: Pattern, filename: str, mip: bool = False):
-    """Restructures a operetta tiff filename string to remove reference to
-    Time, Channel, Z.
+    """Modify operetta filename for Z-projection.
+
+    Restructures a operetta tiff to remove reference to Time, Channel, Z.
 
     Parameters
     ----------
@@ -222,27 +226,30 @@ def _remove_TCZ_filename(pattern: Pattern, filename: str, mip: bool = False):
         Filename with TCZ information removed
     """
     m = pattern.match(filename)
-    new_filename = (
-        "r"
-        + m.group("Row")
-        + "c"
-        + m.group("Col")
-        + "f"
-        + m.group("FieldID")
-        + "-"
-        + m.group("End")
-    )
-    if mip:
-        new_filename += "-mip.ome.tiff"
-    else:
-        new_filename += ".ome.tiff"
-    return new_filename
+    if m is not None:
+        new_filename = (
+            "r"
+            + m.group("Row")
+            + "c"
+            + m.group("Col")
+            + "f"
+            + m.group("FieldID")
+            + "-"
+            + m.group("End")
+        )
+        if mip:
+            new_filename += "-mip.ome.tiff"
+        else:
+            new_filename += ".ome.tiff"
+        return new_filename
 
 
 def _aggregate_TCZ_metadata(
     image_metadata: pd.DataFrame, mip: bool = False
 ) -> pd.DataFrame:
-    """Removes Time, Channel, Z-plane information from a dataframe. Absolute
+    """Modify operetta metadata for Z-projection.
+
+    Removes Time, Channel, Z-plane information from a dataframe. Absolute
     imaging time information is averaged across all acquisitions for a given
     time-point.
 
@@ -316,7 +323,9 @@ def operetta_to_ome_tiff(
     save_metadata_files: bool = True,
     mip: bool = False,
 ) -> None:
-    """Reads a metadata file and loads individual TIFF files exported from the
+    """Convert individual TIFFs from Operetta to standard OME-TIFFs.
+
+    Reads a metadata file and loads individual TIFF files exported from the
     Perkin-Elmer Operetta. These are combined into multi-channel, multi-z-plane
     stacks and saved as OME-TIFFs.
 
@@ -363,7 +372,7 @@ def operetta_to_ome_tiff(
         out_path_mip.mkdir(parents=True, exist_ok=True)
 
     # get metadata dataframes
-    plate_metadata = get_plate_metadata(metadata_path, plate_metadata_file)
+    get_plate_metadata(metadata_path, plate_metadata_file)
     image_metadata = get_image_metadata(metadata_path, image_metadata_file)
 
     # generate new metadata dataframes
@@ -407,15 +416,15 @@ def operetta_to_ome_tiff(
 
     # iterate over sites, combining time-points, channels and z-planes
     # into numpy arrays to be written to files as OME-TIFFs
-    for site_index, site in sites.iterrows():
+    for _site_index, site in sites.iterrows():
         multi_timepoint_img = []
         multi_timepoint_img_mip = []
 
-        for timepoint_index, timepoint in timepoints.iterrows():
+        for _timepoint_index, timepoint in timepoints.iterrows():
             multi_channel_img = []
             multi_channel_img_mip = []
 
-            for channel_index, channel in channels.iterrows():
+            for _channel_index, channel in channels.iterrows():
                 imgs = _read_images_single_site(
                     in_path,
                     image_metadata,
@@ -528,7 +537,7 @@ if __name__ == "__main__":
         nargs=2,
         default=[1, 0],
         help="""
-            If files are processed as batches, provide the number of 
+            If files are processed as batches, provide the number of
             batches and the current batch to be processed. Batches
             refer to the number of sites (fields-of-view) and batch
             numbers start at 0.

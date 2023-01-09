@@ -1,13 +1,15 @@
 """Convert Nikon nd2 files to open microscopy environment OME-TIFF format."""
-import os
 import logging
-import numpy as np
+import os
 from glob import glob
 from pathlib import Path
 from typing import Union
-from nd2reader import ND2Reader
-from aicsimageio.writers import OmeTiffWriter
+
+import numpy as np
 from aicsimageio.types import PhysicalPixelSizes
+from aicsimageio.writers import OmeTiffWriter
+from nd2reader import ND2Reader
+
 from blimp.log import configure_logging
 from blimp.preprocessing.nd2_parse_metadata import nd2_extract_metadata_and_save
 
@@ -34,10 +36,10 @@ def convert_individual_nd2_to_ome_tiff(
     -------
     """
 
-    logger.info("Reading individual ND2 file {}".format(in_file_path))
+    logger.info(f"Reading individual ND2 file {in_file_path}")
     images = ND2Reader(str(in_file_path))
 
-    n_sites = images.sizes["v"]
+    images.sizes["v"]
 
     images.bundle_axes = "tczyx"
     images.iter_axes = "v"
@@ -50,7 +52,7 @@ def convert_individual_nd2_to_ome_tiff(
 
         voxel_dimensions = _get_zyx_resolution(img.metadata)
 
-        logger.debug("Writing OME-TIFF, field-of-view #{}".format(i))
+        logger.debug(f"Writing OME-TIFF, field-of-view #{i}")
         OmeTiffWriter.save(
             data=img,
             uri=out_file_path,
@@ -66,7 +68,7 @@ def convert_individual_nd2_to_ome_tiff(
                 Path(in_file_path).stem + "_" + str(i + 1).zfill(4) + ".ome.tiff"
             )
 
-            logger.debug("Writing OME-TIFF MIP, field-of-view #{}".format(i))
+            logger.debug(f"Writing OME-TIFF MIP, field-of-view #{i}")
             OmeTiffWriter.save(
                 data=np.max(img, axis=2, keepdims=True),
                 uri=out_file_path_mip,
@@ -93,7 +95,7 @@ def _get_zyx_resolution(image_metadata: dict) -> PhysicalPixelSizes:
         AICSImage object for containing pixel dimensions
     """
     logger.debug("Getting voxel dimensions")
-    xy = image_metadata["pixel_microns"]
+    image_metadata["pixel_microns"]
     n_z = 1 + max([i for i in image_metadata["z_levels"]])
     return PhysicalPixelSizes(
         Z=(
@@ -130,11 +132,12 @@ def _get_list_of_files_current_batch(
     n_batches = int(n_batches)
 
     # get reproducible list of nd2 files in 'in_path'
+    in_path = Path(in_path)
     filepaths = glob(str(in_path / "*.nd2"))
     filepaths.sort()
-    logger.debug("{} files found:".format(len(filepaths)))
+    logger.debug(f"{len(filepaths)} files found:")
     for i, f in enumerate(filepaths):
-        logger.debug("Input file {}: {}".format(i, f))
+        logger.debug(f"Input file {i}: {f}")
 
     n_files_per_batch = int(np.ceil(float(len(filepaths)) / float(n_batches)))
 
@@ -143,7 +146,7 @@ def _get_list_of_files_current_batch(
             n_batches, n_files_per_batch
         )
     )
-    logger.info("Processing batch {}".format(batch_id))
+    logger.info(f"Processing batch {batch_id}")
 
     return filepaths[batch_id * n_files_per_batch : (batch_id + 1) * n_files_per_batch]
 
@@ -193,18 +196,19 @@ def nd2_to_ome_tiff(
 
     # make output directories
     if not out_path.exists():
-        logger.info("Created output directory: {}".format(out_path))
+        logger.info(f"Created output directory: {out_path}")
         out_path.mkdir(parents=True, exist_ok=True)
-    if mip and not out_path_mip.exists():
-        logger.info("Created output directory: {}".format(out_path_mip))
-        out_path_mip.mkdir(parents=True, exist_ok=True)
+    if mip and isinstance(out_path_mip, Path):
+        if not out_path_mip.exists():
+            logger.info(f"Created output directory: {out_path_mip}")
+            out_path_mip.mkdir(parents=True, exist_ok=True)
 
     # get list of files to process
     filename_list = _get_list_of_files_current_batch(
         in_path=in_path, n_batches=n_batches, batch_id=batch_id
     )
 
-    logger.info("Converting nd2 files: {}".format(filename_list))
+    logger.info(f"Converting nd2 files: {filename_list}")
     for f in filename_list:
         in_file_path = in_path / f
         convert_individual_nd2_to_ome_tiff(
@@ -212,24 +216,20 @@ def nd2_to_ome_tiff(
             out_path=out_path,
             out_path_mip=out_path_mip,
         )
-        logger.info("Saving metadata for {} in {}".format(in_file_path, out_path))
+        logger.info(f"Saving metadata for {in_file_path} in {out_path}")
         nd2_metadata = nd2_extract_metadata_and_save(
             in_file_path=in_file_path, out_path=out_path, y_direction=y_direction
         )
 
         # save mip metadata
         if out_path_mip is not None:
-            logger.info(
-                "Saving MIP metadata for {} in {}".format(in_file_path, out_path_mip)
-            )
+            logger.info(f"Saving MIP metadata for {in_file_path} in {out_path_mip}")
             nd2_metadata = nd2_extract_metadata_and_save(
                 in_file_path=in_file_path,
                 out_path=out_path_mip,
                 mip=True,
                 y_direction=y_direction,
             )
-
-    return ()
 
 
 if __name__ == "__main__":
@@ -256,7 +256,7 @@ if __name__ == "__main__":
         nargs=2,
         default=[1, 0],
         help="""
-            If files are processed as batches, provide the number of 
+            If files are processed as batches, provide the number of
             batches and the current batch to be processed. Batches
             refer to the number of sites (fields-of-view) and batch
             numbers start at 0.
@@ -278,8 +278,8 @@ if __name__ == "__main__":
         help="""
         Microscope stages can have inconsistent y orientations
         relative to images. Standardised field identifiers are
-        derived from microscope stage positions but to ensure 
-        the orientation of the y-axis relative to images, this 
+        derived from microscope stage positions but to ensure
+        the orientation of the y-axis relative to images, this
         must be specified. Default value is "down" so that
         y-coordinate values increase as the stage moves toward
         the eyepiece. Change to "up" if stiching doesn't look

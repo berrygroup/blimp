@@ -1,12 +1,13 @@
+import logging
+from functools import reduce
+from pathlib import Path
+from typing import Union
+
 import numpy as np
 import pandas as pd
 import skimage.measure
-import logging
-from functools import reduce
 from aicsimageio import AICSImage
 from cellpose import models
-from typing import Union
-from pathlib import Path
 
 
 def segment_nuclei_cellpose(
@@ -175,7 +176,7 @@ def segment_and_quantify(
     nuclei_channel: int = 0,
     metadata_file: Union[str, Path, None] = None,
     timepoint: Union[int, None] = None,
-) -> None:
+):
     """Segment objects and quantify intensities of all channels relative to
     objects."""
     from blimp.preprocessing.operetta_parse_metadata import load_image_metadata
@@ -194,9 +195,7 @@ def segment_and_quantify(
         metadata_file = Path(metadata_file)
 
     if not metadata_file.exists():
-        logging.error(
-            "No metadata file provided: {} does not exist".format(str(metadata_file))
-        )
+        logging.error(f"No metadata file provided: {str(metadata_file)} does not exist")
     metadata = load_image_metadata(metadata_file)
 
     # make label image directory

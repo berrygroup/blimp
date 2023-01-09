@@ -1,10 +1,11 @@
 """Convert Perkin-Elmer Operetta image files to standard open microscopy
 environment formats."""
-import os
 import glob
 import logging
+import os
 from pathlib import Path
 from typing import Union
+
 from blimp.log import configure_logging
 
 logger = logging.getLogger(__name__)
