@@ -1,14 +1,14 @@
 """Convert Nikon nd2 files to open microscopy environment OME-TIFF format."""
-import logging
-import os
 from glob import glob
-from pathlib import Path
 from typing import Union
+from pathlib import Path
+import os
+import logging
 
-import numpy as np
+from nd2reader import ND2Reader
 from aicsimageio.types import PhysicalPixelSizes
 from aicsimageio.writers import OmeTiffWriter
-from nd2reader import ND2Reader
+import numpy as np
 
 from blimp.log import configure_logging
 from blimp.preprocessing.nd2_parse_metadata import nd2_extract_metadata_and_save
@@ -46,9 +46,7 @@ def convert_individual_nd2_to_ome_tiff(
 
     for i, img in enumerate(images):
 
-        out_file_path = Path(out_path) / Path(
-            Path(in_file_path).stem + "_" + str(i + 1).zfill(4) + ".ome.tiff"
-        )
+        out_file_path = Path(out_path) / Path(Path(in_file_path).stem + "_" + str(i + 1).zfill(4) + ".ome.tiff")
 
         voxel_dimensions = _get_zyx_resolution(img.metadata)
 
@@ -98,19 +96,13 @@ def _get_zyx_resolution(image_metadata: dict) -> PhysicalPixelSizes:
     image_metadata["pixel_microns"]
     n_z = 1 + max([i for i in image_metadata["z_levels"]])
     return PhysicalPixelSizes(
-        Z=(
-            max(image_metadata["z_coordinates"][0:n_z])
-            - min(image_metadata["z_coordinates"][0:n_z])
-        )
-        / (n_z - 1),
+        Z=(max(image_metadata["z_coordinates"][0:n_z]) - min(image_metadata["z_coordinates"][0:n_z])) / (n_z - 1),
         Y=image_metadata["pixel_microns"],
         X=image_metadata["pixel_microns"],
     )
 
 
-def _get_list_of_files_current_batch(
-    in_path: Union[str, Path], batch_id: int, n_batches: int
-) -> list:
+def _get_list_of_files_current_batch(in_path: Union[str, Path], batch_id: int, n_batches: int) -> list:
     """Get a list of files to process in batch mode.
 
     Parameters
@@ -141,11 +133,7 @@ def _get_list_of_files_current_batch(
 
     n_files_per_batch = int(np.ceil(float(len(filepaths)) / float(n_batches)))
 
-    logger.info(
-        "Splitting nd2 file list into {} batches of size {}".format(
-            n_batches, n_files_per_batch
-        )
-    )
+    logger.info(f"Splitting nd2 file list into {n_batches} batches of size {n_files_per_batch}")
     logger.info(f"Processing batch {batch_id}")
 
     return filepaths[batch_id * n_files_per_batch : (batch_id + 1) * n_files_per_batch]
@@ -204,9 +192,7 @@ def nd2_to_ome_tiff(
             out_path_mip.mkdir(parents=True, exist_ok=True)
 
     # get list of files to process
-    filename_list = _get_list_of_files_current_batch(
-        in_path=in_path, n_batches=n_batches, batch_id=batch_id
-    )
+    filename_list = _get_list_of_files_current_batch(in_path=in_path, n_batches=n_batches, batch_id=batch_id)
 
     logger.info(f"Converting nd2 files: {filename_list}")
     for f in filename_list:
@@ -237,13 +223,9 @@ if __name__ == "__main__":
 
     parser = ArgumentParser(prog="nd2_to_ome_tiff")
 
-    parser.add_argument(
-        "-i", "--in_path", help="directory containing the input files", required=True
-    )
+    parser.add_argument("-i", "--in_path", help="directory containing the input files", required=True)
 
-    parser.add_argument(
-        "-o", "--out_path", help="directory to write the output files", required=True
-    )
+    parser.add_argument("-o", "--out_path", help="directory to write the output files", required=True)
 
     parser.add_argument(
         "--image_format",

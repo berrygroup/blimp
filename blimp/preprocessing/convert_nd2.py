@@ -1,9 +1,9 @@
 """Convert Nikon nd2 files to standard open microscopy environment formats."""
+from typing import Union
+from pathlib import Path
+import os
 import glob
 import logging
-import os
-from pathlib import Path
-from typing import Union
 
 from blimp.log import configure_logging
 
@@ -153,11 +153,7 @@ def convert_nd2(
     """
 
     if image_format != "TIFF":
-        logger.error(
-            "image_format = {}. Only TIFF format currently implemented".format(
-                image_format
-            )
-        )
+        logger.error(f"image_format = {image_format}. Only TIFF format currently implemented")
         os._exit(1)
 
     # create job/log directory if it does not exist
@@ -171,18 +167,11 @@ def convert_nd2(
     nd2_paths = find_nd2_files(in_path)
     nd2_parent_paths = list({Path(p).parent for p in nd2_paths})
 
-    logger.info(
-        "Found {} folders countaining {} .nd2 files".format(
-            len(nd2_parent_paths), len(nd2_paths)
-        )
-    )
+    logger.info(f"Found {len(nd2_parent_paths)} folders countaining {len(nd2_paths)} .nd2 files")
     for i, p in enumerate(nd2_paths):
         logger.debug(f"nd2 file #{i}: {p}")
 
-    job_paths = [
-        job_path / ("batch_convert_nd2_" + str(p.stem) + ".pbs")
-        for p in nd2_parent_paths
-    ]
+    job_paths = [job_path / ("batch_convert_nd2_" + str(p.stem) + ".pbs") for p in nd2_parent_paths]
 
     # create jobscripts using template
     for im_par_path, job_path in zip(nd2_parent_paths, job_paths):
@@ -216,9 +205,7 @@ if __name__ == "__main__":
 
     parser = ArgumentParser(prog="convert_operetta")
 
-    parser.add_argument(
-        "-i", "--in_path", help="directory containing the input files", required=True
-    )
+    parser.add_argument("-i", "--in_path", help="directory containing the input files", required=True)
 
     parser.add_argument(
         "-j",
@@ -287,9 +274,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--user", help="Your zID", required=True)
 
-    parser.add_argument(
-        "--email", help="Email address for job notifications", required=False
-    )
+    parser.add_argument("--email", help="Email address for job notifications", required=False)
 
     parser.add_argument(
         "-v",

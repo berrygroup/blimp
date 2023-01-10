@@ -1,10 +1,10 @@
 """Convert Perkin-Elmer Operetta image files to standard open microscopy
 environment formats."""
+from typing import Union
+from pathlib import Path
+import os
 import glob
 import logging
-import os
-from pathlib import Path
-from typing import Union
 
 from blimp.log import configure_logging
 
@@ -112,10 +112,7 @@ def convert_operetta(
     # search recursively for "Images" directories
     images_paths = find_images_dirs(in_path)
     images_parent_paths = [Path(p).parent for p in images_paths]
-    jobscript_paths = [
-        job_path / ("batch_convert_" + str(p.stem) + ".pbs")
-        for p in images_parent_paths
-    ]
+    jobscript_paths = [job_path / ("batch_convert_" + str(p.stem) + ".pbs") for p in images_parent_paths]
 
     # create jobscripts using template
     for images_parent_path, jobscript_path in zip(images_parent_paths, jobscript_paths):
@@ -146,9 +143,7 @@ if __name__ == "__main__":
 
     parser = ArgumentParser(prog="convert_operetta")
 
-    parser.add_argument(
-        "-i", "--in_path", help="directory containing the input files", required=True
-    )
+    parser.add_argument("-i", "--in_path", help="directory containing the input files", required=True)
 
     parser.add_argument(
         "-j",
@@ -195,9 +190,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--user", help="Your zID", required=True)
 
-    parser.add_argument(
-        "--email", help="Email address for job notifications", required=False
-    )
+    parser.add_argument("--email", help="Email address for job notifications", required=False)
 
     parser.add_argument(
         "-v",

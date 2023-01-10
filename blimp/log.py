@@ -1,6 +1,6 @@
 """Setup global logging for blimp."""
-import logging
 import sys
+import logging
 
 #: Dict[int, int]: Mapping for logging verbosity to level
 VERBOSITY_TO_LEVELS = {
@@ -52,9 +52,7 @@ def map_logging_verbosity(verbosity: int) -> int:
     verbosity_level = VERBOSITY_TO_LEVELS.get(verbosity)
 
     if verbosity_level is None:
-        raise TypeError(
-            f"Verbosity not mapped correctly, setting to WARN = {logging.WARN}"
-        )
+        raise TypeError(f"Verbosity not mapped correctly, setting to WARN = {logging.WARN}")
         return logging.WARN
     else:
         return verbosity_level

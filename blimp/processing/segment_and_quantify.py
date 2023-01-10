@@ -1,13 +1,13 @@
-import logging
-from functools import reduce
-from pathlib import Path
 from typing import Union
+from pathlib import Path
+from functools import reduce
+import logging
 
+from cellpose import models
+from aicsimageio import AICSImage
 import numpy as np
 import pandas as pd
 import skimage.measure
-from aicsimageio import AICSImage
-from cellpose import models
 
 
 def segment_nuclei_cellpose(
@@ -38,13 +38,10 @@ def segment_nuclei_cellpose(
 
     if timepoint is None:
         nuclei_images = [
-            intensity_image.get_image_data("ZYX", C=nuclei_channel, T=t)
-            for t in range(intensity_image.dims[["T"]][0])
+            intensity_image.get_image_data("ZYX", C=nuclei_channel, T=t) for t in range(intensity_image.dims[["T"]][0])
         ]
     else:
-        nuclei_images = [
-            intensity_image.get_image_data("ZYX", C=nuclei_channel, T=timepoint)
-        ]
+        nuclei_images = [intensity_image.get_image_data("ZYX", C=nuclei_channel, T=timepoint)]
 
     cellpose_nuclei_model = models.Cellpose(gpu=False, model_type="nuclei")
     masks, flows, styles, diams = cellpose_nuclei_model.eval(
@@ -65,9 +62,7 @@ def segment_nuclei_cellpose(
     return segmentation
 
 
-def _quantify_single_timepoint(
-    intensity_image: AICSImage, label_image: AICSImage, timepoint: int = 0
-) -> pd.DataFrame:
+def _quantify_single_timepoint(intensity_image: AICSImage, label_image: AICSImage, timepoint: int = 0) -> pd.DataFrame:
     """Quantify all channels in an image relative to a matching segmentation
     label image. Singel time-point only.
 
@@ -109,15 +104,11 @@ def _quantify_single_timepoint(
             intensity_features = pd.DataFrame(
                 skimage.measure.regionprops_table(
                     label_image.get_image_data("YX", C=obj_index, T=timepoint, Z=0),
-                    intensity_image.get_image_data(
-                        "YX", C=channel_index, T=timepoint, Z=0
-                    ),
+                    intensity_image.get_image_data("YX", C=channel_index, T=timepoint, Z=0),
                     properties=["label", "intensity_mean"],
                     separator="_",
                 )
-            ).rename(
-                columns=lambda x: obj + "_" + x + "_" + channel if x != "label" else x
-            )
+            ).rename(columns=lambda x: obj + "_" + x + "_" + channel if x != "label" else x)
 
             features = features.merge(intensity_features, on="label")
 
@@ -160,10 +151,7 @@ def quantify(
 
     if timepoint is None:
         features = pd.concat(
-            [
-                _quantify_single_timepoint(intensity_image, label_image, t)
-                for t in range(intensity_image.dims[["T"]][0])
-            ]
+            [_quantify_single_timepoint(intensity_image, label_image, t) for t in range(intensity_image.dims[["T"]][0])]
         )
     else:
         features = _quantify_single_timepoint(intensity_image, label_image, timepoint)
@@ -186,11 +174,7 @@ def segment_and_quantify(
 
     if metadata_file is None:
         metadata_file = Path(image_file).parent / "image_metadata.pkl"
-        logging.warning(
-            "Metadata file not provided, using default location: {}".format(
-                str(metadata_file)
-            )
-        )
+        logging.warning(f"Metadata file not provided, using default location: {str(metadata_file)}")
     else:
         metadata_file = Path(metadata_file)
 
@@ -235,17 +219,11 @@ if __name__ == "__main__":
 
     parser = ArgumentParser(prog="segment_and_quantify")
 
-    parser.add_argument(
-        "-i", "--image_file", help="full path to the image file", required=True
-    )
+    parser.add_argument("-i", "--image_file", help="full path to the image file", required=True)
 
-    parser.add_argument(
-        "--nuclei_channel", default=0, help="channel nuber for nuclei", required=True
-    )
+    parser.add_argument("--nuclei_channel", default=0, help="channel nuber for nuclei", required=True)
 
-    parser.add_argument(
-        "-m", "--metadata_file", default=None, help="full path to the metadata file"
-    )
+    parser.add_argument("-m", "--metadata_file", default=None, help="full path to the metadata file")
 
     parser.add_argument(
         "-t",

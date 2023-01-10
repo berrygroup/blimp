@@ -2,11 +2,11 @@
 
 Scott Berry <scott.berry@unsw.edu.au>
 """
-import logging
-import os
-import xml.etree.ElementTree as ET
-from pathlib import Path
 from typing import Union
+from pathlib import Path
+import os
+import logging
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import pandas as pd
@@ -104,12 +104,7 @@ def _xml_to_df(xmls, ns_key: str, ns_dict: dict) -> pd.DataFrame:
         # get column names from tags
         xml_tags = [_remove_ns(field.tag) for field in xml]
         # read metadata using a dict comprehension
-        metadata.append(
-            {
-                xml_tag: xml.find(ns_key + ":" + xml_tag, namespaces=ns_dict).text
-                for xml_tag in xml_tags
-            }
-        )
+        metadata.append({xml_tag: xml.find(ns_key + ":" + xml_tag, namespaces=ns_dict).text for xml_tag in xml_tags})
     # convert to dataframe
     return pd.DataFrame(metadata)
 
@@ -137,9 +132,7 @@ def _to_well_name(row: int, column: int) -> str:
     return chr(96 + row).upper() + "%0.2d" % column
 
 
-def get_plate_metadata(
-    metadata_file: Union[str, Path], out_file: Union[str, Path, None] = None
-) -> pd.DataFrame:
+def get_plate_metadata(metadata_file: Union[str, Path], out_file: Union[str, Path, None] = None) -> pd.DataFrame:
     """Extracts plate metadata from the operetta xml file.
 
     Parameters
@@ -181,9 +174,7 @@ def get_plate_metadata(
     return plate_metadata
 
 
-def get_image_metadata(
-    metadata_file: Union[str, Path], out_file: Union[str, Path, None] = None
-) -> pd.DataFrame:
+def get_image_metadata(metadata_file: Union[str, Path], out_file: Union[str, Path, None] = None) -> pd.DataFrame:
     """Extracts image metadata from the operetta xml file.
 
     Parameters
@@ -216,20 +207,12 @@ def get_image_metadata(
 
     # add the field index
     # add field indices using standard order (top-left to bottom right, incrementing columns first)
-    image_metadata["XCoordinate"] = (
-        image_metadata["PositionX"].astype("float") * 1e9
-    ).astype("int")
-    image_metadata["YCoordinate"] = (
-        image_metadata["PositionY"].astype("float") * 1e9
-    ).astype("int")
-    image_metadata["XYCoordinates"] = image_metadata[
-        ["XCoordinate", "YCoordinate"]
-    ].apply(tuple, axis=1)
+    image_metadata["XCoordinate"] = (image_metadata["PositionX"].astype("float") * 1e9).astype("int")
+    image_metadata["YCoordinate"] = (image_metadata["PositionY"].astype("float") * 1e9).astype("int")
+    image_metadata["XYCoordinates"] = image_metadata[["XCoordinate", "YCoordinate"]].apply(tuple, axis=1)
 
     # Number fields from top-left to bottom-right (increase x first)
-    unique_int_coords_sorted = sorted(
-        list(set(image_metadata["XYCoordinates"])), key=lambda k: [-k[1], k[0]]
-    )
+    unique_int_coords_sorted = sorted(list(set(image_metadata["XYCoordinates"])), key=lambda k: [-k[1], k[0]])
     coord_index = dict(
         zip(
             unique_int_coords_sorted,
@@ -239,16 +222,12 @@ def get_image_metadata(
 
     # keep this as StandardFieldID
     image_metadata["StandardFieldID"] = image_metadata["XYCoordinates"].map(coord_index)
-    image_metadata = image_metadata.drop(
-        columns=["XYCoordinates", "XCoordinate", "YCoordinate"]
-    )
+    image_metadata = image_metadata.drop(columns=["XYCoordinates", "XCoordinate", "YCoordinate"])
 
     image_metadata = image_metadata.astype(image_metadata_dtypes)
 
     # add a "WellName" identifier
-    image_metadata["WellName"] = image_metadata[["Row", "Col"]].apply(
-        lambda x: _to_well_name(x.Row, x.Col), axis=1
-    )
+    image_metadata["WellName"] = image_metadata[["Row", "Col"]].apply(lambda x: _to_well_name(x.Row, x.Col), axis=1)
 
     # write file if requested
     if out_file is not None:

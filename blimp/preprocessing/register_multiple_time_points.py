@@ -1,5 +1,5 @@
-from pystackreg import StackReg
 from skimage import io
+from pystackreg import StackReg
 
 # conda install pystackreg -c conda-forge
 
@@ -22,6 +22,4 @@ out_first10 = sr.register_transform_stack(img0, reference="first", n_frames=10)
 
 # calculate a moving average of 10 images, then register the moving average to the mean of
 # the first 10 images and transform the original image (not the moving average)
-out_moving10 = sr.register_transform_stack(
-    img0, reference="first", n_frames=10, moving_average=10
-)
+out_moving10 = sr.register_transform_stack(img0, reference="first", n_frames=10, moving_average=10)

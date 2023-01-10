@@ -1,15 +1,15 @@
 """Extract and parse metadata from Perkin-Elmer Operetta metadata files."""
-import logging
+from typing import List, Union, Pattern
+from pathlib import Path
 import os
 import re
-from pathlib import Path
-from typing import List, Pattern, Union
+import logging
 
-import numpy as np
-import pandas as pd
 from aicsimageio import AICSImage
 from aicsimageio.types import PhysicalPixelSizes
 from aicsimageio.writers import OmeTiffWriter
+import numpy as np
+import pandas as pd
 
 from blimp.log import configure_logging
 from blimp.preprocessing.operetta_parse_metadata import (
@@ -26,9 +26,7 @@ OPERETTA_REGEX = (
 operetta_regex_filename_pattern = re.compile(OPERETTA_REGEX)
 
 
-def _get_metadata_batch(
-    image_metadata: pd.DataFrame, batch_id: int, n_batches: int
-) -> pd.DataFrame:
+def _get_metadata_batch(image_metadata: pd.DataFrame, batch_id: int, n_batches: int) -> pd.DataFrame:
     """Get a predictable subset of dataframe rows from metadata.
 
     Parameters
@@ -48,9 +46,7 @@ def _get_metadata_batch(
     """
 
     image_metadata_subset = (
-        image_metadata[["Row", "Col", "FieldID"]]
-        .drop_duplicates()
-        .sort_values(by=["Row", "Col", "FieldID"])
+        image_metadata[["Row", "Col", "FieldID"]].drop_duplicates().sort_values(by=["Row", "Col", "FieldID"])
     )
 
     # convert batch_id and n_batches to rows of the metadata dataframe
@@ -58,11 +54,7 @@ def _get_metadata_batch(
     n_sites_per_batch = int(np.ceil(float(n_sites) / float(n_batches)))
     row_min = int(batch_id) * n_sites_per_batch
     row_max = int(min(row_min + n_sites_per_batch, n_sites))
-    logger.info(
-        "Splitting metadata into {} batches of size {}".format(
-            n_batches, n_sites_per_batch
-        )
-    )
+    logger.info(f"Splitting metadata into {n_batches} batches of size {n_sites_per_batch}")
     logger.info(f"Processing batch {batch_id}")
 
     if row_min >= row_max:
@@ -194,9 +186,7 @@ def _get_zyx_resolution(
         + str(TimepointID)
     )
 
-    xyz = image_metadata.query(query)[
-        ["ImageResolutionX", "ImageResolutionY", "AbsPositionZ"]
-    ].drop_duplicates()
+    xyz = image_metadata.query(query)[["ImageResolutionX", "ImageResolutionY", "AbsPositionZ"]].drop_duplicates()
 
     return PhysicalPixelSizes(
         Z=(xyz.AbsPositionZ.max() - xyz.AbsPositionZ.min()) / (xyz.shape[0] - 1),
@@ -227,16 +217,7 @@ def _remove_TCZ_filename(pattern: Pattern, filename: str, mip: bool = False):
     """
     m = pattern.match(filename)
     if m is not None:
-        new_filename = (
-            "r"
-            + m.group("Row")
-            + "c"
-            + m.group("Col")
-            + "f"
-            + m.group("FieldID")
-            + "-"
-            + m.group("End")
-        )
+        new_filename = "r" + m.group("Row") + "c" + m.group("Col") + "f" + m.group("FieldID") + "-" + m.group("End")
         if mip:
             new_filename += "-mip.ome.tiff"
         else:
@@ -244,9 +225,7 @@ def _remove_TCZ_filename(pattern: Pattern, filename: str, mip: bool = False):
         return new_filename
 
 
-def _aggregate_TCZ_metadata(
-    image_metadata: pd.DataFrame, mip: bool = False
-) -> pd.DataFrame:
+def _aggregate_TCZ_metadata(image_metadata: pd.DataFrame, mip: bool = False) -> pd.DataFrame:
     """Modify operetta metadata for Z-projection.
 
     Removes Time, Channel, Z-plane information from a dataframe. Absolute
@@ -268,16 +247,10 @@ def _aggregate_TCZ_metadata(
         Dimensions (n_rows = number of imaging sites (fields-of-view))
     """
     # get average absolute time for each unique imaging site
-    mean_acq_time = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])[
-        "AbsTime"
-    ].mean()
-    n_planes = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])[
-        "id"
-    ].count()
+    mean_acq_time = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["AbsTime"].mean()
+    n_planes = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["id"].count()
     n_planes.name = "NPlanes"
-    n_channels = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])[
-        "ChannelID"
-    ].max()
+    n_channels = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["ChannelID"].max()
     n_channels.name = "NChannels"
 
     # drop columns that don't make sense after merging multiple files
@@ -303,12 +276,8 @@ def _aggregate_TCZ_metadata(
 
     # merge all
     image_metadata_no_z = (
-        image_metadata_no_z.merge(
-            right=mean_acq_time, on=["Row", "Col", "FieldID", "TimepointID"], how="left"
-        )
-        .merge(
-            right=n_channels, on=["Row", "Col", "FieldID", "TimepointID"], how="left"
-        )
+        image_metadata_no_z.merge(right=mean_acq_time, on=["Row", "Col", "FieldID", "TimepointID"], how="left")
+        .merge(right=n_channels, on=["Row", "Col", "FieldID", "TimepointID"], how="left")
         .merge(right=n_planes, on=["Row", "Col", "FieldID", "TimepointID"], how="left")
     )
     return image_metadata_no_z
@@ -358,12 +327,8 @@ def operetta_to_ome_tiff(
         logger.error("Input and output paths are the same.")
         os._exit(1)
 
-    plate_metadata_file = (
-        in_path / "plate_metadata.csv" if save_metadata_files else None
-    )
-    image_metadata_file = (
-        in_path / "image_metadata.csv" if save_metadata_files else None
-    )
+    plate_metadata_file = in_path / "plate_metadata.csv" if save_metadata_files else None
+    image_metadata_file = in_path / "image_metadata.csv" if save_metadata_files else None
 
     # make output directories
     if not out_path.exists():
@@ -381,25 +346,17 @@ def operetta_to_ome_tiff(
 
     # save metadata files (for the first batch only)
     if save_metadata_files and int(batch_id) == 0:
-        image_metadata_ome_tiff.to_csv(
-            Path(out_path) / "image_metadata.csv", index=False
-        )
+        image_metadata_ome_tiff.to_csv(Path(out_path) / "image_metadata.csv", index=False)
         image_metadata_ome_tiff.to_pickle(Path(out_path) / "image_metadata.pkl")
 
     if mip:
         image_metadata_mip_ome_tiff = _aggregate_TCZ_metadata(image_metadata, mip=True)
         if save_metadata_files and int(batch_id) == 0:
-            image_metadata_mip_ome_tiff.to_csv(
-                Path(out_path_mip) / "image_metadata.csv", index=False
-            )
-            image_metadata_mip_ome_tiff.to_pickle(
-                Path(out_path_mip) / "image_metadata.pkl"
-            )
+            image_metadata_mip_ome_tiff.to_csv(Path(out_path_mip) / "image_metadata.csv", index=False)
+            image_metadata_mip_ome_tiff.to_pickle(Path(out_path_mip) / "image_metadata.pkl")
 
     # subset metadata to the current batch only
-    image_metadata = _get_metadata_batch(
-        image_metadata=image_metadata, batch_id=batch_id, n_batches=n_batches
-    )
+    image_metadata = _get_metadata_batch(image_metadata=image_metadata, batch_id=batch_id, n_batches=n_batches)
 
     # get unique sites
     timepoints = image_metadata[["TimepointID"]].drop_duplicates()
@@ -444,9 +401,7 @@ def operetta_to_ome_tiff(
             # combine channels (axis 1)
             multi_timepoint_img.append(np.concatenate(multi_channel_img, axis=1))
             if mip:
-                multi_timepoint_img_mip.append(
-                    np.concatenate(multi_channel_img_mip, axis=1)
-                )
+                multi_timepoint_img_mip.append(np.concatenate(multi_channel_img_mip, axis=1))
 
         # combine timepoints (axis 0)
         multi_timepoint_img = np.concatenate(multi_timepoint_img, axis=0)
@@ -454,9 +409,7 @@ def operetta_to_ome_tiff(
             multi_timepoint_img_mip = np.concatenate(multi_timepoint_img_mip, axis=0)
 
         # get voxel dimensions
-        voxel_dimensions = _get_zyx_resolution(
-            image_metadata, site.Row, site.Col, site.StandardFieldID, 1, 0
-        )
+        voxel_dimensions = _get_zyx_resolution(image_metadata, site.Row, site.Col, site.StandardFieldID, 1, 0)
 
         # get new filenames from restructured metadata dataframe
         out_file_path = Path(out_path) / (
@@ -510,13 +463,9 @@ if __name__ == "__main__":
 
     parser = ArgumentParser(prog="operetta_to_ome_tiff")
 
-    parser.add_argument(
-        "-i", "--in_path", help="directory containing the input files", required=True
-    )
+    parser.add_argument("-i", "--in_path", help="directory containing the input files", required=True)
 
-    parser.add_argument(
-        "-o", "--out_path", help="directory to write the output files", required=True
-    )
+    parser.add_argument("-o", "--out_path", help="directory to write the output files", required=True)
 
     parser.add_argument(
         "--image_format",

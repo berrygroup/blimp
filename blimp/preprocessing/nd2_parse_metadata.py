@@ -1,15 +1,15 @@
 """Extract and parse metadata from Nikon nd2 files."""
-import datetime
-import json
-import logging
+from typing import Union
+from pathlib import Path
 import os
 import re
-from pathlib import Path
-from typing import Union
+import json
+import logging
+import datetime
 
+from nd2reader import ND2Reader
 import numpy as np
 import pandas as pd
-from nd2reader import ND2Reader
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +63,7 @@ def parse_additional_metadata(acq_metadata: dict) -> list:
         list of additional metadata as individual strings for each channel
     """
     logger.debug("Parsing additional metadata")
-    metadata_planes = split_acquisition_metadata_planes(
-        acq_metadata["TextInfoItem_5"].split("\r\n")
-    )
+    metadata_planes = split_acquisition_metadata_planes(acq_metadata["TextInfoItem_5"].split("\r\n"))
     metadata = ["\\n".join(plane) for plane in metadata_planes]
     metadata = [s.replace(",", ";") for s in metadata]
 
@@ -89,36 +87,22 @@ def get_start_time_abs(raw_metadata: dict, acq_metadata: dict) -> datetime.datet
     """
     start_time_abs = raw_metadata["date"]
     if start_time_abs is None:
-        logger.info(
-            "Absolute start time not found in ND2Reader.parser._raw_metadata.__dict__"
-        )
+        logger.info("Absolute start time not found in ND2Reader.parser._raw_metadata.__dict__")
     else:
-        logger.info(
-            "Absolute start time {} found in ND2Reader.parser._raw_metadata.__dict__".format(
-                start_time_abs
-            )
-        )
+        logger.info(f"Absolute start time {start_time_abs} found in ND2Reader.parser._raw_metadata.__dict__")
 
     if start_time_abs is None:
-        logger.info(
-            "Checking ND2Reader.parser._raw_metadata.image_text_info for absolute start time"
-        )
+        logger.info("Checking ND2Reader.parser._raw_metadata.image_text_info for absolute start time")
         start_time_abs = acq_metadata["TextInfoItem_9"]
-        start_time_abs = datetime.datetime.strptime(
-            start_time_abs, "%d/%m/%Y  %I:%M:%S %p"
-        )
+        start_time_abs = datetime.datetime.strptime(start_time_abs, "%d/%m/%Y  %I:%M:%S %p")
 
     if start_time_abs is None:
-        logger.warn(
-            "Absolute start time not found. Only relative time information available"
-        )
+        logger.warn("Absolute start time not found. Only relative time information available")
 
     return start_time_abs
 
 
-def get_standard_field_id_mapping(
-    df: pd.DataFrame, y_direction: str = "down"
-) -> pd.DataFrame:
+def get_standard_field_id_mapping(df: pd.DataFrame, y_direction: str = "down") -> pd.DataFrame:
     """Convert field ids to standard field ids, with top-left to bottom-right
     ordering.
 
@@ -138,11 +122,7 @@ def get_standard_field_id_mapping(
     logger.debug("Getting standard_field_id from stage coordinates")
     logger.debug(f"Y-axis direction : {y_direction}")
     if y_direction not in {"up", "down"}:
-        logger.error(
-            'Y-axis direction : {}, only "up" or "down" are possible'.format(
-                y_direction
-            )
-        )
+        logger.error(f'Y-axis direction : {y_direction}, only "up" or "down" are possible')
         os._exit(1)
 
     df = df[["field_id", "stage_x_abs", "stage_y_abs"]].groupby("field_id").mean()
@@ -152,13 +132,9 @@ def get_standard_field_id_mapping(
 
     # Number fields from top-left to bottom-right (increase x first)
     if y_direction == "up":
-        unique_int_coords_sorted = sorted(
-            list(set(df["XYCoordinates"])), key=lambda k: [-k[1], k[0]]
-        )
+        unique_int_coords_sorted = sorted(list(set(df["XYCoordinates"])), key=lambda k: [-k[1], k[0]])
     elif y_direction == "down":
-        unique_int_coords_sorted = sorted(
-            list(set(df["XYCoordinates"])), key=lambda k: [k[1], k[0]]
-        )
+        unique_int_coords_sorted = sorted(list(set(df["XYCoordinates"])), key=lambda k: [k[1], k[0]])
     coord_index = dict(
         zip(
             unique_int_coords_sorted,
@@ -205,11 +181,7 @@ def nd2_extract_metadata_and_save(
     Dataframe containing the metadata written to file
     """
 
-    logger.info(
-        "Acquisition_increment_order specified as {}".format(
-            acquisition_increment_order
-        )
-    )
+    logger.info(f"Acquisition_increment_order specified as {acquisition_increment_order}")
     if acquisition_increment_order != "TFZ":
         logger.error(
             """
@@ -225,9 +197,7 @@ def nd2_extract_metadata_and_save(
     nd2_file = ND2Reader(str(in_file_path))
     acquisition_times = [t for t in nd2_file.parser._raw_metadata.acquisition_times]
     common_metadata = nd2_file.parser._raw_metadata.image_text_info[b"SLxImageTextInfo"]
-    common_metadata = {
-        key.decode(): val.decode() for key, val in common_metadata.items()
-    }
+    common_metadata = {key.decode(): val.decode() for key, val in common_metadata.items()}
 
     # save 'SLxImageTextInfo' as JSON (as backup)
     logger.debug(f"Writing JSON of ND2 metadata for file {in_file_path}")
@@ -239,8 +209,7 @@ def nd2_extract_metadata_and_save(
     additional_metadata = parse_additional_metadata(common_metadata)
     additional_metadata_df = pd.DataFrame(additional_metadata).T
     additional_metadata_df.columns = [
-        "metadata_string_acquisition_" + str(i)
-        for i in range(0, len(additional_metadata))
+        "metadata_string_acquisition_" + str(i) for i in range(0, len(additional_metadata))
     ]
 
     # metadata parsed by nd2reader
@@ -257,12 +226,8 @@ def nd2_extract_metadata_and_save(
             "stage_y_abs": nd2_file.parser._raw_metadata.y_data,
             "stage_z_abs": nd2_file.parser._raw_metadata.z_data,
             "acquisition_time_rel": acquisition_times,
-            "stage_z_id": list(metadata_dict["z_levels"])
-            * (nd2_file.sizes["t"] * nd2_file.sizes["v"]),
-            "field_id": list(
-                np.repeat(range(1, 1 + nd2_file.sizes["v"]), nd2_file.sizes["z"])
-            )
-            * nd2_file.sizes["t"],
+            "stage_z_id": list(metadata_dict["z_levels"]) * (nd2_file.sizes["t"] * nd2_file.sizes["v"]),
+            "field_id": list(np.repeat(range(1, 1 + nd2_file.sizes["v"]), nd2_file.sizes["z"])) * nd2_file.sizes["t"],
             "timepoint_id": list(
                 np.repeat(
                     range(nd2_file.sizes["t"]),
@@ -273,8 +238,7 @@ def nd2_extract_metadata_and_save(
     )
 
     metadata_df["filename_ome_tiff"] = [
-        Path(in_file_path).stem + "_" + str(f).zfill(4) + ".ome.tiff"
-        for f in metadata_df["field_id"]
+        Path(in_file_path).stem + "_" + str(f).zfill(4) + ".ome.tiff" for f in metadata_df["field_id"]
     ]
 
     # enforce types
@@ -282,11 +246,7 @@ def nd2_extract_metadata_and_save(
 
     # remove z positions and average over z-planes for MIP metadata
     if mip:
-        logger.debug(
-            "Aggregating metadata for MIP: {}".format(
-                Path(out_path) / Path(Path(in_file_path).stem)
-            )
-        )
+        logger.debug(f"Aggregating metadata for MIP: {Path(out_path) / Path(Path(in_file_path).stem)}")
         aggregated = metadata_df.groupby(["field_id", "timepoint_id"])[
             ["acquisition_time_rel", "stage_y_abs", "stage_x_abs"]
         ].mean()
@@ -300,36 +260,27 @@ def nd2_extract_metadata_and_save(
             ],
             axis=1,
         ).drop_duplicates()
-        metadata_df = metadata_df.merge(
-            aggregated, how="left", on=["field_id", "timepoint_id"]
-        )
+        metadata_df = metadata_df.merge(aggregated, how="left", on=["field_id", "timepoint_id"])
         metadata_df["stage_z_n"] = len(metadata_dict["z_levels"])
 
     # generate absolute time column
     start_time_abs = get_start_time_abs(metadata_dict, common_metadata)
     if start_time_abs is not None:
         metadata_df["acquisition_time_abs"] = [
-            start_time_abs + datetime.timedelta(seconds=x)
-            for x in metadata_df["acquisition_time_rel"]
+            start_time_abs + datetime.timedelta(seconds=x) for x in metadata_df["acquisition_time_rel"]
         ]
 
     # standardise field id (top-left to bottom-right)
     standard_field_id_mapping = get_standard_field_id_mapping(metadata_df, y_direction)
-    metadata_df = pd.merge(
-        metadata_df, standard_field_id_mapping, on="field_id", how="left"
-    )
+    metadata_df = pd.merge(metadata_df, standard_field_id_mapping, on="field_id", how="left")
 
     # add additional metadata as columns
     metadata_df = pd.merge(metadata_df, additional_metadata_df, how="cross")
 
     # write metadata to file
-    with Path(out_path) / Path(
-        Path(in_file_path).stem + "_metadata.csv"
-    ) as out_file_path:
+    with Path(out_path) / Path(Path(in_file_path).stem + "_metadata.csv") as out_file_path:
         metadata_df.to_csv(out_file_path, index=False)
-    with Path(out_path) / Path(
-        Path(in_file_path).stem + "_metadata.pkl"
-    ) as out_file_path:
+    with Path(out_path) / Path(Path(in_file_path).stem + "_metadata.pkl") as out_file_path:
         metadata_df.to_pickle(out_file_path)
 
     return metadata_df
