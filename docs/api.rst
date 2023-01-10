@@ -2,7 +2,7 @@ API
 ===
 
 Preprocessing
-~~~~
+~~~~~~~~~~~~~
 
 .. module:: blimp.preprocessing
 .. currentmodule:: blimp
@@ -18,7 +18,7 @@ Preprocessing
     preprocessing.get_plate_metadata
 
 Processing
-~~~~~
+~~~~~~~~~~
 
 .. module:: blimp.processing
 .. currentmodule:: blimp
