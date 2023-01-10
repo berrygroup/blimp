@@ -29,5 +29,3 @@ Processing
     processing.segment_nuclei_cellpose
     processing.quantify
     processing.segment_and_quantify
-
-
