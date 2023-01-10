@@ -118,61 +118,22 @@ Image registration
 
 Not yet implemented
 
-Contribution and documentation
-------------------------------
+Contributing and Code Style
+---------------------------
 
-Please submit pull requests
-
-Codestyle and formatting
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-To follow the black codestyle, please use the ``black`` tool that can be
-installed using
-
-::
-
-   pip install 'black[jupyter]'
-
-and run on the source code directories using,
-
-::
-
-   black /path/to/python/code
-
-
-Please use numpy docstrings. To generate properly formatted docstrings install
-docformatter
-
-::
-
-   pip install --upgrade docformatter
-
-and run using
-
-::
-
-   docformatter --in-place /path/to/python/code
-
+See the `contributing guide <CONTRIBUTING.rst>`_.
 
 Documentation
 ~~~~~~~~~~~~~
-Documentation can be generated using `Sphinx
+Documentation is generated directly from code using `Sphinx
 <https://www.sphinx-doc.org/en/master/>`_ and the `napoleon
 <https://www.sphinx-doc.org/en/master/usage/extensions/napoleon.html>`_
 extension to autogenerate this directly from code. To regenerate documentation,
-install sphinx,
+install sphinx, we use ``tox``
 
 ::
 
-   python -m pip install sphinx
-
-and regenerate HTML documentation (from the root directory)
-
-::
-
-   sphinx-apidoc -f -o docs .
-   cd docs
-   make html
+   tox -e docs
 
 .. |Code style: black| image:: https://img.shields.io/badge/code%20style-black-000000.svg
    :target: https://github.com/psf/black
