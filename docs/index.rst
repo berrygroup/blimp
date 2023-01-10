@@ -15,13 +15,12 @@ For full source-code, see the `git repository
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :caption: Contents
+   :hidden:
 
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+   installation
+   overview
+   api
+   classes
+   cli
+   tutorials
