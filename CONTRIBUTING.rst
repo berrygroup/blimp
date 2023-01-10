@@ -15,7 +15,7 @@ Install the test and development mode::
 Optionally install pre-commit. This will ensure that
 the pushed code passes the linting steps::
 
-    pre-commit install
+    pip install pre-commit
 
 Although the last step is not necessary, it is highly recommended,
 since it will help you to pass the linting step
