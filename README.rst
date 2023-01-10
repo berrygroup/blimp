@@ -121,15 +121,21 @@ Not yet implemented
 Contributing and Code Style
 ---------------------------
 
-See the `contributing guide <CONTRIBUTING.rst>`_.
+We have implemented style guide checks using ``tox``,
+
+::
+
+   tox -e lint
+
+For further info on formatting and contributing, see the `contributing guide <CONTRIBUTING.rst>`_.
 
 Documentation
 ~~~~~~~~~~~~~
+
 Documentation is generated directly from code using `Sphinx
 <https://www.sphinx-doc.org/en/master/>`_ and the `napoleon
 <https://www.sphinx-doc.org/en/master/usage/extensions/napoleon.html>`_
-extension to autogenerate this directly from code. To regenerate documentation,
-install sphinx, we use ``tox``
+extension. This is inplemented using ``tox``,
 
 ::
 
