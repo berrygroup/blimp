@@ -15,54 +15,77 @@ Modules are written in Python 3, and can be executed within the conda
 environment for image processing ``berrylab-default``, or any other
 compatible conda env or virtualenv.
 
-Command-line interfaces use the ``argparse`` library, so usage can be
-accessed using the ``-h`` flag (e.g. ``python convert_operetta.py -h``).
+Installation
+------------
+
+::
+
+   git clone https://github.com/berrygroup/blimp.git
+   cd blimp
+   pip install -e .
+
+or ``pip install -e '.[dev,test]'`` for the development tools.
+
+The installation will make many functions externally accessible and 
+will also install the ``blimp`` command line interface (CLI) in the
+`bin` directory of the installation environment. This should be 
+accessible in your path.
+
+Documentation
+-------------
+
+Documentation is generated directly from code using `Sphinx
+<https://www.sphinx-doc.org/en/master/>`_ and the `napoleon
+<https://www.sphinx-doc.org/en/master/usage/extensions/napoleon.html>`_
+extension. To generate documentation use ``tox``,
+
+::
+
+   tox -e docs
+
+The html documentation will then be available at ``/docs/_build/html/index.html``
+
+Command line interface
+---------------------
+
+To access help type ``blimp -h``.
 
 Pre-processing
 --------------
 
-Pre-processing takes microscope-specific file formats and converts then
-to a common file format for uniform downstream processing. For this
-package, the file formats chosen for images are
+- **Convert**: conversion of microscope-specific file formats to a common file format for uniform downstream processing
+   
+- **Correct**: correct acquisition artefacts such as illumination biases
+
+- **Align**: registration of images between time-points, imaging cycles, or from channel-specific misalignment of microscopes
+
+Convert
+~~~~~~~
+
+blimp can convert batches of raw microscope files to common file formats
+and extract metadata. Image file formats chosen are
 `OME-TIFF <https://docs.openmicroscopy.org/ome-model/5.6.3/ome-tiff/>`__
-and `OME-NGFF <https://ngff.openmicroscopy.org/latest/>`__. However,
-OME-NGFF is not yet implemented. It is recommended to read these using
-the ``AICSImage`` class from the
+and `OME-NGFF <https://ngff.openmicroscopy.org/latest/>`__. Note:
+OME-NGFF is not yet implemented. 
+
+For further analysis after preprocessing, it is recommended to read 
+both formats using the ``AICSImage`` class from the 
 `aicsimageio <https://github.com/AllenCellModeling/aicsimageio>`__
 package, to ensure image layout and metadata are consistently assigned.
 
-Pre-processing also involves correction of acquisition artefacts such as
-illumination biases and image alignment (either from multiple
-time-points, imaging cycles, or from channel-specific misalignment of
-microscopes).
-
-Image file format conversion and metadata extraction
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-To convert between file formats, this can be acheived for a single input
-directory using ``nd2_to_ome_tiff.py`` or ``operetta_to_ome_tiff.py`` in
-the following way,
+For example, to convert Nikon nd2 files:
 
 ::
 
-   python blimp/preprocessing/nd2_to_ome_tiff.py -i /path/to/input/dir -o /path/to/output/dir
-   python blimp/preprocessing/operetta_to_ome_tiff.py -i /path/to/input/dir -o /path/to/output/dir
+   blimp -vv convert nd2 -i /path/to/imput/dir -j /path/to/write/pbs/jobscripts --user {zID} --submit
 
-However, it is more common to process files in batches using HPC. To
-facilitate this on a PBS system (such as katana), these functions accept
-the ``--batch`` argument. In this case, the main entry points are
-``convert_nd2.py`` and ``convert_operetta.py``, which search the input
-directories for specific file-types, then generate PBS jobscripts to
-call the corresopnding conversion functions in batch mode. These files
-can also submit the jobscripts. These ``convert`` tools can be executed
-in the following way,
+This will initiate a search of the input directory for the 
+corresponding file-types, then generate PBS jobscripts to call the 
+conversion functions in batch mode. These files can also submit
+jobscripts. Converted images and metadata will be written as a new 
+subdirectory of the folder containing the images. 
 
-::
-
-   python blimp/preprocessing/convert_nd2.py -i /path/to/imput/dir -o /path/to/output/dir -j /path/to/write/pbs/jobscripts --submit
-   python blimp/preprocessing/convert_operetta.py -i /path/to/imput/dir -o /path/to/output/dir -j /path/to/write/pbs/jobscripts --submit
-
-In this case PBS scripts use the following,
+In this case PBS scripts includes the following,
 
 ::
 
@@ -70,10 +93,9 @@ In this case PBS scripts use the following,
    conda activate berrylab-default
 
 which depends on conda being correctly setup within ``.bashrc`` and a
-functional ``berrylab-default`` conda env.
-
-Alternatives using virtualenv are of course possible, however this
-require changes to source code.
+functional ``berrylab-default`` conda env. If this is not the case, 
+then the example PBS template will need to be edited. The location of
+this template can be provided on the command line.
 
 Metadata
 ^^^^^^^^
@@ -92,7 +114,7 @@ During image conversion, additional metadata (such as acquisition times,
 stage position), is extracted, either from accompanying metadata files,
 or from the microscope-specific image file. This is combined into a
 ``pandas`` DataFrame, and saved as a ``.csv`` and ``.pkl`` file. Image
-filenames are found in the dataframe for cross-referencing with image
+filenames are written in the dataframe for cross-referencing with image
 data.
 
 Projections
@@ -100,13 +122,12 @@ Projections
 
 It is extremely common to analyse 2D data derived from 3D imaging
 volumes using maximum-intensity projection along the axis of the
-objective lens (z-axis). Both ``nd2_to_ome_tiff.py`` or
-``operetta_to_ome_tiff.py`` can perform maximum intensity projections
-during conversion. These are saved in ``OME-TIFF-MIP`` subfolders (along
-with corresponding metadata). The commandline option ``--mip`` is used
-to specify that maximum intensity projections should be performed. Note
-that original microscope-specific files, as well as conversions of the
-data containing z-resolution are retained in this case.
+objective lens (z-axis). ``blimp convert`` can perform maximum intensity
+projections during conversion. These are saved in ``OME-TIFF-MIP`` 
+subfolders (along with corresponding metadata). The commandline option 
+``--mip`` is used to specify that maximum intensity projections should 
+be performed. Note that original microscope-specific files, as well as 
+conversions of the data containing z-resolution are retained in this case.
 
 Illumination correction
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -128,18 +149,6 @@ We have implemented style guide checks using ``tox``,
    tox -e lint
 
 For further info on formatting and contributing, see the `contributing guide <CONTRIBUTING.rst>`_.
-
-Documentation
-~~~~~~~~~~~~~
-
-Documentation is generated directly from code using `Sphinx
-<https://www.sphinx-doc.org/en/master/>`_ and the `napoleon
-<https://www.sphinx-doc.org/en/master/usage/extensions/napoleon.html>`_
-extension. This is inplemented using ``tox``,
-
-::
-
-   tox -e docs
 
 .. |Code style: black| image:: https://img.shields.io/badge/code%20style-black-000000.svg
    :target: https://github.com/psf/black
