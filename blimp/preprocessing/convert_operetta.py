@@ -6,8 +6,6 @@ import os
 import glob
 import logging
 
-from blimp.log import configure_logging
-
 logger = logging.getLogger(__name__)
 
 operetta_to_tiff_jobscript_template = """#!/bin/bash
@@ -38,7 +36,9 @@ conda activate berrylab-default
 
 cd $PBS_O_WORKDIR
 
-python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/operetta_to_ome_tiff.py -i $INPUT_DIR/Images -o $OUTPUT_DIR -f Index.idx.xml --batch {N_BATCHES} ${{PBS_ARRAY_INDEX}} -s -m
+python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/operetta_to_ome_tiff.py \
+-i $INPUT_DIR/Images -o $OUTPUT_DIR -f Index.idx.xml --batch {N_BATCHES} \
+${{PBS_ARRAY_INDEX}} -s -m
 
 conda deactivate
 """
@@ -137,80 +137,4 @@ def convert_operetta(
         for j in jobscript_paths:
             os.system("qsub " + str(j))
 
-
-if __name__ == "__main__":
-    from argparse import ArgumentParser
-
-    parser = ArgumentParser(prog="convert_operetta")
-
-    parser.add_argument("-i", "--in_path", help="directory containing the input files", required=True)
-
-    parser.add_argument(
-        "-j",
-        "--job_path",
-        default=os.getcwd(),
-        help="directory to write the jobscripts",
-        required=True,
-    )
-
-    parser.add_argument(
-        "--image_format",
-        default="TIFF",
-        help="output format for images (TIFF or NGFF, currently only TIFF implemented)",
-    )
-
-    parser.add_argument(
-        "--batch",
-        default=1,
-        help="if files are processed as batches, provide the number of batches",
-    )
-
-    parser.add_argument(
-        "-m",
-        "--mip",
-        default=False,
-        action="store_true",
-        help="whether to save maximum intensity projections",
-    )
-
-    parser.add_argument(
-        "--submit",
-        default=False,
-        action="store_true",
-        help="whether to submit jobs after creating jobscripts",
-    )
-
-    parser.add_argument(
-        "-n",
-        "--dryrun",
-        default=False,
-        action="store_true",
-        help="Dry-run mode. Echo submission commands without submitting",
-    )
-
-    parser.add_argument("--user", help="Your zID", required=True)
-
-    parser.add_argument("--email", help="Email address for job notifications", required=False)
-
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="count",
-        default=0,
-        help="Increase verbosity (e.g. -vvv)",
-    )
-    args = parser.parse_args()
-
-    configure_logging(args.verbose)
-
-    convert_operetta(
-        in_path=args.in_path,
-        job_path=args.job_path,
-        image_format=args.image_format,
-        n_batches=args.batch,
-        mip=args.mip,
-        submit=args.submit,
-        user=args.user,
-        email=args.email,
-        dryrun=args.dryrun,
-    )
+    return None
