@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 try:
     from blimp import __email__, __author__, __version__, __maintainer__
 except ImportError:
-    __author__ = __maintainer__ = "berrygroup"
+    __author__ = __maintainer__ = "Scott Berry"
     __email__ = "scott.berry@unsw.edu.au"
     __version__ = "0.1.0"
 
@@ -49,7 +49,7 @@ setup(
         ],
     ),
     install_requires=[line.strip() for line in Path("requirements.txt").read_text("utf-8").splitlines()],
-    #    entry_points={
-    #        "console_scripts": ["campa=campa.cli.main:CAMPA"],
-    #    },
+    entry_points={
+        "console_scripts": ["blimp=blimp.cli.main:main"],
+    },
 )
