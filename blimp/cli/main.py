@@ -6,7 +6,6 @@ from blimp.log import configure_logging
 # fmt: off
 header = """
     BLIMP
-    -----
 
     This is a command-line interface (CLI) for the blimp
     python package (Berry Lab IMage Processing). blimp
