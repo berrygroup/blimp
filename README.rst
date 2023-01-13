@@ -77,7 +77,7 @@ For example, to convert Nikon nd2 files:
 
 ::
 
-   blimp -vv convert nd2 -i /path/to/imput/dir -j /path/to/write/pbs/jobscripts --user {zID} --submit
+   blimp -vv convert nd2 -i /path/to/input/dir -j /path/to/write/pbs/jobscripts --user {zID} --submit
 
 This will initiate a search of the input directory for the 
 corresponding file-types, then generate PBS jobscripts to call the 
