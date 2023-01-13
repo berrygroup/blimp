@@ -95,7 +95,7 @@ def _add_convert_nd2_args(parser: argparse.ArgumentParser) -> None:
     return None
 
 
-def _convert_nd2(args):
+def _convert_nd2(args) -> None:
     """Wrapper for convert_nd2()"""
     from blimp.preprocessing import convert_nd2
 
@@ -111,10 +111,10 @@ def _convert_nd2(args):
         email=args.email,
         dryrun=False,
     )
-    return
+    return None
 
 
-def _convert_operetta(args):
+def _convert_operetta(args) -> None:
     """Wrapper for convert_operetta()"""
     from blimp.preprocessing import convert_operetta
 
@@ -130,10 +130,10 @@ def _convert_operetta(args):
         email=args.email,
         dryrun=False,
     )
-    return
+    return None
 
 
-def main():
+def _get_full_parser() -> argparse.ArgumentParser:
 
     # ----------- #
     # BASE PARSER #
@@ -170,7 +170,7 @@ def main():
 
     # Convert - ND2
     convert_nd2_header = """
-        - nd2: Convert Nikon nd2 files.
+        * nd2: Convert Nikon nd2 files.
     """
     convert_nd2_subparser = convert_subparsers.add_parser(
         "nd2",
@@ -184,7 +184,7 @@ def main():
 
     # Convert - Operetta
     convert_operetta_header = """
-        - operetta: Convert Perkin-Elmer Operetta files.
+        * operetta: Convert Perkin-Elmer Operetta files.
     """
     convert_operetta_subparser = convert_subparsers.add_parser(
         "operetta",
@@ -196,10 +196,13 @@ def main():
     _add_convert_args(convert_operetta_subparser)
     _add_convert_operetta_args(convert_operetta_subparser)
 
-    # --------- #
-    # EXECUTION #
-    # --------- #
+    return parser
 
+
+def main():
+    """Main BLIMP CLI entry point"""
+
+    parser = _get_full_parser()
     args = parser.parse_args()
     configure_logging(args.verbose)
 
