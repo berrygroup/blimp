@@ -3,9 +3,23 @@ import argparse
 
 from blimp.log import configure_logging
 
+# fmt: off
+header = """
+    BLIMP
+    -----
+
+    This is a command-line interface (CLI) for the blimp
+    python package (Berry Lab IMage Processing). blimp
+    has a full API (github.com/berrygroup/blimp) for
+    programmatic usage.
+    """
+# fmt: on
+
 
 def _get_base_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="blimp", description="BLIMP - Berry Lab IMage Processing.")
+    parser = argparse.ArgumentParser(
+        prog="blimp", description=header, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
         "-v",
         "--verbose",
@@ -134,8 +148,15 @@ def main():
     subparsers = parser.add_subparsers(dest="subcommand")
     subparsers.required = True
 
+    convert_header = """
+    * convert: Convert raw microscope files to standard
+    image formats such as OME-TIFF and OME-NGFF.
+    """
     convert_parser = subparsers.add_parser(
-        "convert", help="Convert raw microscope files to standard image formats", description=""
+        "convert",
+        help="Convert raw microscope files to standard image formats",
+        description="".join([header, convert_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     # --------------- #
@@ -148,18 +169,28 @@ def main():
     convert_subparsers.required = True
 
     # Convert - ND2
-
-    convert_nd2_subparser = convert_subparsers.add_parser("nd2", help="Nikon nd2 file", description="")
+    convert_nd2_header = """
+        - nd2: Convert Nikon nd2 files.
+    """
+    convert_nd2_subparser = convert_subparsers.add_parser(
+        "nd2",
+        help="Nikon nd2 file",
+        description="".join([header, convert_header, convert_nd2_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     convert_nd2_subparser.set_defaults(func=_convert_nd2)
     _add_convert_args(convert_nd2_subparser)
     _add_convert_nd2_args(convert_nd2_subparser)
 
     # Convert - Operetta
-
+    convert_operetta_header = """
+        - operetta: Convert Perkin-Elmer Operetta files.
+    """
     convert_operetta_subparser = convert_subparsers.add_parser(
         "operetta",
         help="Perkin-Elmer Operetta",
-        description="",
+        description="".join([header, convert_header, convert_operetta_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     convert_operetta_subparser.set_defaults(func=_convert_operetta)
     _add_convert_args(convert_operetta_subparser)
