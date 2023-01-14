@@ -5,43 +5,9 @@ import os
 import glob
 import logging
 
+from blimp.utils import read_template
+
 logger = logging.getLogger(__name__)
-
-nd2_to_tiff_jobscript_template = """#!/bin/bash
-
-### Splits nd2 files into standard OME-TIFF format
-
-#PBS -N ConvertND2
-#PBS -l select=1:ncpus=1:mem=128gb
-#PBS -l walltime=04:00:00
-#PBS -o {LOG_DIR}/${{PBS_JOBNAME}}.${{PBS_JOBID}}.out
-#PBS -e {LOG_DIR}/${{PBS_JOBNAME}}.${{PBS_JOBID}}.err
-#PBS -k oed
-#PBS -M {USER_EMAIL}
-#PBS -m ae
-
-### The following parameter is modulated at runtime to specify the
-### batch number on each node. Batches should run from zero to N_BATCHES-1
-### to process all files
-
-#PBS -J 0-{BATCH_MAX}
-
-###---------------------------------------------------------------------------
-
-INPUT_DIR={INPUT_DIR}
-OUTPUT_DIR={INPUT_DIR}/OME-TIFF
-
-source /home/{USER}/.bashrc
-conda activate berrylab-default
-
-cd $PBS_O_WORKDIR
-
-python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/nd2_to_ome_tiff.py \
--i $INPUT_DIR -o $OUTPUT_DIR --batch {N_BATCHES} ${{PBS_ARRAY_INDEX}} \
-{MIP} -y {Y_DIRECTION}
-
-conda deactivate
-"""
 
 
 def find_nd2_files(basepath: Union[Path, str]) -> list:
@@ -113,6 +79,7 @@ def convert_nd2(
     in_path: Union[str, Path],
     job_path: Union[str, Path],
     image_format: str,
+    template_path: Union[str, Path, None] = None,
     n_batches: int = 1,
     y_direction: str = "down",
     mip: bool = False,
@@ -133,6 +100,9 @@ def convert_nd2(
         saved in the `log` subdirectory of this path)
     image_format
         "TIFF" or "NGFF" (currently only TIFF implemented)
+    template_path
+        path to a template for the PBS jobscript
+        (default templates/convert_nd2_pbs.sh)
     n_batches
         number of batches into which the processing should be split.
     mip
@@ -171,10 +141,16 @@ def convert_nd2(
 
     job_paths = [job_path / ("batch_convert_nd2_" + str(p.stem) + ".pbs") for p in nd2_parent_paths]
 
+    # read template from file
+    if template_path is None:
+        jobscript_template = read_template("convert_nd2_pbs.sh")
+    else:
+        jobscript_template = Path(template_path).read_text()
+
     # create jobscripts using template
     for im_par_path, job_path in zip(nd2_parent_paths, job_paths):
         jobscript = generate_pbs_script(
-            template=nd2_to_tiff_jobscript_template,
+            template=jobscript_template,
             input_dir=str(im_par_path),
             log_dir=str(log_path),
             user=user,

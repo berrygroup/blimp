@@ -1,4 +1,4 @@
-from blimp import processing, preprocessing
+from blimp import templates, processing, preprocessing
 
 __author__ = __maintainer__ = "Scott Berry"
 __email__ = "scott.berry@unsw.edu.au"

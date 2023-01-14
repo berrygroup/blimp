@@ -9,6 +9,14 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def read_template(template_name: str) -> str:
+    import importlib.resources as pkg_resources
+
+    from . import templates
+
+    return pkg_resources.read_text(templates, template_name)
+
+
 def check_correct_dimension_order(images: Union[AICSImage, List[AICSImage]]) -> bool:
     """
     Check that the order of dimensions is 'TCZYX'.
@@ -199,6 +207,5 @@ def concatenate_images(
     else:
         logger.debug(f"output order {output_order}")
         raise NotImplementedError(f"output_order = {output_order} not implemented")
-        result = None
 
     return result

@@ -6,42 +6,9 @@ import os
 import glob
 import logging
 
+from blimp.utils import read_template
+
 logger = logging.getLogger(__name__)
-
-operetta_to_tiff_jobscript_template = """#!/bin/bash
-
-### Splits a set of operetta images into batches and converts to OME-TIFF
-
-#PBS -N ConvertOperetta
-#PBS -l select=1:ncpus=1:mem=128gb
-#PBS -l walltime=04:00:00
-#PBS -j oe
-#PBS -k oed
-#PBS -M {USER_EMAIL}
-#PBS -m ae
-
-### The following parameter is modulated at runtime to specify the
-### batch number on each node. Batches should run from zero to N_BATCHES-1
-### to process all files
-
-#PBS -J 0-{BATCH_MAX}
-
-###---------------------------------------------------------------------------
-
-INPUT_DIR={INPUT_DIR}
-OUTPUT_DIR={INPUT_DIR}/OME-TIFF
-
-source /home/{USER}/.bashrc
-conda activate berrylab-default
-
-cd $PBS_O_WORKDIR
-
-python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/operetta_to_ome_tiff.py \
--i $INPUT_DIR/Images -o $OUTPUT_DIR -f Index.idx.xml --batch {N_BATCHES} \
-${{PBS_ARRAY_INDEX}} -s -m
-
-conda deactivate
-"""
 
 
 def find_images_dirs(basepath):
@@ -62,6 +29,7 @@ def convert_operetta(
     in_path: Union[str, Path],
     job_path: Union[str, Path],
     image_format: str,
+    template_path: Union[str, Path, None] = None,
     n_batches: int = 1,
     save_metadata_files: bool = True,
     mip: bool = False,
@@ -86,6 +54,9 @@ def convert_operetta(
         name of the xml metadata file inside "Images"
     image_format
         "TIFF" or "NGFF" (currently only TIFF implemented)
+    template_path
+        path to a template for the PBS jobscript
+        (default templates/convert_operetta_pbs.sh)
     n_batches
         number of batches into which the processing should be split.
     batch_id
@@ -114,10 +85,16 @@ def convert_operetta(
     images_parent_paths = [Path(p).parent for p in images_paths]
     jobscript_paths = [job_path / ("batch_convert_" + str(p.stem) + ".pbs") for p in images_parent_paths]
 
+    # read template from file
+    if template_path is None:
+        jobscript_template = read_template("convert_operetta_pbs.sh")
+    else:
+        jobscript_template = Path(template_path).read_text()
+
     # create jobscripts using template
     for images_parent_path, jobscript_path in zip(images_parent_paths, jobscript_paths):
         jobscript = generate_pbs_script(
-            operetta_to_tiff_jobscript_template,
+            jobscript_template,
             images_parent_path,
             user,
             email,
