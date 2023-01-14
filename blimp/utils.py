@@ -1,4 +1,4 @@
-"""Miscellaneous tools for blimp."""
+"""Miscellaneous tools for blimp"""
 from typing import List, Union
 import os
 import logging
