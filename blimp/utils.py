@@ -16,7 +16,7 @@ def check_correct_dimension_order(images: Union[AICSImage, List[AICSImage]]) -> 
     Parameters
     ----------
     images
-        A single ``AICSImage`` or a list of ``AICSImage``s to check the dimension order of.
+        A single `AICSImage` or a list of `AICSImage`s to check the dimension order of.
 
     Returns
     -------
@@ -46,17 +46,20 @@ def check_correct_dimension_order(images: Union[AICSImage, List[AICSImage]]) -> 
 
 
 def check_correct_dimension_sizes(images: Union[AICSImage, List[AICSImage]]) -> bool:
-    """Checks if the dimensions of a list of AICSImages are correct and unique.
+    """
+    Check that the dimensions of a list of AICSImages are correct and uniform.
 
     Parameters
     ----------
     images
-        A single AICSImage or a list of AICSImages to check for correct and matching dimension sizes.
+        A single AICSImage or a list of AICSImages to check for correct and
+        matching dimension sizes.
 
     Returns
     -------
     bool
-        True if all images in the list have matching dimension sizes, False otherwise.
+        True if all images in the list have matching dimension sizes, False
+        otherwise.
 
     Raises
     ------
@@ -157,7 +160,8 @@ def concatenate_images(
     Raises
     ------
     TypeError
-        If the sizes of the dimensions of the images passed in the `images` argument do not match.
+        If the sizes of the dimensions of the images passed in the `images`
+        argument do not match.
     NotImplementedError
         If the `output_order` parameter is not 'CZYX'.
 
