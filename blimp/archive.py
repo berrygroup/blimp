@@ -25,7 +25,7 @@ def check_config_file() -> bool:
 
 
 def write_archiving_script(
-    file_paths: List[str], script_path: Union[Path, str], first_name: str, project_name: str = "D0419427"
+    file_paths: Union[List[Path],List[str]], script_path: Union[Path, str], first_name: str, project_name: str = "D0419427"
 ) -> None:
     """
     Create a bash script that execute the 'upload.sh' command for each file path in `file_paths` list.
@@ -40,6 +40,8 @@ def write_archiving_script(
     -------
     None
     """
+
+    file_paths = [str(f) for f in file_paths]
 
     with open(Path(script_path), "w") as f:
         f.write("#!/bin/bash\n\n")

@@ -11,7 +11,8 @@ from blimp.utils import read_template
 logger = logging.getLogger(__name__)
 
 
-def find_images_dirs(basepath):
+def find_images_dirs(basepath : Union[str,Path]):
+    basepath = str(basepath)
     return glob.glob(basepath + "/**/Images", recursive=True)
 
 
