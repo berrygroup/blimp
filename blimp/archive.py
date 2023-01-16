@@ -1,8 +1,9 @@
 """Convert Nikon nd2 files to standard open microscopy environment formats."""
 from typing import List, Union
 from pathlib import Path
-import os, stat
+import os
 import re
+import stat
 import logging
 
 import numpy as np
@@ -25,7 +26,10 @@ def check_config_file() -> bool:
 
 
 def write_archiving_script(
-    file_paths: Union[List[Path],List[str]], script_path: Union[Path, str], first_name: str, project_name: str = "D0419427"
+    file_paths: Union[List[Path], List[str]],
+    script_path: Union[Path, str],
+    first_name: str,
+    project_name: str = "D0419427",
 ) -> None:
     """
     Create a bash script that execute the 'upload.sh' command for each file path in `file_paths` list.
@@ -55,7 +59,9 @@ def write_archiving_script(
             # use a regex to strip the first part of the filename that
             # we do not need to include in the upload destination
             relative_path = re.sub(r"^\/srv\/scratch\/berrylab\/z\d{7}\/", "", file_path)
-            f.write(f"java -Dmf.cfg=$CONFIG_FILE -cp /apps/unswdataarchive/2020-03-19/aterm.jar arc.mf.command.Execute import -verbose true -import-empty-folders true -namespace /UNSW_RDS/{project_name}/{first_name}/{relative_path} {file_path}\n")
+            f.write(
+                f"java -Dmf.cfg=$CONFIG_FILE -cp /apps/unswdataarchive/2020-03-19/aterm.jar arc.mf.command.Execute import -verbose true -import-empty-folders true -namespace /UNSW_RDS/{project_name}/{first_name}/{relative_path} {file_path}\n"
+            )
 
 
 def archive(
@@ -106,6 +112,6 @@ def archive(
         logger.error(f"input_type {input_type} not recognised. Please specify 'nd2' or 'operetta' input_type.")
         raise ValueError("Input type not recognised")
 
-    os.chmod(jobscript_path,stat.S_IRWXU | stat.S_IRWXG | stat.S_IROTH)
+    os.chmod(jobscript_path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IROTH)
 
     return
