@@ -26,9 +26,9 @@ Installation
 
 or ``pip install -e '.[dev,test]'`` for the development tools.
 
-The installation will make many functions externally accessible and 
+The installation will make many functions externally accessible and
 will also install the ``blimp`` command line interface (CLI) in the
-`bin` directory of the installation environment. This should be 
+`bin` directory of the installation environment. This should be
 accessible in your path.
 
 Documentation
@@ -54,7 +54,7 @@ Pre-processing
 --------------
 
 - **Convert**: conversion of microscope-specific file formats to a common file format for uniform downstream processing
-   
+
 - **Correct**: correct acquisition artefacts such as illumination biases
 
 - **Align**: registration of images between time-points, imaging cycles, or from channel-specific misalignment of microscopes
@@ -66,10 +66,10 @@ blimp can convert batches of raw microscope files to common file formats
 and extract metadata. Image file formats chosen are
 `OME-TIFF <https://docs.openmicroscopy.org/ome-model/5.6.3/ome-tiff/>`__
 and `OME-NGFF <https://ngff.openmicroscopy.org/latest/>`__. Note:
-OME-NGFF is not yet implemented. 
+OME-NGFF is not yet implemented.
 
-For further analysis after preprocessing, it is recommended to read 
-both formats using the ``AICSImage`` class from the 
+For further analysis after preprocessing, it is recommended to read
+both formats using the ``AICSImage`` class from the
 `aicsimageio <https://github.com/AllenCellModeling/aicsimageio>`__
 package, to ensure image layout and metadata are consistently assigned.
 
@@ -79,11 +79,11 @@ For example, to convert Nikon nd2 files:
 
    blimp -vv convert nd2 -i /path/to/input/dir -j /path/to/write/pbs/jobscripts --user {zID} --submit
 
-This will initiate a search of the input directory for the 
-corresponding file-types, then generate PBS jobscripts to call the 
+This will initiate a search of the input directory for the
+corresponding file-types, then generate PBS jobscripts to call the
 conversion functions in batch mode. These files can also submit
-jobscripts. Converted images and metadata will be written as a new 
-subdirectory of the folder containing the images. 
+jobscripts. Converted images and metadata will be written as a new
+subdirectory of the folder containing the images.
 
 In this case PBS scripts includes the following,
 
@@ -93,7 +93,7 @@ In this case PBS scripts includes the following,
    conda activate berrylab-default
 
 which depends on conda being correctly setup within ``.bashrc`` and a
-functional ``berrylab-default`` conda env. If this is not the case, 
+functional ``berrylab-default`` conda env. If this is not the case,
 then the example PBS template will need to be edited. The location of
 this template can be provided on the command line.
 
@@ -123,10 +123,10 @@ Projections
 It is extremely common to analyse 2D data derived from 3D imaging
 volumes using maximum-intensity projection along the axis of the
 objective lens (z-axis). ``blimp convert`` can perform maximum intensity
-projections during conversion. These are saved in ``OME-TIFF-MIP`` 
-subfolders (along with corresponding metadata). The commandline option 
-``--mip`` is used to specify that maximum intensity projections should 
-be performed. Note that original microscope-specific files, as well as 
+projections during conversion. These are saved in ``OME-TIFF-MIP``
+subfolders (along with corresponding metadata). The commandline option
+``--mip`` is used to specify that maximum intensity projections should
+be performed. Note that original microscope-specific files, as well as
 conversions of the data containing z-resolution are retained in this case.
 
 Illumination correction
