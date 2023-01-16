@@ -5,9 +5,9 @@
 #PBS -N ConvertND2
 #PBS -l select=1:ncpus=1:mem=8gb
 #PBS -l walltime=02:00:00
-#PBS -o {LOG_DIR}/${{PBS_JOBNAME}}.${{PBS_JOBID}}.out
-#PBS -e {LOG_DIR}/${{PBS_JOBNAME}}.${{PBS_JOBID}}.err
-#PBS -k oed
+#PBS -o {LOG_DIR}
+#PBS -e {LOG_DIR}
+#PBS -k n
 #PBS -M {USER_EMAIL}
 #PBS -m ae
 
