@@ -132,6 +132,61 @@ def _convert_operetta(args) -> None:
     return None
 
 
+def _add_archive_args(parser: argparse.ArgumentParser) -> None:
+
+    parser.add_argument(
+        "-i", "--input_path", help="Top-level directory to search for images to be converted (required)", required=True
+    )
+
+    parser.add_argument(
+        "-j",
+        "--jobscript_path",
+        default=os.getcwd(),
+        help="Directory to save jobscripts (default = current working directory)",
+        required=True,
+    )
+
+    parser.add_argument(
+        "--first_name", help="Your first name for creating the archive path at UNSW_RDS (required)", required=True
+    )
+
+    parser.add_argument(
+        "--project_name",
+        default="D0419427",
+        help="The project name where data should be archived on UNSW's Data Archive (default = D0419427)",
+    )
+
+    return None
+
+
+def _archive_nd2(args) -> None:
+    """Wrapper for convert_nd2(input_type=="nd2")"""
+    from blimp.archive import archive
+
+    archive(
+        in_path=args.input_path,
+        jobscript_path=args.jobscript_path,
+        input_type="nd2",
+        first_name=args.first_name,
+        project_name=args.project_name,
+    )
+    return None
+
+
+def _archive_operetta(args) -> None:
+    """Wrapper for archive(input_type=="operetta")"""
+    from blimp.archive import archive
+
+    archive(
+        in_path=args.input_path,
+        jobscript_path=args.jobscript_path,
+        input_type="operetta",
+        first_name=args.first_name,
+        project_name=args.project_name,
+    )
+    return None
+
+
 def _get_full_parser() -> argparse.ArgumentParser:
 
     # ----------- #
@@ -155,6 +210,17 @@ def _get_full_parser() -> argparse.ArgumentParser:
         "convert",
         help="Convert raw microscope files to standard image formats",
         description="".join([header, convert_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    archive_header = """
+    * archive: archive original files on UNSW's Data
+    Archive.
+    """
+    archive_parser = subparsers.add_parser(
+        "archive",
+        help="Archive original files on UNSW's Data Archive.",
+        description="".join([header, archive_header]),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
@@ -194,6 +260,37 @@ def _get_full_parser() -> argparse.ArgumentParser:
     convert_operetta_subparser.set_defaults(func=_convert_operetta)
     _add_convert_args(convert_operetta_subparser)
     _add_convert_operetta_args(convert_operetta_subparser)
+
+    # Archive
+
+    archive_subparsers = archive_parser.add_subparsers(dest="input_type", help="Input type")
+    archive_subparsers.required = True
+
+    # Archive - ND2
+    archive_nd2_header = """
+        * nd2: archive Nikon nd2 files.
+    """
+    archive_nd2_subparser = archive_subparsers.add_parser(
+        "nd2",
+        help="Nikon nd2 file",
+        description="".join([header, archive_header, archive_nd2_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    archive_nd2_subparser.set_defaults(func=_archive_nd2)
+    _add_archive_args(archive_nd2_subparser)
+
+    # Archive - Operetta
+    archive_operetta_header = """
+        * operetta: archive Perkin-Elmer Operetta files.
+    """
+    archive_operetta_subparser = archive_subparsers.add_parser(
+        "operetta",
+        help="Perkin-Elmer Operetta",
+        description="".join([header, archive_header, archive_operetta_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    archive_operetta_subparser.set_defaults(func=_archive_operetta)
+    _add_archive_args(archive_operetta_subparser)
 
     return parser
 
