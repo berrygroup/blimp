@@ -5,7 +5,6 @@ import logging
 
 from itk import ParameterObject, transformix_filter, elastix_registration_method
 import numpy as np
-import image_registration as reg
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +184,9 @@ def transform_2D(moving: np.ndarray, parameters: TransformationParameters) -> np
     return np.asarray(transformed, dtype=moving.dtype)
 
     def register_2D_fast_translation(fixed, moving):
+        import image_registration as reg
+
+        # TODO finish off this approach using the image_registration package
         xoff, yoff, exoff, eyoff = reg.chi2_shift(fixed, moving)
         registered = reg.fft_tools.shift.shiftnd(moving, (-yoff, -xoff))
         return (registered, (xoff, yoff))
