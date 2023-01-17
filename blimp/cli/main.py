@@ -303,7 +303,6 @@ def main():
     configure_logging(args.verbose)
 
     # call function provided as default for the subparser
-    print(args)
     args.func(args)
 
     return
