@@ -104,8 +104,7 @@ def register_2D(
 ) -> Tuple[np.ndarray, TransformationParameters]:
     """Align an image to a reference image, keeping transformation parameters
 
-    A ``moving`` image is aligned to a ``fixed`` image using
-    ITK Elastix.
+    Aligns a ``moving`` image to a ``fixed`` image using ITK Elastix.
 
     Parameters
     ----------
@@ -133,11 +132,9 @@ def register_2D(
     try:
         check_arrays_are_2D([fixed, moving])
     except TypeError:
-        # logger.error("Either ``fixed`` or ``moving`` are not of correct type (numpy.ndarray)")
-        pass
+        logger.error("Either ``fixed`` or ``moving`` are not of correct type (numpy.ndarray)")
     except ValueError:
-        # logger.error("Either ``fixed`` or ``moving`` are not of correct rank (2)")
-        pass
+        logger.error("Either ``fixed`` or ``moving`` are not of correct rank (2)")
 
     registered, parameters = elastix_registration_method(
         np.asarray(fixed, dtype=np.float32),
