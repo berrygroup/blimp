@@ -202,6 +202,16 @@ def _get_full_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="subcommand")
     subparsers.required = True
 
+    setup_header = """
+    * setup: Create configuration file ``blimp.ini``.
+    """
+    setup_parser = subparsers.add_parser(
+        "setup",
+        help="Create configuration file ``blimp.ini``.",
+        description="".join([header, setup_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
     convert_header = """
     * convert: Convert raw microscope files to standard
     image formats such as OME-TIFF and OME-NGFF.
