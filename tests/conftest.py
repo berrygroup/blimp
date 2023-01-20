@@ -11,6 +11,7 @@ def _set_config():
     from blimp.log import configure_logging
     from blimp.constants import SCRIPTS_DIR, blimp_config
 
+    # TODO: implement test data download
     # from blimp.data._download_data import load_test_data
 
     configure_logging()  # NOTE: this will silence some warnings of 3rd party packages
