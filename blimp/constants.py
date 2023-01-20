@@ -77,7 +77,7 @@ class BLIMPConfig:
         return s
 
     @property
-    def config_fname(self) -> Optional[Union[os.PathLike[str], str]]:
+    def config_fname(self) -> Optional[Union["os.PathLike[str]", str]]:
         """
         Name of config file.
 
@@ -86,7 +86,7 @@ class BLIMPConfig:
         return self._config_fname
 
     @config_fname.setter
-    def config_fname(self, fname: Union[os.PathLike[str], str]) -> None:
+    def config_fname(self, fname: Union["os.PathLike[str]", str]) -> None:
         fname = Path(fname)
         if fname.is_file():
             try:

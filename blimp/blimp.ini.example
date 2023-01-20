@@ -1,0 +1,9 @@
+[DEFAULT]
+data_dir =
+experiment_dir =
+
+
+[data]
+; register individual constants files for different data sources here
+; they will be referenced by the chosen name in the code
+ExampleData =

@@ -1,7 +1,10 @@
 import os
+import sys
 import argparse
 
 from blimp.log import configure_logging
+
+from .prepare_config import prepare_config
 
 # fmt: off
 header = """
@@ -25,6 +28,16 @@ def _get_base_parser() -> argparse.ArgumentParser:
         action="count",
         default=0,
         help="Increase verbosity (e.g. -vvv)",
+    )
+    return parser
+
+
+def _get_setup_parser():
+    parser = argparse.ArgumentParser(description="Create configuration file ``blimp.ini``.")
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="create default configuration file without asking for user input.",
     )
     return parser
 
@@ -211,6 +224,7 @@ def _get_full_parser() -> argparse.ArgumentParser:
         description="".join([header, setup_header]),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    setup_parser.set_defaults(func=prepare_config)
 
     convert_header = """
     * convert: Convert raw microscope files to standard
@@ -313,7 +327,13 @@ def main():
     configure_logging(args.verbose)
 
     # call function provided as default for the subparser
-    args.func(args)
+    if args.func == prepare_config:
+        # setup requires user input so needs a slightly different interface
+        setup_parser = _get_setup_parser()
+        setup_args = setup_parser.parse_args(sys.argv[sys.argv.index("setup") + 1 :])
+        prepare_config(**vars(setup_args))
+    else:
+        args.func(args)
 
     return
 
