@@ -1,7 +1,6 @@
 # pip install itk-elastix
 from typing import List, Tuple, Union, Literal, overload
 from pathlib import Path
-import sys
 import logging
 
 from itk import ParameterObject, transformix_filter, elastix_registration_method
@@ -20,7 +19,7 @@ class TransformationParameters:
         transformation_mode: Union[str, None] = None,
         resolutions: int = 3,
         from_object: Union[ParameterObject, None] = None,
-        from_file: Union[str, None] = None,
+        from_file: Union[Path, str, None] = None,
         from_resources: Union[str, None] = None,
     ):
         """
@@ -57,6 +56,11 @@ class TransformationParameters:
         self.transformation_mode = transformation_mode
         self.from_object = True if from_object is not None else False
 
+        if all([transformation_mode, from_resources, from_file, from_object]) is None:
+            raise ValueError(
+                "TransformationParameters requires one of [transformation_mode, from_object, from_file, from_resources]"
+            )
+
         if from_object is not None:
             logger.debug("Initialising ``TransformationParameters`` from object")
             self.parameter_object = from_object
@@ -70,7 +74,8 @@ class TransformationParameters:
             logger.debug(f"Initialising ``TransformationParameters`` from resources {from_resources}")
             # TODO: implement default transformation parameters in resources
             # load_transformation_parameters_from_resources(from_resources)
-            self.parameter_object = ParameterObject.New()
+            # self.parameter_object = ParameterObject.New()
+            raise NotImplementedError("Default transformation settings in package resources are not implemented yet")
 
         else:
             logger.debug(f"Initialising ``TransformationParameters`` using defaults: {transformation_mode}")
@@ -79,7 +84,7 @@ class TransformationParameters:
                 parameter_map = self.parameter_object.GetDefaultParameterMap(transformation_mode, resolutions)
             else:
                 logger.error("Unknown transformation mode {transformation_mode}")
-                ValueError(f"ITK transformation_mode {transformation_mode} unknown")
+                raise ValueError(f"ITK transformation_mode {transformation_mode} unknown")
 
             self.parameter_object.AddParameterMap(parameter_map)
 
@@ -139,16 +144,34 @@ def register_2D(
         object containing the full transformation parameters
         necessary to perform the transformation of ``moving``
         to the reference frame of ``fixed``.
+
+    Raises
+    ------
+    TypeError
+        If any of the positional inputs are not of the correct type
+        If the numpy.dtypes of the two input arrays do not match
+    ValueError
+        If the input arrays are not rank 2
+        If the shape of input arrays does not match
     """
 
     try:
         confirm_array_rank([fixed, moving], 2)
     except TypeError:
-        logger.error("Either ``fixed`` or ``moving`` are not of correct type (numpy.ndarray)")
-        sys.exit()
+        raise TypeError(
+            "Either ``fixed`` or ``moving`` are not of correct type (numpy.ndarray or dask.array.core.Array)"
+        )
     except ValueError:
-        logger.error("Either ``fixed`` or ``moving`` are not of correct rank (2)")
-        sys.exit()
+        raise ValueError("Either ``fixed`` or ``moving`` are not of correct rank (2)")
+
+    if fixed.shape != moving.shape:
+        raise ValueError(f"Shape of ``moving`` ({fixed.shape}) must match shape of ``fixed`` ({moving.shape})")
+    elif fixed.dtype != moving.dtype:
+        raise TypeError(
+            f"numpy.dtype of ``moving`` ({fixed.dtype}) must match numpy.dtype of ``fixed`` ({moving.dtype})"
+        )
+    elif not isinstance(settings, TransformationParameters):
+        raise TypeError("``settings`` is not a ``TransformationParameters`` object")
 
     registered, parameters = elastix_registration_method(
         np.asarray(fixed, dtype=np.float32),
@@ -181,16 +204,33 @@ def transform_2D(moving: Union[np.ndarray, da.core.Array], parameters: Transform
     -------
     numpy.ndarray
         transformed image derived by transforming ``moving``
+
+    Raises
+    ------
+    TypeError
+        If any of the positional inputs are not of the correct type
+    ValueError
+        If the input array is not rank 2
+    RuntimeError
+        If the shape specified in ``parameters`` does not match
+        the shape of ``moving``
     """
 
     try:
         confirm_array_rank(moving, 2)
     except TypeError:
-        logger.error("Either ``fixed`` or ``moving`` are not of correct type (numpy.ndarray)")
-        sys.exit()
+        raise TypeError("``moving`` is not of correct type (numpy.ndarray)")
     except ValueError:
-        logger.error("Either ``fixed`` or ``moving`` are not of correct rank (2)")
-        sys.exit()
+        raise ValueError("``moving`` is not of correct rank (2)")
+
+    if not isinstance(parameters, TransformationParameters):
+        raise TypeError("``settings`` is not a ``TransformationParameters`` object")
+    else:
+        y, x = (int(float(i)) for i in parameters.parameter_object.GetParameterMap(0)["Size"])
+        if not (y == moving.shape[0] and x == moving.shape[1]):
+            raise RuntimeError(
+                f"`TransformationParameters` expected size ({y},{x}), while ``moving`` has size ({moving.shape[0]},{moving.shape[1]})"
+            )
 
     transformed = transformix_filter(np.asarray(moving, dtype=np.float32), parameters.parameter_object)
 

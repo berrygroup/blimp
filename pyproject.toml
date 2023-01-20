@@ -47,3 +47,9 @@ only_modified = true
 group_by_package = true
 force_alphabetical_sort_within_sections = true
 lexicographical = true
+
+[tool.pytest.ini_options]
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"

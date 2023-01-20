@@ -28,7 +28,7 @@ or ``pip install -e '.[dev,test]'`` for the development tools.
 
 The installation will make many functions externally accessible and
 will also install the ``blimp`` command line interface (CLI) in the
-`bin` directory of the installation environment. This should be
+``bin`` directory of the installation environment. This should be
 accessible in your path.
 
 Documentation
@@ -46,7 +46,7 @@ extension. To generate documentation use ``tox``,
 The html documentation will then be available at ``/docs/_build/html/index.html``
 
 Command line interface
----------------------
+----------------------
 
 To access help type ``blimp -h``.
 
@@ -57,7 +57,7 @@ Pre-processing
 
 - **Correct**: correct acquisition artefacts such as illumination biases
 
-- **Align**: registration of images between time-points, imaging cycles, or from channel-specific misalignment of microscopes
+- **Align**: registration of images between time-points, imaging cycles, or channel-specific microscope misalignment
 
 Convert
 ~~~~~~~
