@@ -7,6 +7,9 @@ Preprocessing
 .. module:: blimp.preprocessing
 .. currentmodule:: blimp
 
+File handling
+^^^^^^^^^^^^^
+
 .. autosummary::
     :toctree: api
 
@@ -16,6 +19,17 @@ Preprocessing
     preprocessing.operetta_to_ome_tiff
     preprocessing.get_image_metadata
     preprocessing.get_plate_metadata
+
+Image registration
+^^^^^^^^^^^^^^^^^^
+
+.. autosummary::
+    :toctree: api
+
+    preprocessing.register_2D
+    preprocessing.transform_2D
+    preprocessing.calculate_shifts
+    preprocessing.apply_shifts
 
 Processing
 ~~~~~~~~~~
