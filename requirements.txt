@@ -1,6 +1,7 @@
 aicsimageio>=4.9.4
 cellpose>=2.1.1
 importlib_metadata>=5.1.0
+itk-elastix==0.15.0
 nd2reader>=3.3.0
 packaging>=23.0
 pandas>=1.5.2
