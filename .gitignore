@@ -141,3 +141,4 @@ docs/api
 tests/_data
 tests/_experiments
 tests/_test_data.zip
+notebooks/_data
