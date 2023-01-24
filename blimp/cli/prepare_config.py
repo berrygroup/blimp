@@ -45,7 +45,7 @@ def prepare_config(quiet=False):
         # add test data
         blimp_config.add_data_config(
             "ExampleData",
-            str(Path(__file__).resolve().parent.parent.parent / "notebooks" / "params" / "ExampleData_constants.py"),
+            str(Path(__file__).resolve().parent.parent.parent / "notebooks" / "ExampleData_constants.py"),
         )
         blimp_config.write()
 

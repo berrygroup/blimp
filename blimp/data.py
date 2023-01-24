@@ -34,7 +34,7 @@ def load_example_data(data_dir: Path_t = None) -> Path_t:
     folder_dir = load_dataset(
         dataset_path=data_dir,
         fname=fname,
-        backup_url="https://figshare.com/ndownloader/files/38929985",
+        backup_url="https://figshare.com/ndownloader/files/38934461",
     )
 
     return folder_dir
@@ -89,9 +89,12 @@ def load_dataset(dataset_path: Path_t, fname: str, backup_url: str) -> Path_t:
     unpacked_dir = Path(os.path.join(dataset_path, fname, "raw"))
     archive_path = Path(os.path.join(dataset_path, fname, "archive", f"{fname}.zip"))
 
+    print(f"unpacked_dir = {unpacked_dir}")
+    print(f"archive_path = {archive_path}")
+
     os.makedirs(unpacked_dir, exist_ok=True)
     foldercontent = os.listdir(str(unpacked_dir))
-    if "channels_metadata.csv" in foldercontent:
+    if "operetta_cls_multiplex" in foldercontent:
         return unpacked_dir
 
     elif archive_path.exists():
