@@ -1,3 +1,4 @@
+from typing import Tuple
 from pathlib import Path
 import logging
 
@@ -231,10 +232,14 @@ def test_register_2D_accuracy(_ensure_test_data):
     # Test if translation of a pure translation can recover the original
     settings = blimp.preprocessing.registration.TransformationParameters(transformation_mode="translation")
     translated_registered, parameters = blimp.preprocessing.registration.register_2D(original, translated, settings)
-    difference = original[200:-200, 200:-200].astype(np.float64) - translated_registered[200:-200, 200:-200].astype(
+    original_difference = original[200:-200, 200:-200].astype(np.float64) - translated[200:-200, 200:-200].astype(
         np.float64
     )
-    assert np.mean(abs(difference)) < 1
+    registered_difference = original[200:-200, 200:-200].astype(np.float64) - translated_registered[
+        200:-200, 200:-200
+    ].astype(np.float64)
+    assert np.mean(abs(original_difference)) > 1
+    assert np.mean(abs(registered_difference)) < 1
 
     # Test if rigid registration of a rotation matches previously validated image
     settings = blimp.preprocessing.registration.TransformationParameters(transformation_mode="rigid")
@@ -247,3 +252,221 @@ def test_register_2D_accuracy(_ensure_test_data):
     np.testing.assert_raises(
         AssertionError, np.testing.assert_almost_equal, rotated_registered, rotated_registered_validated
     )
+
+
+def test_register_2D_fast_valid_input(_ensure_test_data):
+    images = _load_test_data("operetta_cls_multiplex")
+    fixed_np = images[0].get_image_data("YX", T=0, C=0, Z=0)
+    moving_np = images[1].get_image_data("YX", T=0, C=0, Z=0)
+    fixed_da = images[0].get_image_dask_data("YX", T=0, C=0, Z=0)
+    moving_da = images[1].get_image_dask_data("YX", T=0, C=0, Z=0)
+
+    # Test numpy input
+    registered_np, parameters_np = blimp.preprocessing.registration.register_2D_fast(fixed=fixed_np, moving=moving_np)
+    assert isinstance(registered_np, np.ndarray)
+    assert registered_np.shape == fixed_np.shape
+    assert isinstance(parameters_np, tuple)
+    # Test dask input
+    registered_da, parameters_da = blimp.preprocessing.registration.register_2D_fast(fixed=fixed_da, moving=moving_da)
+    assert isinstance(registered_da, np.ndarray)
+    assert registered_da.shape == fixed_da.shape
+    assert isinstance(parameters_da, tuple)
+    # Test whether dask and numpy inputs are equivalent
+    np.testing.assert_almost_equal(registered_da, registered_np)
+    # Test whether registration modified the input image
+    np.testing.assert_raises(AssertionError, np.testing.assert_almost_equal, registered_np, moving_np)
+
+
+def test_register_2D_fast_parameters_only():
+    fixed = np.random.rand(10, 10)
+    moving = np.random.rand(10, 10)
+    parameters = blimp.preprocessing.registration.register_2D_fast(fixed, moving, parameters_only=True)
+    assert isinstance(parameters, tuple)
+
+
+def test_register_2D_fast_preserve_dtype():
+    fixed_float = np.random.rand(10, 10).astype(np.float32)
+    moving_float = np.random.rand(10, 10).astype(np.float32)
+    fixed_int8 = (255 * np.random.rand(10, 10) - 128).astype(np.int8)
+    moving_int8 = (255 * np.random.rand(10, 10) - 128).astype(np.int8)
+    fixed_uint16 = (65535 * np.random.rand(10, 10)).astype(np.uint16)
+    moving_uint16 = (65535 * np.random.rand(10, 10)).astype(np.uint16)
+    registered, parameters = blimp.preprocessing.registration.register_2D_fast(fixed_float, moving_float)
+    assert registered.dtype == fixed_float.dtype
+    registered, parameters = blimp.preprocessing.registration.register_2D_fast(fixed_int8, moving_int8)
+    assert registered.dtype == fixed_int8.dtype
+    registered, parameters = blimp.preprocessing.registration.register_2D_fast(fixed_uint16, moving_uint16)
+    assert registered.dtype == fixed_uint16.dtype
+    # Test whether non-matching data types raise the correct error
+    with pytest.raises(TypeError):
+        registered, parameters = blimp.preprocessing.registration.register_2D_fast(fixed_float, moving_uint16)
+    with pytest.raises(TypeError):
+        registered, parameters = blimp.preprocessing.registration.register_2D_fast(fixed_int8, moving_uint16)
+
+
+def test_register_2D_fast_invalid_input():
+    fixed = np.random.rand(10, 10)
+    moving = np.random.rand(5, 5)
+    moving_rank_3 = np.random.rand(1, 10, 10)
+    with pytest.raises(ValueError):
+        blimp.preprocessing.registration.register_2D_fast(fixed, moving)
+    with pytest.raises(ValueError):
+        blimp.preprocessing.registration.register_2D_fast(fixed, moving_rank_3)
+    with pytest.raises(TypeError):
+        blimp.preprocessing.registration.register_2D_fast(fixed, "invalid")
+
+
+def test_transform_2D_fast_valid_input(_ensure_test_data):
+    # Load images and transformation_settings
+    testdata_config = blimp_config.get_data_config("testdata")
+    file_path = Path(testdata_config.RESOURCES_DIR) / "affine.txt"
+    images = _load_test_data("operetta_cls_multiplex")
+    moving = images[1].get_image_data("YX", T=0, C=0, Z=0)
+    parameters = blimp.preprocessing.registration.TransformationParameters(from_file=file_path)
+    transformed = blimp.preprocessing.registration.transform_2D(moving, parameters)
+    assert isinstance(transformed, np.ndarray)
+    assert transformed.shape == moving.shape
+
+
+def test_transform_2D_fast_non_matching_sizes(_ensure_test_data):
+    # Load images and transformation_settings
+    testdata_config = blimp_config.get_data_config("testdata")
+    file_path = Path(testdata_config.RESOURCES_DIR) / "affine.txt"
+    images = _load_test_data("operetta_cls_multiplex")
+    # crop input image so that it does not match the
+    # size of the loaded transformation settings
+    moving = images[1].get_image_data("YX", T=0, C=0, Z=0)[:-100, :-100]
+    parameters = blimp.preprocessing.registration.TransformationParameters(from_file=file_path)
+    with pytest.raises(RuntimeError):
+        blimp.preprocessing.registration.transform_2D(moving, parameters)
+
+
+def test_transform_2D_fast_invalid_input():
+    moving = np.random.rand(5, 5)
+    moving_rank_3 = np.random.rand(1, 10, 10)
+    settings = blimp.preprocessing.registration.TransformationParameters(transformation_mode="translation")
+    with pytest.raises(ValueError):
+        blimp.preprocessing.registration.transform_2D_fast(moving_rank_3, settings)
+    with pytest.raises(TypeError):
+        blimp.preprocessing.registration.transform_2D_fast("invalid", settings)
+    with pytest.raises(TypeError):
+        blimp.preprocessing.registration.transform_2D_fast(moving, "invalid")
+    with pytest.raises(TypeError):
+        blimp.preprocessing.registration.transform_2D_fast(moving, (1.2, "string"))
+
+
+def test_compare_register_2D_fast_and_transform_2D_fast(_ensure_test_data):
+    images = _load_test_data("operetta_cls_multiplex")
+    fixed = images[0].get_image_data("YX", T=0, C=0, Z=0)
+    moving = images[1].get_image_data("YX", T=0, C=0, Z=0)
+    registered_1, parameters = blimp.preprocessing.registration.register_2D_fast(
+        fixed=fixed,
+        moving=moving,
+    )
+    registered_2 = blimp.preprocessing.registration.transform_2D_fast(moving=moving, parameters=parameters)
+    np.testing.assert_almost_equal(registered_1, registered_2)
+
+
+def test_register_2D_fast_accuracy(_ensure_test_data):
+    images = _load_test_data("registration_tests")
+    original = images[0].get_image_data("YX")
+    translated = images[1].get_image_data("YX")
+
+    # Test if translation of a pure translation can recover the original
+    translated_registered, parameters = blimp.preprocessing.registration.register_2D_fast(original, translated)
+    original_difference = original[200:-200, 200:-200].astype(np.float64) - translated[200:-200, 200:-200].astype(
+        np.float64
+    )
+    registered_difference = original[200:-200, 200:-200].astype(np.float64) - translated_registered[
+        200:-200, 200:-200
+    ].astype(np.float64)
+    assert np.mean(abs(original_difference)) > 1
+    assert np.mean(abs(registered_difference)) < 1
+
+
+def test_calculate_shifts_elastix(_ensure_test_data):
+    test_images = _load_test_data("operetta_cls_multiplex")
+    test_images = test_images + test_images
+    test_settings = blimp.preprocessing.registration.TransformationParameters("affine")
+
+    # Test that the function returns the correct output type
+    result = blimp.preprocessing.registration._calculate_shifts_elastix(test_images, 0, 0, test_settings)
+    assert all(isinstance(n, blimp.preprocessing.registration.TransformationParameters) for n in result)
+
+
+def test_calculate_shifts_image_registration(_ensure_test_data):
+    test_images = _load_test_data("operetta_cls_multiplex")
+    test_images += test_images
+
+    # Test that the function returns the correct output type
+    result = blimp.preprocessing.registration._calculate_shifts_image_registration(test_images, 0, 0)
+    assert all(isinstance(n, Tuple) for n in result)
+
+
+def test_calculate_shifts_errors(_ensure_test_data):
+    test_images = _load_test_data("operetta_cls_multiplex")
+    test_images += test_images
+
+    # Test valid
+    result_parameters = blimp.preprocessing.registration.calculate_shifts(
+        test_images,
+        1,
+        1,
+    )
+
+    # Test out-of-range for reference channel not found
+    with pytest.raises(IndexError):
+        result_parameters = blimp.preprocessing.registration.calculate_shifts(
+            test_images,
+            2,
+            0,
+        )
+
+    # Test out-of-range for cycle not found
+    with pytest.raises(IndexError):
+        result_parameters = blimp.preprocessing.registration.calculate_shifts(
+            test_images,
+            0,
+            4,
+        )
+
+    # Test negative channel
+    with pytest.raises(IndexError):
+        result_parameters = blimp.preprocessing.registration.calculate_shifts(
+            test_images,
+            -1,
+            0,
+        )
+
+    # Test negative cycle
+    with pytest.raises(IndexError):
+        result_parameters = blimp.preprocessing.registration.calculate_shifts(
+            test_images,
+            0,
+            -1,
+        )
+
+    # Test that the function returns a ValueError for unknown library request
+    with pytest.raises(ValueError):
+        result_parameters = blimp.preprocessing.registration.calculate_shifts(test_images, 0, 0, lib="elast")
+
+
+def test_calculate_shifts_output_types(_ensure_test_data):
+    test_images = _load_test_data("operetta_cls_multiplex")
+    test_images += test_images
+
+    # Test returns the correct output types
+    result_parameters = blimp.preprocessing.registration.calculate_shifts(test_images, 0, 0, lib="elastix")
+    assert all(isinstance(n, blimp.preprocessing.registration.TransformationParameters) for n in result_parameters)
+
+    result_parameters = blimp.preprocessing.registration.calculate_shifts(test_images, 0, 0, lib="image_registration")
+    assert all(isinstance(n, Tuple) for n in result_parameters)
+
+    # check correct output dimensions
+    assert len(result_parameters) == len(test_images)
+
+
+# TODO: implement quantification check after elastix transformation
+#    def test_quantification_from_transformed_images(_ensure_test_data):
+#        test_images = _load_test_data("operetta_cls_multiplex")
+#        nuclei =
