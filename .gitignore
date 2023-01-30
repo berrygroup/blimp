@@ -142,3 +142,5 @@ tests/_data
 tests/_experiments
 tests/_test_data.zip
 notebooks/_data
+notebooks/_experiments
+notebooks/*.ini
