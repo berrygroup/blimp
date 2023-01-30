@@ -677,9 +677,6 @@ def apply_shifts(
             )
             for image, params in zip(images, transformation_parameters)
         ]
-        if crop:
-            mask = _get_cropping_mask_from_transformation_parameters(transformation_parameters)  # type: ignore
-            registered_arrays = [_crop_using_mask(arr, mask) for arr in registered_arrays]
 
     elif lib == "image_registration":
         if not all([isinstance(p, tuple) for p in transformation_parameters]):
@@ -701,9 +698,6 @@ def apply_shifts(
             )
             for image, params in zip(images, transformation_parameters)
         ]
-        if crop:
-            # FIXME: implement this
-            logger.warn("cropping not yet implemented")
     else:
         raise NotImplementedError(f"lib : {lib} is not recognised")
 
@@ -713,11 +707,16 @@ def apply_shifts(
         for registered, original in zip(registered_arrays, images)
     ]
 
+    if crop:
+        # get cropping mask
+        if lib == "image_registration":
+            logger.warn("cropping not yet implemented")
+            mask = np.ones(shape=(images[0].dims.Y, images[0].dims.X))
+        elif lib == "elastix":
+            mask = _get_cropping_mask_from_transformation_parameters(transformation_parameters)  # type: ignore
+        registered_images = [crop_image(reg_img, mask=mask) for reg_img in registered_images]
+
     return registered_images
-
-
-# TODO: implement shift and crop
-# https://github.com/TissueMAPS/TissueMAPS/blob/66d793b79f682193f07a86bddb71db8a79159e52/tmlibrary/tmlib/image.py#L354
 
 
 @overload
@@ -790,8 +789,19 @@ def _get_cropping_mask_from_transformation_parameters(
     return mask
 
 
-def _crop_using_mask(arr, mask):
+def _crop_array(arr: np.ndarray, mask: np.ndarray):
     rows, cols = np.where(mask)
     min_row, max_row = min(rows), max(rows)
     min_col, max_col = min(cols), max(cols)
     return arr[min_row : max_row + 1, min_col : max_col + 1]
+
+
+def crop_image(image: AICSImage, mask: np.ndarray):
+    old = image.get_image_data("TCZYX")
+    new_yx = _crop_array(mask, mask).shape
+    new = np.ndarray(shape=list(old.shape[:3]) + list(new_yx), dtype=image.dtype)
+    for t in range(old.shape[0]):
+        for c in range(old.shape[1]):
+            for z in range(old.shape[2]):
+                new[t, c, z, :, :] = _crop_array(arr=old[t, c, z, :, :], mask=mask)
+    return AICSImage(new, physical_pixel_sizes=image.physical_pixel_sizes, channel_names=image.channel_names)
