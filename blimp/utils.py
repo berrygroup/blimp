@@ -403,3 +403,38 @@ def concatenate_images(
         arr = arr.astype(images[0].dtype)
 
     return AICSImage(arr, channel_names=images[0].channel_names, physical_pixel_sizes=images[0].physical_pixel_sizes)
+
+
+def translate_array(img: np.ndarray, y: int, x: int):
+    """Shifts an image by y and x pixels (pads with zeros)
+
+    Parameters
+    ----------
+    img
+        image that should be shifted
+    y
+        shift in y direction (positive value -> down, negative value -> up)
+    x
+        shift in x direction (position value -> right, negative value -> left)
+
+    Returns
+    -------
+    numpy.array
+        potentially shifted and cropped image
+
+    """
+    if y < 0:
+        shifted_img = np.pad(img, ((0, abs(y)), (0, 0)), mode="constant")[abs(y) :, :]
+    elif y > 0:
+        shifted_img = np.pad(img, ((y, 0), (0, 0)), mode="constant")[:-y, :]
+    elif y == 0:
+        shifted_img = np.ndarray.copy(img)
+
+    if x < 0:
+        shifted_img = np.pad(shifted_img, ((0, 0), (0, abs(x))), mode="constant")[:, abs(x) :]
+    elif x > 0:
+        shifted_img = np.pad(shifted_img, ((0, 0), (x, 0)), mode="constant")[:, :-x]
+    elif x == 0:
+        pass
+
+    return shifted_img

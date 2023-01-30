@@ -1,5 +1,6 @@
 # pip install itk-elastix
 from typing import List, Tuple, Union, Literal, overload
+from numbers import Integral
 from pathlib import Path
 import logging
 
@@ -7,8 +8,13 @@ from itk import ParameterObject, transformix_filter, elastix_registration_method
 from aicsimageio import AICSImage
 import numpy as np
 import dask.array as da
+import image_registration as reg
 
-from blimp.utils import confirm_array_rank, check_uniform_dimension_sizes
+from blimp.utils import (
+    translate_array,
+    confirm_array_rank,
+    check_uniform_dimension_sizes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +97,9 @@ class TransformationParameters:
     def save(self, file_name: Union[str, Path]):
         logger.debug("Saving transformation parameters as {file_name}")
         ParameterObject.WriteParameterFile(self.parameter_object, str(file_name))
+
+    def __str__(self):
+        return self.parameter_object.__str__()
 
 
 @overload
@@ -181,7 +190,7 @@ def register_2D(
     if parameters_only:
         return TransformationParameters(from_object=parameters)
     else:
-        return (np.asarray(registered, dtype=fixed.dtype), TransformationParameters(from_object=parameters))
+        return (np.asarray(registered, dtype=moving.dtype), TransformationParameters(from_object=parameters))
 
 
 def transform_2D(moving: Union[np.ndarray, da.core.Array], parameters: TransformationParameters) -> np.ndarray:
@@ -229,12 +238,30 @@ def transform_2D(moving: Union[np.ndarray, da.core.Array], parameters: Transform
         y, x = (int(float(i)) for i in parameters.parameter_object.GetParameterMap(0)["Size"])
         if not (y == moving.shape[0] and x == moving.shape[1]):
             raise RuntimeError(
-                f"`TransformationParameters` expected size ({y},{x}), while ``moving`` has size ({moving.shape[0]},{moving.shape[1]})"
+                f"`TransformationParameters` expected size ({y},{x}), "
+                + f"while ``moving`` has size ({moving.shape[0]},{moving.shape[1]})"
             )
 
     transformed = transformix_filter(np.asarray(moving, dtype=np.float32), parameters.parameter_object)
 
     return np.asarray(transformed, dtype=moving.dtype)
+
+
+def _recast_array(
+    arr: np.ndarray,
+    dtype: np.dtype,
+    remove_negative: bool = False,
+) -> np.ndarray:
+
+    # if desired dtype is integer, round the values
+    if issubclass(dtype.type, Integral):
+        arr = np.round(arr)
+
+    # remove negative values
+    if remove_negative:
+        arr[arr < 0] = 0
+
+    return arr.astype(dtype.type)
 
 
 @overload
@@ -272,16 +299,62 @@ def register_2D_fast(
         a reference image
     moving
         an image to be aligned to the reference image
+
+    Returns
+    -------
+    numpy.ndarray
+        registered image derived by transforming ``moving``
+        to the reference frame of ``fixed``. Omitted with
+        ``parameters_only`` is True.
+    tuple
+        (xoff,yoff), the x and y offsets required for
+        registration of ``moving`` to ``fixed``.
+
+    Raises
+    ------
+    TypeError
+        If any of the positional inputs are not of the correct type
+        If the numpy.dtypes of the two input arrays do not match
+    ValueError
+        If the input arrays are not rank 2
+        If the shape of input arrays does not match
     """
-    import image_registration as reg
+
+    try:
+        confirm_array_rank([fixed, moving], 2)
+    except TypeError:
+        raise TypeError(
+            "Either ``fixed`` or ``moving`` are not of correct type (numpy.ndarray or dask.array.core.Array)"
+        )
+    except ValueError:
+        raise ValueError("Either ``fixed`` or ``moving`` are not of correct rank (2)")
+
+    if fixed.shape != moving.shape:
+        raise ValueError(f"Shape of ``moving`` ({fixed.shape}) must match shape of ``fixed`` ({moving.shape})")
+    elif fixed.dtype != moving.dtype:
+        raise TypeError(
+            f"numpy.dtype of ``moving`` ({fixed.dtype}) must match numpy.dtype of ``fixed`` ({moving.dtype})"
+        )
+
+    # image_registration does not play nice with dask arrays,
+    # compute these here to convert to numpy.ndarray
+    if isinstance(fixed, da.core.Array):
+        fixed = fixed.compute()
+    if isinstance(moving, da.core.Array):
+        moving = moving.compute()
 
     xoff, yoff, exoff, eyoff = reg.chi2_shift(fixed, moving)
-    registered = reg.fft_tools.shift.shiftnd(moving, (-yoff, -xoff))
+    # subpixel fitting using the following function
+    # results in negative values and FFT artefacts
+    # registered = reg.fft_tools.shift.shiftnd(moving, (-yoff, -xoff))
+    xoff = int(np.round(xoff))
+    yoff = int(np.round(yoff))
+    registered = translate_array(moving, -yoff, -xoff)
 
     if parameters_only:
         return (xoff, yoff)
     else:
-        return (registered, (xoff, yoff))
+        return (_recast_array(registered, moving.dtype, remove_negative=True), (xoff, yoff))
 
 
 def transform_2D_fast(moving: Union[np.ndarray, da.core.Array], parameters: Tuple) -> np.ndarray:
@@ -301,13 +374,41 @@ def transform_2D_fast(moving: Union[np.ndarray, da.core.Array], parameters: Tupl
     -------
     numpy.ndarray
         transformed image derived by transforming ``moving``
+
+    Raises
+    ------
+    TypeError
+        If any of the positional inputs are not of the correct type
+    ValueError
+        If the input array is not rank 2
     """
-    import image_registration as reg
+
+    try:
+        confirm_array_rank(moving, 2)
+    except TypeError:
+        raise TypeError("``moving`` is not of correct type (numpy.ndarray)")
+    except ValueError:
+        raise ValueError("``moving`` is not of correct rank (2)")
+
+    if not isinstance(parameters, tuple):
+        raise TypeError("``parameters is not a tuple``")
+    if not all([isinstance(p, (float, int)) for p in parameters]):
+        raise TypeError("``parameters elements are non-numeric``")
+
+    # image_registration does not play nice with dask arrays,
+    # compute these here to convert to numpy.ndarray
+    if isinstance(moving, da.core.Array):
+        moving = moving.compute()
 
     xoff, yoff = parameters
-    registered = reg.fft_tools.shift.shiftnd(moving, (-yoff, -xoff))
+    # subpixel fitting using the following function
+    # results in negative values and FFT artefacts
+    # registered = reg.fft_tools.shift.shiftnd(moving, (-yoff, -xoff))
+    xoff = int(np.round(xoff))
+    yoff = int(np.round(yoff))
+    registered = translate_array(moving, -yoff, -xoff)
 
-    return registered
+    return _recast_array(registered, moving.dtype, remove_negative=True)
 
 
 def _calculate_shifts_elastix(
@@ -318,15 +419,16 @@ def _calculate_shifts_elastix(
 ) -> List[TransformationParameters]:
     """Wrapper for register_2D."""
 
-    fixed = images[reference_cycle].get_image_dask_data("YX", C=reference_cycle)
-    transformation_parameters = []
-    # TODO: use the new ``parameters_only`` to reformat into a list comprehension
-    for image in images:
-        # do not store images
-        image_reg, params = register_2D(
-            fixed=fixed, moving=image.get_image_dask_data("YX", C=reference_cycle), settings=settings
+    fixed = images[reference_cycle].get_image_data("YX", C=reference_channel)
+    transformation_parameters = [
+        register_2D(
+            fixed=fixed,
+            moving=image.get_image_data("YX", C=reference_channel),
+            settings=settings,
+            parameters_only=True,
         )
-        transformation_parameters.append(params)
+        for image in images
+    ]
 
     if not all([isinstance(p, TransformationParameters) for p in transformation_parameters]):
         raise TypeError("One or more of the transformation parameters calculated are not of the correct type")
@@ -341,13 +443,15 @@ def _calculate_shifts_image_registration(
 ) -> List[Tuple]:
     """Wrapper for register_2D_fast."""
 
-    fixed = images[reference_cycle].get_image_dask_data("YX", C=reference_cycle)
-    transformation_parameters = []
-    # TODO: use the new ``parameters_only`` to reformat into a list comprehension
-    for image in images:
-        # do not store images
-        image_reg, params = register_2D_fast(fixed=fixed, moving=image.get_image_dask_data("YX", C=reference_cycle))
-        transformation_parameters.append(params)
+    fixed = images[reference_cycle].get_image_data("YX", C=reference_channel)
+    transformation_parameters = [
+        register_2D_fast(
+            fixed=fixed,
+            moving=image.get_image_data("YX", C=reference_channel),
+            parameters_only=True,
+        )
+        for image in images
+    ]
 
     if not all([isinstance(p, tuple) for p in transformation_parameters]):
         raise TypeError("One or more of the transformation parameters calculated are not of the correct type")
@@ -374,7 +478,6 @@ def calculate_shifts(
     reference_channel: int,
     reference_cycle: int,
     lib: Literal["image_registration"],
-    registration_settings: Union[str, TransformationParameters, None],
 ) -> List[Tuple]:
     ...
 
@@ -399,7 +502,7 @@ def calculate_shifts(
     reference_cycle
         The cycle index of the reference image. Default is 0.
     lib
-        The library to use for registration. Default is "elastix".
+        The library to use for registration. Default is 'elastix'.
     registration_settings
         Either a string (e.g. 'translation', 'rigid' or 'affine'), or a
         TransformationParameters object, specifying the registration
@@ -417,18 +520,27 @@ def calculate_shifts(
     ------
     ValueError
         If one or more of the AICSImage objects has non-uniform or incorrect dimensionality.
+        If the alignment library is not recognised
     NotImplementedError
         If the images have a Z dimension greater than 1.
     """
 
-    if not check_uniform_dimension_sizes(images):
+    if not check_uniform_dimension_sizes(images, omit="C"):
         raise ValueError("Check input. One or more of the ``AICSImage``s has non-uniform or incorrect dimensionality")
     elif images[0].dims.Z > 1:
         raise NotImplementedError(
-            "Images have shape {images[0].dims.shape}. However, 3D registration is not yet available through this interface."
+            "Images have shape {images[0].dims.shape}. However, "
+            + "3D registration is not yet available through this interface."
         )
     elif len(images) == 1:
         logger.warn("Only one image in list. Registering a single image to itself.")
+
+    if reference_channel < 0 or any([reference_channel >= img.dims.C for img in images]):
+        raise IndexError(f"Channel {reference_channel} out of range for at least one image")
+    if reference_cycle < 0:
+        raise IndexError(f"Cycle {reference_cycle} < 0")
+    if reference_cycle >= len(images):
+        raise IndexError(f"Cycle {reference_cycle} exceeds the length of images ({len(images)})")
 
     if lib == "elastix":
         logger.info(f"Using ``elastix`` library to align {len(images)} x 2D images.")
@@ -439,8 +551,13 @@ def calculate_shifts(
         elif isinstance(registration_settings, str):
             settings = TransformationParameters(transformation_mode=registration_settings)
         else:
-            logger.warn("Using default 'rigid' transformation to align images.")
-            settings = TransformationParameters(transformation_mode=registration_settings)
+            logger.warn(
+                """
+                Using default 'rigid' transformation to align images.
+                Specify alternative settings using the ``registration_settings`` argument.
+                """
+            )
+            settings = TransformationParameters(transformation_mode="rigid")
 
         # return list of transformation parameters
         return _calculate_shifts_elastix(
@@ -452,7 +569,8 @@ def calculate_shifts(
 
         if registration_settings is not None:
             logger.warn(
-                "Using ``image_registration`` library to align images using translation. Ignoring ``registration_settings``"
+                "Using ``image_registration`` library to align images "
+                + "using translation. Ignoring ``registration_settings``"
             )
 
         # return list of transformation coordinates
@@ -461,20 +579,79 @@ def calculate_shifts(
         )
 
     else:
-        raise NotImplementedError(f"lib : {lib} is not recognised")
+        raise ValueError(f"lib : {lib} is not recognised")
+
+
+@overload
+def apply_shifts(
+    images: List[AICSImage],
+    transformation_parameters: List[TransformationParameters],
+    lib: Literal["elastix"],
+) -> List[AICSImage]:
+    ...
+
+
+@overload
+def apply_shifts(
+    images: List[AICSImage],
+    transformation_parameters: List[Tuple],
+    lib: Literal["image_registration"],
+) -> List[AICSImage]:
+    ...
 
 
 def apply_shifts(
     images: List[AICSImage],
     transformation_parameters: Union[List[TransformationParameters], List[Tuple]],
     lib: str = "elastix",
+    crop: bool = False,
 ) -> List[AICSImage]:
+    """
+    Apply transformations to 2D images in a list of AICSImage objects,
+    using either the elastix or image_registration libraries.
 
-    if not check_uniform_dimension_sizes(images):
+    Parameters
+    ----------
+    images
+        A list of AICSImage objects to be registered.
+    transformation_parameters
+        A list of transformation parameters to be used.
+        For lib='elastix', parameters should be a list of
+        ``blimp.registration.TransformationParameters``. For
+        lib='image_registration', parameters should be tuples of
+        (y,x) shifts.
+    lib
+        The library to use for registration. Default is 'elastix'.
+    registration_settings
+        Either a string (e.g. 'translation', 'rigid' or 'affine'), or a
+        TransformationParameters object, specifying the registration
+        settings. Default is None, which results in 'rigid' transformation
+        when lib='elastix'. See blimp.registration.TransformationParameters
+        for more details. Ignored when lib='image_registration'
+    crop
+        Whether to crop the output image to the minimum rectangle that
+        contains the input data (default = ``False``)
+
+    Returns
+    -------
+    List[AICSImage]
+        for (lib=='elastix'): a list of TransformationParameters objects
+        for (lib=='image_registration'): a list of tuples, representing the shift of each image.
+
+    Raises
+    ------
+    ValueError
+        If one or more of the AICSImage objects has non-uniform or incorrect dimensionality.
+    NotImplementedError
+        If the images have a Z dimension greater than 1.
+    """
+
+    if not check_uniform_dimension_sizes(images, omit="C"):
         raise ValueError("Check input. One or more of the ``AICSImage``s has non-uniform or incorrect dimensionality")
     elif images[0].dims.Z > 1:
         raise NotImplementedError(
-            "Images have shape {images[0].dims.shape}. However, 3D registration is not yet available through this interface."
+            "Images have shape {images[0].dims.shape}. However, "
+            + "3D registration is not yet available through this interface."
         )
     elif len(images) == 1:
         logger.warn("Only one image in list. Registering a single image to itself.")
@@ -500,6 +677,10 @@ def apply_shifts(
             )
             for image, params in zip(images, transformation_parameters)
         ]
+        if crop:
+            mask = _get_cropping_mask_from_transformation_parameters(transformation_parameters)  # type: ignore
+            registered_arrays = [_crop_using_mask(arr, mask) for arr in registered_arrays]
+
     elif lib == "image_registration":
         if not all([isinstance(p, tuple) for p in transformation_parameters]):
             raise ValueError(
@@ -520,6 +701,9 @@ def apply_shifts(
             )
             for image, params in zip(images, transformation_parameters)
         ]
+        if crop:
+            # FIXME: implement this
+            logger.warn("cropping not yet implemented")
     else:
         raise NotImplementedError(f"lib : {lib} is not recognised")
 
@@ -530,3 +714,84 @@ def apply_shifts(
     ]
 
     return registered_images
+
+
+# TODO: implement shift and crop
+# https://github.com/TissueMAPS/TissueMAPS/blob/66d793b79f682193f07a86bddb71db8a79159e52/tmlibrary/tmlib/image.py#L354
+
+
+@overload
+def _get_cropping_mask_from_transformation_parameters(parameters: List[TransformationParameters]) -> np.ndarray:
+    ...
+
+
+@overload
+def _get_cropping_mask_from_transformation_parameters(parameters: List[Tuple[int]], shape: Tuple[int]) -> np.ndarray:
+    ...
+
+
+def _get_cropping_mask_from_transformation_parameters(
+    parameters: Union[List[TransformationParameters], List[Tuple[int]]], shape: Tuple[int] = None
+) -> np.ndarray:
+    """Calculate a boolean mask for cropping images after registration.
+
+    The mask is calculated from a list of transformation parameters and
+    represents the spatial region of a multi-channel image that is shared
+    between all images transformed according to the transformation parameters.
+
+    Parameters
+    ----------
+    parameters
+        List of transformation parameters, in either the
+        ``blimp.preprocessing.TransformationParameters`` class, or as a list
+        of (y,x) tuples (see ``apply_shifts`` for more details)
+
+    Returns
+    -------
+    numpy.ndarray
+        Boolean array with True for include and False for exclude.
+
+    Raises
+    ------
+    ValueError
+        If not all parameters have the same size
+
+    """
+    if all(isinstance(p, TransformationParameters) for p in parameters):
+        logger.debug(f"Computing bounding box for list of {len(parameters)} elastix transformation parameters")
+
+        # check that the size parameter matches between all inputs
+        shapes = [
+            (int(float(y)), int(float(x))) for y, x in [p.parameter_object.GetParameter(0, "Size") for p in parameters]  # type: ignore
+        ]
+        if any([s != shapes[0] for s in shapes]):
+            raise ValueError("Not all ``TransformationParameters`` have the same size.")
+
+        # initialise an array of ones
+        ones = np.ones(shape=shapes[0], dtype=float)
+
+        # transform 'ones' arrays to find the regions to crop
+        masks = [transform_2D(ones, p) for p in parameters]  # type: ignore
+
+        # find region with all ones
+        if len(masks) > 1:
+            mask = np.mean(masks, axis=0) == 1.0  # type: ignore
+        else:
+            mask = np.floor(masks[0]).astype(np.bool_)
+    elif all(isinstance(p, tuple) for p in parameters):
+        # TODO: implement
+        if shape is None:
+            raise ValueError("When using a list of (y,x) shifts, ``shape`` must be specified.")
+        mask = np.zeros(shape=shape)
+    else:
+        raise TypeError(
+            "``parameters`` should either be a list of " + "``TransformationParameters`` or a list of (y,x) shifts"
+        )
+    return mask
+
+
+def _crop_using_mask(arr, mask):
+    rows, cols = np.where(mask)
+    min_row, max_row = min(rows), max(rows)
+    min_col, max_col = min(cols), max(cols)
+    return arr[min_row : max_row + 1, min_col : max_col + 1]
