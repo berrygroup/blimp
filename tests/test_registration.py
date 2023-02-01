@@ -466,6 +466,135 @@ def test_calculate_shifts_output_types(_ensure_test_data):
     assert len(result_parameters) == len(test_images)
 
 
+def test_get_cropping_mask_from_transformation_parameters(_ensure_test_data):
+    images = _load_test_data("registration_tests")
+    original = images[0].get_image_data("YX")
+    translated = images[1].get_image_data("YX")
+
+    settings = blimp.preprocessing.registration.TransformationParameters(transformation_mode="translation")
+    original_registered, null_parameters = blimp.preprocessing.registration.register_2D(original, original, settings)
+    translated_registered, parameters = blimp.preprocessing.registration.register_2D(original, translated, settings)
+
+    # Test case 1: input is a list of TransformationParameters
+    parameters_list = [null_parameters, parameters]
+    expected_output = np.ones(shape=original.shape, dtype=np.bool_)
+    expected_output[-50:, :] = False
+    expected_output[:, -20:] = False
+    output = blimp.preprocessing.registration._get_cropping_mask_from_transformation_parameters(
+        parameters=parameters_list
+    )
+    assert np.array_equal(output, expected_output)
+
+    # Test case 2: input is a list of (y,x) shifts
+    parameters_list = [(0, 0), (10, 10), (0, -5)]
+    shape = (20, 20)
+    expected_output = np.ones(shape=shape, dtype=np.bool_)
+    expected_output[10:, :] = False
+    expected_output[:, 10:] = False
+    expected_output[:5, :] = False
+    with pytest.raises(ValueError):
+        blimp.preprocessing.registration._get_cropping_mask_from_transformation_parameters(parameters=parameters_list)
+    output = blimp.preprocessing.registration._get_cropping_mask_from_transformation_parameters(
+        parameters=parameters_list, shape=shape
+    )
+    assert np.array_equal(output, expected_output)
+
+    # Test case 3: input is a mixed list of TransformationParameters and (y,x) shifts
+    parameters_list = [blimp.preprocessing.registration.TransformationParameters(transformation_mode="rigid"), (10, 20)]
+    with pytest.raises(TypeError):
+        blimp.preprocessing.registration._get_cropping_mask_from_transformation_parameters(
+            parameters=parameters_list, shape=shape
+        )
+
+    # Test case 4: input is not a list
+    with pytest.raises(TypeError):
+        blimp.preprocessing.registration._get_cropping_mask_from_transformation_parameters(parameters=settings)
+
+
+def test_apply_shifts_with_elastix_library(_ensure_test_data):
+    test_images = _load_test_data("operetta_cls_multiplex")
+
+    # Test valid
+    transformation_parameters = blimp.preprocessing.registration.calculate_shifts(
+        test_images,
+        0,
+        0,
+    )
+    # crop False
+    result = blimp.preprocessing.registration.apply_shifts(
+        test_images, transformation_parameters, lib="elastix", crop=False
+    )
+    assert isinstance(result, list)
+    assert all(isinstance(r, AICSImage) for r in result)
+    assert result[0].dims.Z == 1
+    assert result[0].shape == test_images[0].shape
+    # crop True
+    result = blimp.preprocessing.registration.apply_shifts(
+        test_images, transformation_parameters, lib="elastix", crop=True
+    )
+    assert isinstance(result, list)
+    assert all(isinstance(r, AICSImage) for r in result)
+    assert result[0].dims.Z == 1
+    assert result[0].shape != test_images[0].shape
+
+    # unrecognised library
+    with pytest.raises(NotImplementedError):
+        blimp.preprocessing.registration.apply_shifts(
+            test_images, transformation_parameters, lib="unrecognized", crop=True
+        )
+
+    # wrong transformation parameter type
+    with pytest.raises(ValueError):
+        blimp.preprocessing.registration.apply_shifts(
+            test_images, transformation_parameters=[(0, 0), (2, 2)], lib="elastix", crop=True
+        )
+
+
+def test_apply_shifts_with_image_registration_library():
+    test_images = _load_test_data("operetta_cls_multiplex")
+
+    # Test valid
+    transformation_parameters = blimp.preprocessing.registration.calculate_shifts(
+        test_images, 0, 0, lib="image_registration"
+    )
+    # crop False
+    result = blimp.preprocessing.registration.apply_shifts(
+        test_images, transformation_parameters, lib="image_registration", crop=False
+    )
+    assert isinstance(result, list)
+    assert all(isinstance(r, AICSImage) for r in result)
+    assert result[0].dims.Z == 1
+    assert result[0].shape == test_images[0].shape
+    # crop True
+    result = blimp.preprocessing.registration.apply_shifts(
+        test_images, transformation_parameters, lib="image_registration", crop=True
+    )
+    assert isinstance(result, list)
+    assert all(isinstance(r, AICSImage) for r in result)
+    assert result[0].dims.Z == 1
+    assert result[0].shape != test_images[0].shape
+
+
+def test_apply_shifts_with_non_uniform_dimension_sizes():
+    images = [AICSImage(np.zeros((1, 1, 1, 2, 3))), AICSImage(np.zeros((1, 1, 1, 2, 4)))]
+    transformation_parameters = [(0, 0), (2, 2)]
+
+    with pytest.raises(ValueError):
+        blimp.preprocessing.registration.apply_shifts(
+            images, transformation_parameters, lib="image_registration", crop=False
+        )
+
+
+def test_apply_shifts_with_3d_images():
+    images = [AICSImage(np.zeros((1, 1, 10, 2, 3))), AICSImage(np.zeros((1, 1, 10, 2, 3)))]
+    transformation_parameters = [(0, 0), (0, 0)]
+
+    with pytest.raises(NotImplementedError):
+        blimp.preprocessing.registration.apply_shifts(
+            images, transformation_parameters, lib="image_registration", crop=False
+        )
+
+
 # TODO: implement quantification check after elastix transformation
 #    def test_quantification_from_transformed_images(_ensure_test_data):
 #        test_images = _load_test_data("operetta_cls_multiplex")

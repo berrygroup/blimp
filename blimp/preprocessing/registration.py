@@ -235,7 +235,7 @@ def transform_2D(moving: Union[np.ndarray, da.core.Array], parameters: Transform
     if not isinstance(parameters, TransformationParameters):
         raise TypeError("``settings`` is not a ``TransformationParameters`` object")
     else:
-        y, x = (int(float(i)) for i in parameters.parameter_object.GetParameterMap(0)["Size"])
+        x, y = (int(float(i)) for i in parameters.parameter_object.GetParameterMap(0)["Size"])
         if not (y == moving.shape[0] and x == moving.shape[1]):
             raise RuntimeError(
                 f"`TransformationParameters` expected size ({y},{x}), "
@@ -710,8 +710,7 @@ def apply_shifts(
     if crop:
         # get cropping mask
         if lib == "image_registration":
-            logger.warn("cropping not yet implemented")
-            mask = np.ones(shape=(images[0].dims.Y, images[0].dims.X))
+            mask = _get_cropping_mask_from_transformation_parameters(transformation_parameters, shape=(images[0].dims.Y, images[0].dims.X))  # type: ignore
         elif lib == "elastix":
             mask = _get_cropping_mask_from_transformation_parameters(transformation_parameters)  # type: ignore
         registered_images = [crop_image(reg_img, mask=mask) for reg_img in registered_images]
@@ -756,12 +755,15 @@ def _get_cropping_mask_from_transformation_parameters(
         If not all parameters have the same size
 
     """
+    if not isinstance(parameters, list):
+        raise TypeError("``parameters`` must be a list")
+
     if all(isinstance(p, TransformationParameters) for p in parameters):
         logger.debug(f"Computing bounding box for list of {len(parameters)} elastix transformation parameters")
 
         # check that the size parameter matches between all inputs
         shapes = [
-            (int(float(y)), int(float(x))) for y, x in [p.parameter_object.GetParameter(0, "Size") for p in parameters]  # type: ignore
+            (int(float(y)), int(float(x))) for x, y in [p.parameter_object.GetParameter(0, "Size") for p in parameters]  # type: ignore
         ]
         if any([s != shapes[0] for s in shapes]):
             raise ValueError("Not all ``TransformationParameters`` have the same size.")
@@ -778,10 +780,22 @@ def _get_cropping_mask_from_transformation_parameters(
         else:
             mask = np.floor(masks[0]).astype(np.bool_)
     elif all(isinstance(p, tuple) for p in parameters):
-        # TODO: implement
+        logger.debug(f"Computing bounding box for list of {len(parameters)} (x,y) coordinates")
+
         if shape is None:
             raise ValueError("When using a list of (y,x) shifts, ``shape`` must be specified.")
-        mask = np.zeros(shape=shape)
+
+        # initialise an array of ones
+        ones = np.ones(shape=shape, dtype=float)
+
+        # transform 'ones' arrays to find the regions to crop
+        masks = [transform_2D_fast(ones, p) for p in parameters]  # type: ignore
+
+        # find region with all ones
+        if len(masks) > 1:
+            mask = np.mean(masks, axis=0) == 1.0  # type: ignore
+        else:
+            mask = np.floor(masks[0]).astype(np.bool_)
     else:
         raise TypeError(
             "``parameters`` should either be a list of " + "``TransformationParameters`` or a list of (y,x) shifts"
