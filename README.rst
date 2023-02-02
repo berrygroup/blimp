@@ -60,7 +60,7 @@ additional subfolders, to the ``_data`` folder, compress:
 
 ::
 
-   tar -czvf example_data.zip _data
+   zip -r _data.zip _data
 
 and upload as a new version of the same figshare record 
 (`doi.org/10.6084/m9.figshare.21944927 <https://doi.org/10.6084/m9.figshare.21944927>`_)
