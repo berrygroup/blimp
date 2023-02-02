@@ -264,3 +264,7 @@ def test_average_images_accuracy():
     result = blimp.utils.average_images([zeros, tens])
     np.testing.assert_almost_equal(result.get_image_data("TCZYX"), true.get_image_data("TCZYX"))
     assert result.get_image_data("TCZYX").dtype == true.get_image_data("TCZYX").dtype
+
+
+# TODO: check concatenate_images
+# TODO: check translate_array

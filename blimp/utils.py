@@ -438,3 +438,6 @@ def translate_array(img: np.ndarray, y: int, x: int):
         pass
 
     return shifted_img
+
+
+# TODO: implement get_focus_plane
