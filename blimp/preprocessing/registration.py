@@ -584,6 +584,24 @@ def calculate_shifts(
 
 @overload
 def apply_shifts(
+    images: AICSImage,
+    transformation_parameters: TransformationParameters,
+    lib: Literal["elastix"],
+) -> AICSImage:
+    ...
+
+
+@overload
+def apply_shifts(
+    images: AICSImage,
+    transformation_parameters: tuple,
+    lib: Literal["image_registration"],
+) -> AICSImage:
+    ...
+
+
+@overload
+def apply_shifts(
     images: List[AICSImage],
     transformation_parameters: List[TransformationParameters],
     lib: Literal["elastix"],
@@ -594,18 +612,18 @@ def apply_shifts(
 @overload
 def apply_shifts(
     images: List[AICSImage],
-    transformation_parameters: List[Tuple],
+    transformation_parameters: List[tuple],
     lib: Literal["image_registration"],
 ) -> List[AICSImage]:
     ...
 
 
 def apply_shifts(
-    images: List[AICSImage],
-    transformation_parameters: Union[List[TransformationParameters], List[Tuple]],
+    images: Union[AICSImage, List[AICSImage]],
+    transformation_parameters: Union[TransformationParameters, tuple, List[TransformationParameters], List[tuple]],
     lib: str = "elastix",
     crop: bool = False,
-) -> List[AICSImage]:
+) -> Union[AICSImage, List[AICSImage]]:
     """
     Apply transformations to 2D images in a list of AICSImage objects,
     using either the elastix or image_registration libraries.
@@ -613,9 +631,9 @@ def apply_shifts(
     Parameters
     ----------
     images
-        A list of AICSImage objects to be registered.
+        An AICSImage or list of AICSImage objects to be registered.
     transformation_parameters
-        A list of transformation parameters to be used.
+        Transformation parameters or a list of parameters to be used.
         For lib='elastix', parameters should be a list of
         ``blimp.registration.TransformationParameters``. For
         lib='image_registration', parameters should be tuples of
@@ -634,9 +652,7 @@ def apply_shifts(
 
     Returns
     -------
-    List[AICSImage]
-        for (lib=='elastix'): a list of TransformationParameters objects
-        for (lib=='image_registration'): a list of tuples, representing the shift of each image.
+    AICSImage or List[AICSImage]
 
     Raises
     ------
@@ -646,6 +662,12 @@ def apply_shifts(
         If the images have a Z dimension greater than 1.
     """
 
+    # wrap a single argument in a list of length one
+    if isinstance(images, AICSImage):
+        images = [images]
+    if isinstance(transformation_parameters, (TransformationParameters, tuple)):
+        transformation_parameters = [transformation_parameters]  # type: ignore
+
     if not check_uniform_dimension_sizes(images, omit="C"):
         raise ValueError("Check input. One or more of the ``AICSImage``s has non-uniform or incorrect dimensionality")
     elif images[0].dims.Z > 1:
@@ -653,11 +675,9 @@ def apply_shifts(
             "Images have shape {images[0].dims.shape}. However, "
             + "3D registration is not yet available through this interface."
         )
-    elif len(images) == 1:
-        logger.warn("Only one image in list. Registering a single image to itself.")
 
     if lib == "elastix":
-        if not all([isinstance(p, TransformationParameters) for p in transformation_parameters]):
+        if not all([isinstance(p, TransformationParameters) for p in transformation_parameters]):  # type: ignore
             raise ValueError(
                 "Using lib='elastix' but not all transformation_parameters list elements are TransformationParameters"
             )
@@ -675,11 +695,11 @@ def apply_shifts(
                 ],
                 axis=0,
             )
-            for image, params in zip(images, transformation_parameters)
+            for image, params in zip(images, transformation_parameters)  # type: ignore
         ]
 
     elif lib == "image_registration":
-        if not all([isinstance(p, tuple) for p in transformation_parameters]):
+        if not all([isinstance(p, tuple) for p in transformation_parameters]):  # type: ignore
             raise ValueError(
                 "Using lib='image_registration' but not all transformation_parameters list elements are tuple"
             )
@@ -696,7 +716,7 @@ def apply_shifts(
                 ],
                 axis=0,
             )
-            for image, params in zip(images, transformation_parameters)
+            for image, params in zip(images, transformation_parameters)  # type: ignore
         ]
     else:
         raise NotImplementedError(f"lib : {lib} is not recognised")
@@ -710,25 +730,28 @@ def apply_shifts(
     if crop:
         # get cropping mask
         if lib == "image_registration":
-            mask = _get_cropping_mask_from_transformation_parameters(transformation_parameters, shape=(images[0].dims.Y, images[0].dims.X))  # type: ignore
+            mask = _get_crop_mask_from_transformation_parameters(transformation_parameters, shape=(images[0].dims.Y, images[0].dims.X))  # type: ignore
         elif lib == "elastix":
-            mask = _get_cropping_mask_from_transformation_parameters(transformation_parameters)  # type: ignore
+            mask = _get_crop_mask_from_transformation_parameters(transformation_parameters)  # type: ignore
         registered_images = [crop_image(reg_img, mask=mask) for reg_img in registered_images]
 
-    return registered_images
+    if len(registered_images) == 1:
+        return registered_images[0]
+    else:
+        return registered_images
 
 
 @overload
-def _get_cropping_mask_from_transformation_parameters(parameters: List[TransformationParameters]) -> np.ndarray:
+def _get_crop_mask_from_transformation_parameters(parameters: List[TransformationParameters]) -> np.ndarray:
     ...
 
 
 @overload
-def _get_cropping_mask_from_transformation_parameters(parameters: List[Tuple[int]], shape: Tuple[int]) -> np.ndarray:
+def _get_crop_mask_from_transformation_parameters(parameters: List[Tuple[int]], shape: Tuple[int]) -> np.ndarray:
     ...
 
 
-def _get_cropping_mask_from_transformation_parameters(
+def _get_crop_mask_from_transformation_parameters(
     parameters: Union[List[TransformationParameters], List[Tuple[int]]], shape: Tuple[int] = None
 ) -> np.ndarray:
     """Calculate a boolean mask for cropping images after registration.
