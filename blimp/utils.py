@@ -28,6 +28,26 @@ AXIS_STR_TO_INT = {
 AXIS_INT_TO_STR = {0: "T", 1: "C", 2: "Z", 3: "Y", 4: "X"}
 
 
+def equal_dims(a, b, dimensions="TCZYX"):
+    equal_T = a.dims.T == b.dims.T
+    equal_C = a.dims.C == b.dims.C
+    equal_Z = a.dims.Z == b.dims.Z
+    equal_Y = a.dims.Y == b.dims.Y
+    equal_X = a.dims.X == b.dims.X
+    all_equal = True
+    if "T" in dimensions:
+        all_equal = all([all_equal, equal_T])
+    if "C" in dimensions:
+        all_equal = all([all_equal, equal_C])
+    if "Z" in dimensions:
+        all_equal = all([all_equal, equal_Z])
+    if "Y" in dimensions:
+        all_equal = all([all_equal, equal_Y])
+    if "X" in dimensions:
+        all_equal = all([all_equal, equal_X])
+    return all_equal
+
+
 def load_config(config_file: str) -> Any:
     """
     Load configuration file and return configuration object.
