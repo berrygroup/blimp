@@ -41,5 +41,11 @@ def _load_test_data(dataset: str) -> Union[List[AICSImage], None]:
         dapi01_rotated = AICSImage(np.load(dataset_path / "dapi01_rotated.npy"))
         dapi01_rotated_registered = AICSImage(np.load(dataset_path / "dapi01_rotated_registered.npy"))
         return [dapi01, dapi01_translated, dapi01_rotated, dapi01_rotated_registered]
+    elif dataset == "illumination_correction":
+        dataset_path = Path(testdata_config.DATASET_DIR) / "illumination_correction"
+        logger.info(f"Loading registration test images from {dataset_path}")
+        bf01 = AICSImage(dataset_path / "221103_brightfield_488_568_647_1.nd2")
+        bf02 = AICSImage(dataset_path / "221103_brightfield_488_568_647_2.nd2")
+        return [bf01, bf02]
 
     return None
