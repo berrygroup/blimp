@@ -2,6 +2,7 @@ from pathlib import Path
 import logging
 
 from aicsimageio import AICSImage
+import numpy as np
 import pytest
 
 from blimp.utils import equal_dims
@@ -72,11 +73,11 @@ def test_IlluminationCorrection_init_from_reference_image_files(_ensure_test_dat
     assert illumination_correction.timelapse is False
     assert illumination_correction.file_path is None
     assert illumination_correction.file_name is None
-    assert equal_dims(illumination_correction, image_paths[0])
+    assert equal_dims(illumination_correction, AICSImage(image_paths[0]))
     assert illumination_correction.correctors is not None
     # valid: str
     illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
-        reference_images=str(image_paths), timelapse=False
+        reference_images=[str(p) for p in image_paths], timelapse=False
     )
     assert illumination_correction.timelapse is False
     assert illumination_correction.file_path is None
@@ -132,3 +133,43 @@ def test_IlluminationCorrection_file_path_setter(_ensure_test_data):
     assert illumination_correction.correctors is None
     illumination_correction.load()
     assert illumination_correction.correctors is not None
+
+
+def test_correct_illumination(_ensure_test_data):
+    images = _load_test_data("illumination_correction")
+    illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
+        reference_images=images, timelapse=False
+    )
+    # valid numpy input
+    numpy_input = images[0].get_image_data("CZYX")
+    numpy_output = blimp.preprocessing.illumination_correction._correct_illumination(
+        image=numpy_input,
+        illumination_correction=illumination_correction,
+        dimension_order_in="CZYX"
+    )
+    assert isinstance(numpy_output, np.ndarray)
+    assert numpy_input.shape == numpy_output.shape
+    assert numpy_input.dtype == numpy_output.dtype
+
+    # valid dask input
+    dask_input = images[0].get_image_dask_data("CXY")
+    dask_output = blimp.preprocessing.illumination_correction._correct_illumination(
+        image=dask_input,
+        illumination_correction=illumination_correction,
+        dimension_order_in="CXY"
+    )
+    assert isinstance(dask_output, np.ndarray)
+    assert dask_input.shape == dask_output.shape
+    assert dask_input.dtype == dask_output.dtype
+
+    # valid AICSImage input
+    AICSImage_input = images[0]
+    AICSImage_output = blimp.preprocessing.illumination_correction._correct_illumination(
+        image=AICSImage_input,
+        illumination_correction=illumination_correction
+    )
+    assert isinstance(AICSImage_output, AICSImage)
+    assert AICSImage_input.shape == AICSImage_output.shape
+    assert AICSImage_input.dtype == AICSImage_output.dtype
+    assert AICSImage_input.physical_pixel_sizes == AICSImage_output.physical_pixel_sizes
+    assert AICSImage_input.channel_names == AICSImage_output.channel_names

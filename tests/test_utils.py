@@ -268,3 +268,4 @@ def test_average_images_accuracy():
 
 # TODO: check concatenate_images
 # TODO: check translate_array
+# TODO: check convert_array_dtype

@@ -1,10 +1,10 @@
-from typing import List, Union, Literal
+from typing import List, Union, Literal, Optional
 from pathlib import Path
 import pickle
 import logging
 
 from aicsimageio import AICSImage
-from aicsimageio.transforms import transpose_to_dims
+from aicsimageio.transforms import reshape_data
 import numpy as np
 import basicpy
 import dask.array as da
@@ -14,6 +14,7 @@ from blimp.utils import (
     average_images,
     concatenate_images,
     check_uniform_dimension_sizes,
+    convert_array_dtype,
 )
 
 logger = logging.getLogger(__name__)
@@ -142,15 +143,26 @@ class IlluminationCorrection:
         else:
             raise RuntimeError("Cannot save ``IlluminationCorrection`` if correctors are not defined")
 
-    def load(self, path: Union[str, Path]):
+    def load(self, path: Union[str, Path, None] = None):
 
-        # 1. Load from file
+        # 1. Check inputs
+        if isinstance(path, (str, Path)):
+            path = Path(path)
+        elif path is None:
+            if self._file_path is None:
+                raise ValueError("``file_path`` attribute must be set, or passed to ``load`` method")
+            else:
+                path = self._file_path
+        else:
+            raise TypeError
+
+        # 2. Load from file
         if not path.is_file():
             raise FileNotFoundError(f"{str(path)} not found")
         with open(path, "rb") as f:  # type: ignore
             illumination_correction = pickle.load(f)
 
-        # 2. Check attributes of loaded object
+        # 3. Check attributes of loaded object
         if str(illumination_correction._file_path) != str(path):
             logger.warn(
                 f"``file_path =`` {str(illumination_correction._file_path)} in object "
@@ -171,7 +183,7 @@ class IlluminationCorrection:
                 + f"but only {len(illumination_correction._correctors)} correctors."
             )
 
-        # 3. Assign to class instance
+        # 4. Set attributes
         self._correctors = illumination_correction.correctors
         self._dims = illumination_correction.dims
         self._timelapse = illumination_correction.timelapse
@@ -185,13 +197,35 @@ class IlluminationCorrection:
 def _correct_illumination(
     image: Union[AICSImage, np.ndarray, da.core.Array],
     illumination_correction: IlluminationCorrection,
+    dimension_order_in: Optional[str] = None,
 ) -> Union[AICSImage, np.ndarray]:
 
+    # 1. check input types and convert to AICSImage
     if isinstance(image, np.ndarray):
-        im = AICSImage(image)
+        if dimension_order_in is None:
+            raise ValueError(
+                "``dimension_order_in`` must be specified for array inputs to ``_correct_illumination``"
+            )
+        im = AICSImage(
+            reshape_data(
+                data=image,
+                given_dims=dimension_order_in,
+                return_dims="TCZYX"
+            )
+        )
         out_type = "ndarray"
     elif isinstance(image, da.core.Array):
-        im = AICSImage(image)
+        if dimension_order_in is None:
+            raise ValueError(
+                "``dimension_order_in`` must be specified for array inputs to ``_correct_illumination``"
+            )
+        im = AICSImage(
+            reshape_data(
+                data=image,
+                given_dims=dimension_order_in,
+                return_dims="TCZYX"
+            )
+        )
         out_type = "ndarray"
     elif isinstance(image, AICSImage):
         im = image
@@ -200,77 +234,91 @@ def _correct_illumination(
         out_type = None
         raise TypeError(f"Unknown input image type {type(image)}")
 
-    if not equal_dims(im, illumination_correction, dimensions="TCYX"):
-        raise ValueError(
-            "``IlluminationCorrection`` object has incorrect ``dims``: expected "
-            + f"{im.dims}, found {illumination_correction.dims}."
+    # 2a. correct data where the same correction is applied to all time-points
+    if illumination_correction.timelapse is False:
+        if not equal_dims(im, illumination_correction, dimensions="CYX"):
+            raise ValueError(
+                "``IlluminationCorrection`` object has incorrect ``dims``: expected "
+                + f"{im.dims}, found {illumination_correction.dims}."
+            )
+        corr = np.stack(
+            [
+                np.stack(
+                    [
+                        np.stack(
+                            [
+                                illumination_correction.correctors[c].transform(
+                                    im.get_image_data("YX", C=c, Z=z, T=t),
+                                    timelapse=illumination_correction.timelapse,
+                                )[0]
+                                for z in range(im.dims.Z)
+                            ],
+                            axis=0,
+                        )
+                        for c in range(im.dims.C)
+                    ],
+                    axis=0,
+                )
+                for t in range(im.dims.T)
+            ],
+            axis=0,
         )
+    # 2b. correct data where corrections are time-dependent
     else:
-        if illumination_correction.timelapse is False:
-            corr = np.stack(
-                [
-                    np.stack(
-                        [
-                            np.stack(
-                                [
-                                    illumination_correction.correctors[c].transform(
-                                        im.get_image_data("YX", C=c, Z=z, T=t),
-                                        timelapse=illumination_correction.timelapse,
-                                    )[0]
-                                    for z in range(im.dims.Z)
-                                ],
-                                axis=0,
-                            )
-                            for c in range(im.dims.C)
-                        ],
-                        axis=0,
-                    )
-                    for t in range(im.dims.T)
-                ],
-                axis=0,
+        if not equal_dims(im, illumination_correction, dimensions="TCYX"):
+            raise ValueError(
+                "``IlluminationCorrection`` object has incorrect ``dims``: expected "
+                + f"{im.dims}, found {illumination_correction.dims}."
             )
-        else:
-            # correct timelapse data in inner loop and reorder
-            # dimensions afterwards
-            corr_CZTYX = np.stack(
-                [
-                    np.stack(
-                        [
-                            illumination_correction.correctors[c].transform(
-                                im.get_image_data("TYX", C=c, Z=z),
-                                timelapse=illumination_correction.timelapse,
-                            )[0]
-                            for z in range(im.dims.Z)
-                        ],
-                        axis=0,
-                    )
-                    for c in range(im.dims.C)
-                ],
-                axis=0,
-            )
-            corr = transpose_to_dims(corr_CZTYX, given_dims="CZTYX", return_dims="TCZYX")
+        # correct timelapse data in inner loop and reorder
+        # dimensions afterwards
+        corr_CZTYX = np.stack(
+            [
+                np.stack(
+                    [
+                        illumination_correction.correctors[c].transform(
+                            im.get_image_data("TYX", C=c, Z=z),
+                            timelapse=illumination_correction.timelapse,
+                        )[0]
+                        for z in range(im.dims.Z)
+                    ],
+                    axis=0,
+                )
+                for c in range(im.dims.C)
+            ],
+            axis=0,
+        )
+        corr = reshape_data(corr_CZTYX, given_dims="CZTYX", return_dims="TCZYX")
+
+    # check dtype has not changed during correction
+    if corr.dtype != im.dtype:
+        corr = convert_array_dtype(corr, im.dtype, round_floats_if_necessary=True, copy=False)
     if out_type == "AICSImage":
         return AICSImage(corr, physical_pixel_sizes=im.physical_pixel_sizes, channel_names=im.channel_names)
     else:
-        return corr
+        return reshape_data(
+            data=corr,
+            given_dims="TCZYX",
+            return_dims=dimension_order_in)
 
 
 def correct_illumination(
     images: Union[AICSImage, np.ndarray, da.core.Array, List[AICSImage], List[np.ndarray], List[da.core.Array]],
     illumination_correction: IlluminationCorrection,
+    dimension_order_in: str = "TCZYX",
 ) -> Union[AICSImage, np.ndarray, List[AICSImage], List[np.ndarray]]:
 
     # individual input -> individual output
     if isinstance(images, (AICSImage, np.ndarray, da.core.Array)):
-        res = _correct_illumination(images, illumination_correction)
+        res = _correct_illumination(images, illumination_correction, dimension_order_in)
     # list input -> list output
     elif isinstance(images, list):
         if all(isinstance(image, AICSImage) for image in images):
             res = [_correct_illumination(image, illumination_correction) for image in images]
         elif all(isinstance(image, np.ndarray) for image in images):
-            res = [_correct_illumination(image, illumination_correction) for image in images]
+            res = [_correct_illumination(image, illumination_correction, dimension_order_in) for image in images]
         elif all(isinstance(image, da.core.Array) for image in images):
-            res = [_correct_illumination(image, illumination_correction) for image in images]
+            res = [_correct_illumination(image, illumination_correction, dimension_order_in) for image in images]
     else:
         raise TypeError("``images`` is a non-uniform list")
 
