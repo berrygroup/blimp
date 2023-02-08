@@ -1,6 +1,6 @@
 """Miscellaneous utilities for blimp"""
 from copy import deepcopy
-from typing import Any, List, Union, Mapping, MutableMapping, Any
+from typing import Any, List, Union, Mapping, MutableMapping
 import os
 import logging
 import collections.abc
@@ -31,14 +31,14 @@ AXIS_INT_TO_STR = {0: "T", 1: "C", 2: "Z", 3: "Y", 4: "X"}
 def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
 
     # check requested type is allowed
-    allowed_types = np.sctypes['int'] + np.sctypes['uint'] + np.sctypes['float']
+    allowed_types = np.sctypes["int"] + np.sctypes["uint"] + np.sctypes["float"]
     if not dtype in allowed_types:
         raise TypeError("``dtype`` = {dtype} is either not recognised or not allowed")
 
     # convert input to a numpy array
     if isinstance(arr, da.core.Array):
         arr = np.ndarray(arr)
-    if not isinstance(arr,np.ndarray):
+    if not isinstance(arr, np.ndarray):
         raise TypeError("``arr`` is not a ``numpy.ndarray``")
 
     old_dtype = arr.dtype
@@ -47,25 +47,25 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
         new = np.copy(arr)
     else:
         new = arr
-    
+
     if old_dtype == new_dtype:
         pass
 
-    elif old_dtype in np.sctypes['uint']:
+    elif old_dtype in np.sctypes["uint"]:
         # convert from uint
         if np.can_cast(old_dtype, new_dtype):
             new = new.astype(new_dtype)
         else:
             raise TypeError(f"Cannot cast {old_dtype} to {new_dtype}")
 
-    elif old_dtype in np.sctypes['int']:
+    elif old_dtype in np.sctypes["int"]:
         # convert from int
         if np.can_cast(old_dtype, new_dtype):
             new = new.astype(new_dtype)
         else:
             raise TypeError(f"Cannot cast {old_dtype} to {new_dtype}")
 
-    elif old_dtype in np.sctypes['float']:
+    elif old_dtype in np.sctypes["float"]:
         # convert from float
         if not round_floats_if_necessary:
             if np.can_cast(old_dtype, new_dtype):
@@ -77,17 +77,17 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
             # the minimum scalar data type
             new = np.rint(new)
             min_dtype_based_on_rounded_values = np.promote_types(
-                np.min_scalar_type(round(np.max(new))),
-                np.min_scalar_type(round(np.min(new)))
+                np.min_scalar_type(round(np.max(new))), np.min_scalar_type(round(np.min(new)))
             )
             new = new.astype(min_dtype_based_on_rounded_values)
             if np.can_cast(new.dtype, new_dtype):
                 new = new.astype(new_dtype)
             else:
                 raise RuntimeError(
-                    f"Tried to convert array of ``float`` to an ``int`` or ``uint`` dtype" 
+                    f"Tried to convert array of ``float`` to an ``int`` or ``uint`` dtype"
                     + f" but cannot convert to requested dtype ({new_dtype}) because the"
-                    + f" minimum data type necessary to hold the values is ({new.dtype}) ")
+                    + f" minimum data type necessary to hold the values is ({new.dtype}) "
+                )
     return new
 
 

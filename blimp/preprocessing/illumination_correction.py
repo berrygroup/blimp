@@ -13,8 +13,8 @@ from blimp.utils import (
     equal_dims,
     average_images,
     concatenate_images,
-    check_uniform_dimension_sizes,
     convert_array_dtype,
+    check_uniform_dimension_sizes,
 )
 
 logger = logging.getLogger(__name__)
@@ -203,29 +203,13 @@ def _correct_illumination(
     # 1. check input types and convert to AICSImage
     if isinstance(image, np.ndarray):
         if dimension_order_in is None:
-            raise ValueError(
-                "``dimension_order_in`` must be specified for array inputs to ``_correct_illumination``"
-            )
-        im = AICSImage(
-            reshape_data(
-                data=image,
-                given_dims=dimension_order_in,
-                return_dims="TCZYX"
-            )
-        )
+            raise ValueError("``dimension_order_in`` must be specified for array inputs to ``_correct_illumination``")
+        im = AICSImage(reshape_data(data=image, given_dims=dimension_order_in, return_dims="TCZYX"))
         out_type = "ndarray"
     elif isinstance(image, da.core.Array):
         if dimension_order_in is None:
-            raise ValueError(
-                "``dimension_order_in`` must be specified for array inputs to ``_correct_illumination``"
-            )
-        im = AICSImage(
-            reshape_data(
-                data=image,
-                given_dims=dimension_order_in,
-                return_dims="TCZYX"
-            )
-        )
+            raise ValueError("``dimension_order_in`` must be specified for array inputs to ``_correct_illumination``")
+        im = AICSImage(reshape_data(data=image, given_dims=dimension_order_in, return_dims="TCZYX"))
         out_type = "ndarray"
     elif isinstance(image, AICSImage):
         im = image
@@ -296,10 +280,7 @@ def _correct_illumination(
     if out_type == "AICSImage":
         return AICSImage(corr, physical_pixel_sizes=im.physical_pixel_sizes, channel_names=im.channel_names)
     else:
-        return reshape_data(
-            data=corr,
-            given_dims="TCZYX",
-            return_dims=dimension_order_in)
+        return reshape_data(data=corr, given_dims="TCZYX", return_dims=dimension_order_in)
 
 
 def correct_illumination(

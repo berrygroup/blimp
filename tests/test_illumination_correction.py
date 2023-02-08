@@ -143,9 +143,7 @@ def test_correct_illumination(_ensure_test_data):
     # valid numpy input
     numpy_input = images[0].get_image_data("CZYX")
     numpy_output = blimp.preprocessing.illumination_correction._correct_illumination(
-        image=numpy_input,
-        illumination_correction=illumination_correction,
-        dimension_order_in="CZYX"
+        image=numpy_input, illumination_correction=illumination_correction, dimension_order_in="CZYX"
     )
     assert isinstance(numpy_output, np.ndarray)
     assert numpy_input.shape == numpy_output.shape
@@ -154,9 +152,7 @@ def test_correct_illumination(_ensure_test_data):
     # valid dask input
     dask_input = images[0].get_image_dask_data("CXY")
     dask_output = blimp.preprocessing.illumination_correction._correct_illumination(
-        image=dask_input,
-        illumination_correction=illumination_correction,
-        dimension_order_in="CXY"
+        image=dask_input, illumination_correction=illumination_correction, dimension_order_in="CXY"
     )
     assert isinstance(dask_output, np.ndarray)
     assert dask_input.shape == dask_output.shape
@@ -165,8 +161,7 @@ def test_correct_illumination(_ensure_test_data):
     # valid AICSImage input
     AICSImage_input = images[0]
     AICSImage_output = blimp.preprocessing.illumination_correction._correct_illumination(
-        image=AICSImage_input,
-        illumination_correction=illumination_correction
+        image=AICSImage_input, illumination_correction=illumination_correction
     )
     assert isinstance(AICSImage_output, AICSImage)
     assert AICSImage_input.shape == AICSImage_output.shape
