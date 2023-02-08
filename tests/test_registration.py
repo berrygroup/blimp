@@ -466,7 +466,7 @@ def test_calculate_shifts_output_types(_ensure_test_data):
     assert len(result_parameters) == len(test_images)
 
 
-def test_get_cropping_mask_from_transformation_parameters(_ensure_test_data):
+def test_get_crop_mask_from_transformation_parameters(_ensure_test_data):
     images = _load_test_data("registration_tests")
     original = images[0].get_image_data("YX")
     translated = images[1].get_image_data("YX")
@@ -480,9 +480,7 @@ def test_get_cropping_mask_from_transformation_parameters(_ensure_test_data):
     expected_output = np.ones(shape=original.shape, dtype=np.bool_)
     expected_output[-50:, :] = False
     expected_output[:, -20:] = False
-    output = blimp.preprocessing.registration._get_cropping_mask_from_transformation_parameters(
-        parameters=parameters_list
-    )
+    output = blimp.preprocessing.registration._get_crop_mask_from_transformation_parameters(parameters=parameters_list)
     assert np.array_equal(output, expected_output)
 
     # Test case 2: input is a list of (y,x) shifts
@@ -493,8 +491,8 @@ def test_get_cropping_mask_from_transformation_parameters(_ensure_test_data):
     expected_output[:, 10:] = False
     expected_output[:5, :] = False
     with pytest.raises(ValueError):
-        blimp.preprocessing.registration._get_cropping_mask_from_transformation_parameters(parameters=parameters_list)
-    output = blimp.preprocessing.registration._get_cropping_mask_from_transformation_parameters(
+        blimp.preprocessing.registration._get_crop_mask_from_transformation_parameters(parameters=parameters_list)
+    output = blimp.preprocessing.registration._get_crop_mask_from_transformation_parameters(
         parameters=parameters_list, shape=shape
     )
     assert np.array_equal(output, expected_output)
@@ -502,13 +500,13 @@ def test_get_cropping_mask_from_transformation_parameters(_ensure_test_data):
     # Test case 3: input is a mixed list of TransformationParameters and (y,x) shifts
     parameters_list = [blimp.preprocessing.registration.TransformationParameters(transformation_mode="rigid"), (10, 20)]
     with pytest.raises(TypeError):
-        blimp.preprocessing.registration._get_cropping_mask_from_transformation_parameters(
+        blimp.preprocessing.registration._get_crop_mask_from_transformation_parameters(
             parameters=parameters_list, shape=shape
         )
 
     # Test case 4: input is not a list
     with pytest.raises(TypeError):
-        blimp.preprocessing.registration._get_cropping_mask_from_transformation_parameters(parameters=settings)
+        blimp.preprocessing.registration._get_crop_mask_from_transformation_parameters(parameters=settings)
 
 
 def test_apply_shifts_with_elastix_library(_ensure_test_data):
