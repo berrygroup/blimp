@@ -49,20 +49,20 @@ Application Programming Interface (API) and Examples
 ----------------------------------------------------
 
 ``blimp`` is a python package, with the API defined in the documentation.
-Several examples are provided in the ``notebooks`` folder. To use these 
+Several examples are provided in the ``notebooks`` folder. To use these
 interactively, first run ``notebooks/0_setup.ipynb`` which will download the
 example data and create a example-specific configuration.
 
-Example data is stored on 
+Example data is stored on
 `figshare <https://figshare.com/articles/dataset/blimp_example_data/21944927>`_.
-To add more examples and for distributed testing, download this archive, add 
-additional subfolders, to the ``_data`` folder, compress: 
+To add more examples and for distributed testing, download this archive, add
+additional subfolders, to the ``_data`` folder, compress:
 
 ::
 
    zip -r _data.zip _data
 
-and upload as a new version of the same figshare record 
+and upload as a new version of the same figshare record
 (`doi.org/10.6084/m9.figshare.21944927 <https://doi.org/10.6084/m9.figshare.21944927>`_)
 
 Command Line Interface (CLI)

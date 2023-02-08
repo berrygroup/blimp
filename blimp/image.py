@@ -9,10 +9,6 @@ import numpy as np
 
 from blimp.utils import translate_array
 from blimp.preprocessing.registration import apply_shifts, TransformationParameters
-from blimp.preprocessing.illumination_correction import (
-    correct_illumination,
-    IlluminationCorrection,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +17,7 @@ logger = logging.getLogger(__name__)
 # in a standard (configurable) location, and loaded from this location when required.
 
 # TODO: update for new illuminationcorrection class
+
 
 class BLImage(AICSImage):
     def __init__(
@@ -156,24 +153,25 @@ class BLImage(AICSImage):
                     + "called the ``fit_illumination_correction()`` method?"
                 )
 
-    def fit_illumination_correction(self, timelapse: bool = False, **kwargs) -> None:
-        if self._illumination_correction_reference_image_files is None:
-            raise RuntimeError(
-                "Before fitting, reference images for illumination correction must be defined."
-                + "Try ``BLImage.illumination_correction_reference_image_files = [paths/to/files]``"
-            )
-        else:
-            reference_images = [AICSImage(f) for f in self._illumination_correction_reference_image_files]
-            self._illumination_correction_objects = fit_illumination_correction(
-                reference_images=reference_images, timelapse=timelapse, **kwargs
-            )
-            if Path(self._illumination_correction_file).exists():
-                logger.warning(
-                    f"Illumination correction file {self._illumination_correction_file} already exists. Replacing with new file."
-                )
-            else:
-                logger.debug(f"Writing illumination correction file at {self._illumination_correction_file}.")
-            pickle.dump(obj=self._illumination_correction_objects, file=self._illumination_correction_file)
+    # TODO: update for new objet oriented illum corr
+    #    def fit_illumination_correction(self, timelapse: bool = False, **kwargs) -> None:
+    #        if self._illumination_correction_reference_image_files is None:
+    #            raise RuntimeError(
+    #                "Before fitting, reference images for illumination correction must be defined."
+    #                + "Try ``BLImage.illumination_correction_reference_image_files = [paths/to/files]``"
+    #            )
+    #        else:
+    #            reference_images = [AICSImage(f) for f in self._illumination_correction_reference_image_files]
+    #            self._illumination_correction_objects = fit_illumination_correction(
+    #                reference_images=reference_images, timelapse=timelapse, **kwargs
+    #            )
+    #            if Path(self._illumination_correction_file).exists():
+    #                logger.warning(
+    #                    f"Illumination correction file {self._illumination_correction_file} already exists. Replacing with new file."
+    #                )
+    #            else:
+    #                logger.debug(f"Writing illumination correction file at {self._illumination_correction_file}.")
+    #            pickle.dump(obj=self._illumination_correction_objects, file=self._illumination_correction_file)
 
     @property
     def transformation_type(self):
@@ -238,9 +236,10 @@ class BLImage(AICSImage):
         # 1. Illumination correction
         if correct is True:
             self._load_illumination_correction_objects()
-            arr = correct_illumination(
-                images=arr, correction_objects=self._illumination_correction_objects, timelapse=timelapse
-            )
+        # TODO: update
+        #            arr = correct_illumination(
+        #                images=arr, correction_objects=self._illumination_correction_objects, timelapse=timelapse
+        #            )
 
         # 2. Alignment
         if align is True:

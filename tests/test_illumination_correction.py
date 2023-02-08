@@ -1,9 +1,9 @@
 from pathlib import Path
 import logging
 
+from aicsimageio import AICSImage
 import pytest
 
-from aicsimageio import AICSImage
 from blimp.utils import equal_dims
 from blimp.constants import blimp_config
 import blimp.preprocessing.illumination_correction
@@ -19,21 +19,24 @@ def test_IlluminationCorrection_init_from_reference_images(_ensure_test_data):
     # invalid: string passed
     with pytest.raises(TypeError):
         illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
-            reference_images=[images[0], "invalid"])
+            reference_images=[images[0], "invalid"]
+        )
     # invalid: single image passed
     with pytest.raises(TypeError):
         illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
-            reference_images=images[0])
+            reference_images=images[0]
+        )
     # invalid: timelapse not specified
     with pytest.raises(ValueError):
         illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
-            reference_images=images)
+            reference_images=images
+        )
     # invalid: one of the AICSImages has a different size
     # TODO
     # valid:
     illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
-        reference_images=images,
-        timelapse=False)
+        reference_images=images, timelapse=False
+    )
     assert illumination_correction.timelapse is False
     assert illumination_correction.file_path is None
     assert illumination_correction.file_name is None
@@ -45,24 +48,27 @@ def test_IlluminationCorrection_init_from_reference_image_files(_ensure_test_dat
     testdata_config = blimp_config.get_data_config("testdata")
     image_paths = [
         Path(testdata_config.DATASET_DIR) / "illumination_correction" / "221103_brightfield_488_568_647_1.nd2",
-        Path(testdata_config.DATASET_DIR) / "illumination_correction" / "221103_brightfield_488_568_647_2.nd2"
+        Path(testdata_config.DATASET_DIR) / "illumination_correction" / "221103_brightfield_488_568_647_2.nd2",
     ]
     # invalid: non-existing file passed
     with pytest.raises(FileNotFoundError):
         illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
-            reference_images=[image_paths[0], "invalid"])
+            reference_images=[image_paths[0], "invalid"]
+        )
     # invalid: single image path passed
     with pytest.raises(TypeError):
         illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
-            reference_images=image_paths[0])
+            reference_images=image_paths[0]
+        )
     # invalid: timelapse not specified
     with pytest.raises(ValueError):
         illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
-            reference_images=image_paths)
+            reference_images=image_paths
+        )
     # valid: Path
     illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
-        reference_images=image_paths,
-        timelapse=False)
+        reference_images=image_paths, timelapse=False
+    )
     assert illumination_correction.timelapse is False
     assert illumination_correction.file_path is None
     assert illumination_correction.file_name is None
@@ -70,8 +76,8 @@ def test_IlluminationCorrection_init_from_reference_image_files(_ensure_test_dat
     assert illumination_correction.correctors is not None
     # valid: str
     illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
-        reference_images=str(image_paths),
-        timelapse=False)
+        reference_images=str(image_paths), timelapse=False
+    )
     assert illumination_correction.timelapse is False
     assert illumination_correction.file_path is None
     assert illumination_correction.file_name is None
@@ -79,7 +85,7 @@ def test_IlluminationCorrection_init_from_reference_image_files(_ensure_test_dat
     assert illumination_correction.correctors is not None
 
 
-def test_IlluminationCorrection_init_from_file(_ensure_test_data): 
+def test_IlluminationCorrection_init_from_file(_ensure_test_data):
     testdata_config = blimp_config.get_data_config("testdata")
     file_path = Path(testdata_config.RESOURCES_DIR) / "illumination_correction.pkl"
     invalid_file_path = Path(testdata_config.RESOURCES_DIR) / "illumination_correction.txt"
