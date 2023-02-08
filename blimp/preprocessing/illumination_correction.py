@@ -157,7 +157,7 @@ class IlluminationCorrection:
             raise TypeError
 
         # 2. Load from file
-        if not path.is_file():
+        if not path.is_file():  # type: ignore
             raise FileNotFoundError(f"{str(path)} not found")
         with open(path, "rb") as f:  # type: ignore
             illumination_correction = pickle.load(f)
