@@ -21,7 +21,7 @@ def _set_config():
 
     blimp_config.EXPERIMENT_DIR = os.path.join(SCRIPTS_DIR, "tests", "_experiments")
     blimp_config.BASE_DATA_DIR = os.path.join(SCRIPTS_DIR, "tests", "_data")
-    blimp_config.add_data_config("TestData", os.path.join(SCRIPTS_DIR, "tests/_data/TestData_constants.py"))
+    blimp_config.add_data_config("TestData", os.path.join(SCRIPTS_DIR, "tests", "TestData_constants.py"))
 
     print("BLIMP CONFIG:")
     print(blimp_config)
