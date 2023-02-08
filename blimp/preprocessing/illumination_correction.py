@@ -40,14 +40,29 @@ class IlluminationCorrection:
             if not isinstance(reference_images, list):
                 raise TypeError("``reference images`` must be a list")
             else:
+                # check ``reference_images`` input lists
+                is_input_AICSImage = all(isinstance(image, AICSImage) for image in reference_images)
+                is_input_files = all(isinstance(image, (str, Path)) for image in reference_images)
+                if (not is_input_AICSImage) and (not is_input_files):
+                    raise TypeError(
+                        "``reference images`` must be a list of ``AICSImage``s or file paths "
+                        + "(``str`` or ``pathlib.Path``)"
+                    )
+                if is_input_files and not all(Path(image).is_file() for image in reference_images):
+                    raise FileNotFoundError
+
+                # check timelapse defined
                 if self._timelapse is None:
                     raise ValueError(
                         "``timelapse`` must be specified when initialising "
                         + "``IlluminationCorrection`` using ``reference_images``"
                     )
-                if all(isinstance(image, AICSImage) for image in reference_images):
-                    self.fit(reference_images, **kwargs)
-                elif all(isinstance(image, (str, Path)) for image in reference_images):
+
+                # call the fit method to initialise self._correctors
+                # pass on **kwargs to allow basicpy.BaSiC optimisation
+                if is_input_AICSImage:
+                    self.fit(reference_images, **kwargs)  # type: ignore
+                elif is_input_files:
                     images = [AICSImage(image) for image in reference_images]
                     self.fit(images, **kwargs)
 
@@ -130,6 +145,8 @@ class IlluminationCorrection:
     def load(self, path: Union[str, Path]):
 
         # 1. Load from file
+        if not path.is_file():
+            raise FileNotFoundError(f"{str(path)} not found")
         with open(path, "rb") as f:  # type: ignore
             illumination_correction = pickle.load(f)
 
