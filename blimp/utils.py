@@ -1,6 +1,6 @@
 """Miscellaneous utilities for blimp"""
 from copy import deepcopy
-from typing import Any, List, Union, Mapping, MutableMapping
+from typing import Any, List, Union, Mapping, Optional, MutableMapping
 import os
 import logging
 import collections.abc
@@ -92,6 +92,10 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
 
 
 def equal_dims(a, b, dimensions="TCZYX"):
+    if not hasattr(a, "dims"):
+        raise AttributeError(f"``a`` has no ``dims`` attribute")
+    if not hasattr(b, "dims"):
+        raise AttributeError(f"``b`` has no ``dims`` attribute")
     equal_T = a.dims.T == b.dims.T
     equal_C = a.dims.C == b.dims.C
     equal_Z = a.dims.Z == b.dims.Z
@@ -523,4 +527,104 @@ def translate_array(img: np.ndarray, y: int, x: int):
     return shifted_img
 
 
-# TODO: implement get_focus_plane
+def _vollath_f4(arr: np.ndarray):
+    """Vollath's F4 function.
+
+    Described in https://doi.org/10.1002/jemt.24035
+
+    Code adapted from
+    https://github.com/aquimb/Autofocus-URJC/blob/d3b83382a82315e27e248d09519e3da4dbac40f6/Code/algorithms.py#L200
+    """
+    sum1 = 0
+    sum2 = 0
+    rows = arr.shape[0]
+    cols = arr.shape[1]
+    for i in range(rows - 1):
+        sum1 = sum1 + (arr[i] * arr[i + 1])
+
+    for i in range(rows - 2):
+        sum2 = sum2 + (arr[i] * arr[i + 2])
+
+    sum3 = sum1 - sum2
+    res = 0
+    for i in range(cols):
+        res = res + sum3[i]  # type: ignore
+
+    return res
+
+
+def estimate_focus_plane(
+    image: AICSImage, C: Optional[int], sliding_window: Optional[int] = None, crop: float = 1.0
+) -> int:
+    """
+    Estimate the focus plane of a given image using Vollath's F4 method.
+
+    (Vollath's F4 is highest at the focus plane)
+
+    Parameters
+    ----------
+    image
+        The input image.
+    C
+        The channel to use for the calculation, by default 0.
+    sliding_window
+        The size of the sliding window to average the result, by default None.
+    crop
+        The amount of cropping to apply to the image, by default 1.0.
+
+    Returns
+    -------
+    int
+        The estimated focus plane.
+
+    Raises
+    ------
+    TypeError
+        If `crop` is not of type float.
+    ValueError
+        If `crop` is not less than 1.
+    """
+
+    if not isinstance(crop, float):
+        raise TypeError("``crop`` must be of type float")
+    if not isinstance(crop, AICSImage):
+        raise TypeError("``image`` must be an ``aicsimageio.AICSImage``")
+
+    if C is None:
+        logger.warning("Using default channel (C = 0) to calculate focus_plane")
+        C = 0
+
+    arrays = [image.get_image_data("YX", T=0, C=C, Z=i) for i in range(image.dims.Z)]
+    if crop < 1.0:
+        logger.debug(f"cropping image with factor {crop}")
+        ymin = np.floor((1.0 - crop) * arrays[0].shape[0]).astype(int)
+        ymax = np.ceil(crop * arrays[0].shape[0]).astype(int)
+        xmin = np.floor((1.0 - crop) * arrays[0].shape[1]).astype(int)
+        xmax = np.ceil(crop * arrays[0].shape[1]).astype(int)
+        arrays = [a[ymin:ymax, xmin:xmax] for a in arrays]
+    elif crop != 1.0:
+        raise ValueError("``crop`` must be <= 1")
+
+    f4 = [_vollath_f4(arr) for arr in arrays]
+    # If necessary, could also use the intensity to remove
+    # out-of-focus images from stack
+    # e.g. intensity = [np.mean(arr) for arr in arrays]
+
+    if sliding_window is not None:
+        if sliding_window > 0:
+            logger.debug(f"cropping image with window size {crop}")
+            # average using sliding window
+            f4_avg = list(np.convolve(f4, np.ones(sliding_window) / sliding_window, mode="valid"))
+            # pad with zeros
+            if sliding_window % 2 == 0:
+                pad_left = list(np.zeros([np.floor(float(sliding_window - 1) / 2.0).astype(int)], dtype=type(f4[0])))
+            else:
+                pad_left = list(np.zeros([np.floor(float(sliding_window) / 2.0).astype(int)], dtype=type(f4[0])))
+            pad_right = list(np.zeros([np.floor(float(sliding_window) / 2.0).astype(int)], dtype=type(f4[0])))
+            f4 = pad_left + f4_avg + pad_right
+            # find position of max vollath_f4 (this is the focus plane)
+            max_pos = np.argmax(f4_avg) + len(pad_left)
+        else:
+            max_pos = np.argmax(f4)
+
+    return int(max_pos)

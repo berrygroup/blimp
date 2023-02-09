@@ -266,6 +266,111 @@ def test_average_images_accuracy():
     assert result.get_image_data("TCZYX").dtype == true.get_image_data("TCZYX").dtype
 
 
-# TODO: check concatenate_images
-# TODO: check translate_array
-# TODO: check convert_array_dtype
+def test_convert_array_dtype():
+    # Test 1: Check that dtype is successfully converted if allowed
+    arr = np.array([1, 2, 3], dtype=np.int32)
+    dtype = np.float64
+    expected = np.array([1, 2, 3], dtype=np.float64)
+    result = blimp.utils.convert_array_dtype(arr, dtype)
+    assert np.array_equal(result, expected)
+
+    # Test 2: Check that TypeError is raised if dtype is not recognised
+    arr = np.array([1, 2, 3], dtype=np.int32)
+    dtype = np.complex64
+    with pytest.raises(TypeError):
+        blimp.utils.convert_array_dtype(arr, dtype)
+
+    # Test 3: Check that TypeError is raised if arr is not a numpy.ndarray
+    arr = [1, 2, 3]
+    dtype = np.float32
+    with pytest.raises(TypeError):
+        blimp.utils.convert_array_dtype(arr, dtype)
+
+    # Test 4: Check that copy is correctly made or not made
+    arr = np.array([1, 2, 3], dtype=np.int32)
+    dtype = np.float32
+    expected = np.array([1, 2, 3], dtype=np.float32)
+    result = blimp.utils.convert_array_dtype(arr, dtype)
+    assert np.array_equal(result, expected)
+    assert np.array_equal(arr, np.array([1, 2, 3], dtype=np.int32))
+
+    result = blimp.utils.convert_array_dtype(arr, dtype, copy=False)
+    assert np.array_equal(result, expected)
+    assert np.array_equal(arr, expected)
+
+    # Test 5: Check that values are rounded when round_floats_if_necessary is True
+    arr = np.array([1.5, 2.7, 3.1], dtype=np.float32)
+    dtype = np.int32
+    expected = np.array([2, 3, 3], dtype=np.int32)
+    result = blimp.utils.convert_array_dtype(arr, dtype, round_floats_if_necessary=True)
+    assert np.array_equal(result, expected)
+
+    # Test 5: Check that negative values trigger an error when round_floats_if_necessary is True
+    arr = np.array([1.5, -2.7, 3.1], dtype=np.float32)
+    dtype = np.uint16
+    with pytest.raises(TypeError):
+        result = blimp.utils.convert_array_dtype(arr, dtype, round_floats_if_necessary=True)
+
+
+def test_equal_dims():
+
+    a = AICSImage(np.random.random((1, 2, 3, 4, 5)))
+    b = AICSImage(np.random.random((1, 2, 3, 4, 5)))
+    # invalid input
+    with pytest.raises(AttributeError):
+        blimp.utils.equal_dims(a, b.get_image_data("TCZYX"))
+    with pytest.raises(AttributeError):
+        blimp.utils.equal_dims(a.get_image_data("TCZYX"), b)
+    # valid input (equal)
+    assert blimp.utils.equal_dims(a, b) is True
+    assert blimp.utils.equal_dims(a, b, dimensions="TC") is True
+    assert blimp.utils.equal_dims(a, b, dimensions="ZYX") is True
+    # valid input (unequal)
+    b = AICSImage(np.random.random((1, 2, 3, 4, 6)))
+    assert blimp.utils.equal_dims(a, b) is False
+    assert blimp.utils.equal_dims(a, b, dimensions="TC") is True
+    assert blimp.utils.equal_dims(a, b, dimensions="ZYX") is False
+
+
+def test_concatenate_images():
+    # Single AICSImage instance passed as argument
+    img = AICSImage(np.random.random((3, 3)))
+    result = blimp.utils.concatenate_images(img)
+    assert result == img
+
+    # List of AICSImage instances passed as argument
+    img1 = AICSImage(np.random.random((3, 3)))
+    img2 = AICSImage(np.random.random((3, 3)))
+    result = blimp.utils.concatenate_images([img1, img2], axis=0, order="append")
+    expected_result = AICSImage(np.concatenate([img1.get_image_data(), img2.get_image_data()], axis=0))
+    assert np.array_equal(result.get_image_data(), expected_result.get_image_data())
+
+    # Sizes of the dimensions of the images passed in the `images` argument do not match
+    img1 = AICSImage(np.random.random((3, 3)))
+    img2 = AICSImage(np.random.random((4, 3)))
+    with pytest.raises(TypeError):
+        blimp.utils.concatenate_images([img1, img2], axis=0, order="interleave")
+
+    # List elements of different types are passed as argument
+    with pytest.raises(TypeError):
+        blimp.utils.concatenate_images([img1, "not an image"], axis=0, order="interleave")
+
+
+def test_translate_array():
+    # Test case where shift in y direction is negative
+    img = np.random.random((3, 3))
+    result = blimp.utils.translate_array(img, y=-1, x=0)
+    expected_result = np.pad(img, ((0, 1), (0, 0)), mode="constant")[1:, :]
+    assert np.array_equal(result, expected_result)
+
+    # Test case where shift in y direction is positive
+    img = np.random.random((3, 3))
+    result = blimp.utils.translate_array(img, y=1, x=0)
+    expected_result = np.pad(img, ((1, 0), (0, 0)), mode="constant")[:-1, :]
+    assert np.array_equal(result, expected_result)
+
+    # Test case where shift in x direction is negative
+    img = np.random.random((3, 3))
+    result = blimp.utils.translate_array(img, y=0, x=-1)
+    expected_result = np.pad(img, ((0, 0), (0, 1)), mode="constant")[:, 1:]
+    assert np.array_equal(result, expected_result)
