@@ -83,7 +83,7 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
             if np.can_cast(new.dtype, new_dtype):
                 new = new.astype(new_dtype)
             else:
-                raise RuntimeError(
+                raise ValueError(
                     f"Tried to convert array of ``float`` to an ``int`` or ``uint`` dtype"
                     + f" but cannot convert to requested dtype ({new_dtype}) because the"
                     + f" minimum data type necessary to hold the values is ({new.dtype}) "

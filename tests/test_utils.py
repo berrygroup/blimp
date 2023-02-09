@@ -287,12 +287,12 @@ def test_convert_array_dtype():
         blimp.utils.convert_array_dtype(arr, dtype)
 
     # Test 4: Check that copy is correctly made or not made
-    arr = np.array([1, 2, 3], dtype=np.int32)
+    arr = np.array([1, 2, 3], dtype=np.int16)
     dtype = np.float32
     expected = np.array([1, 2, 3], dtype=np.float32)
     result = blimp.utils.convert_array_dtype(arr, dtype)
     assert np.array_equal(result, expected)
-    assert np.array_equal(arr, np.array([1, 2, 3], dtype=np.int32))
+    assert np.array_equal(arr, np.array([1, 2, 3], dtype=np.int16))
 
     result = blimp.utils.convert_array_dtype(arr, dtype, copy=False)
     assert np.array_equal(result, expected)
@@ -308,7 +308,7 @@ def test_convert_array_dtype():
     # Test 5: Check that negative values trigger an error when round_floats_if_necessary is True
     arr = np.array([1.5, -2.7, 3.1], dtype=np.float32)
     dtype = np.uint16
-    with pytest.raises(TypeError):
+    with pytest.raises(ValueError):
         result = blimp.utils.convert_array_dtype(arr, dtype, round_floats_if_necessary=True)
 
 
