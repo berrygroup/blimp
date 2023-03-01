@@ -126,7 +126,8 @@ def _get_list_of_files_current_batch(in_path: Union[str, Path], batch_id: int, n
     # get reproducible list of nd2 files in 'in_path'
     in_path = Path(in_path)
     filepaths = glob(str(in_path / "*.nd2"))
-    filepaths = [Path(f).name for f in filepaths]
+    # FIXME: this function works only for absolute paths!
+    # filepaths = [Path(f).name for f in filepaths]
     filepaths.sort()
     logger.debug(f"{len(filepaths)} files found:")
     for i, f in enumerate(filepaths):
