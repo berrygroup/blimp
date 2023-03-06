@@ -120,10 +120,8 @@ def convert_operetta(
 
 
 def check_convert_operetta(
-        in_path: Union[str, Path],
-        out_path: Union[str, Path],
-        mip: bool = False,
-        save_metadata_files: bool = True) -> list:
+    in_path: Union[str, Path], out_path: Union[str, Path], mip: bool = False, save_metadata_files: bool = True
+) -> set:
     """Check that all files were converted.
 
     Parameters
@@ -165,20 +163,16 @@ def check_convert_operetta(
                 logger.warning(f"Metadata files not found in {str(out_path_mip)}")
 
     # get a list of imaging sites from filenames in in_path
-    unique_input_sites = set(
-        [tuple(re.findall(r"(?<=r|c|f)\d+", str(s)))
-            for s in in_path.glob("*.tiff")]
-    )
-    unique_output_sites = set(
-        [tuple(re.findall(r"(?<=r|c|f)\d+", str(s)))
-            for s in out_path.glob("*.tiff")]
-    )
+    unique_input_sites = {tuple(re.findall(r"(?<=r|c|f)\d+", str(s))) for s in in_path.glob("*.tiff")}
+    unique_output_sites = {tuple(re.findall(r"(?<=r|c|f)\d+", str(s))) for s in out_path.glob("*.tiff")}
 
     missing_sites = unique_input_sites.difference(unique_output_sites)
 
-    if len(missing_sites!=0):
+    if len(missing_sites) != 0:
         logger.warn(f"The following sites are expected in {str(out_path)}, but were not found")
     for m in missing_sites:
-        logger.warn(f"Plate row {m[0]}; plate col {m[1]}; field {m[2]} (filename string = r{str(m[0]).zfill(2)}c{str(m[1]).zfill(2)}f{str(m[2]).zfill(2)})")
-    
+        logger.warn(
+            f"Plate row {m[0]}; plate col {m[1]}; field {m[2]} (filename string = r{str(m[0]).zfill(2)}c{str(m[1]).zfill(2)}f{str(m[2]).zfill(2)})"
+        )
+
     return missing_sites
