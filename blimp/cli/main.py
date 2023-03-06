@@ -109,7 +109,7 @@ def _add_convert_nd2_args(parser: argparse.ArgumentParser) -> None:
 
 def _convert_nd2(args) -> None:
     """Wrapper for convert_nd2()"""
-    from blimp.preprocessing import convert_nd2
+    from blimp.preprocessing.convert_nd2 import convert_nd2
 
     convert_nd2(
         in_path=args.input_path,
@@ -128,7 +128,7 @@ def _convert_nd2(args) -> None:
 
 def _convert_operetta(args) -> None:
     """Wrapper for convert_operetta()"""
-    from blimp.preprocessing import convert_operetta
+    from blimp.preprocessing.convert_operetta import convert_operetta
 
     convert_operetta(
         in_path=args.input_path,
