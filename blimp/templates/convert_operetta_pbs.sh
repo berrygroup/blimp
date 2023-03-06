@@ -3,7 +3,7 @@
 ### Splits a set of operetta images into batches and converts to OME-TIFF
 
 #PBS -N ConvertOperetta
-#PBS -l select=1:ncpus=1:mem=8gb
+#PBS -l select=1:ncpus=1:mem=16gb
 #PBS -l walltime=02:00:00
 #PBS -j oe
 #PBS -k n

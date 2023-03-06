@@ -3,6 +3,7 @@ environment formats."""
 from typing import Union
 from pathlib import Path
 import os
+import re
 import glob
 import logging
 
@@ -116,3 +117,68 @@ def convert_operetta(
             os.system("qsub " + str(j))
 
     return None
+
+
+def check_convert_operetta(
+        in_path: Union[str, Path],
+        out_path: Union[str, Path],
+        mip: bool = False,
+        save_metadata_files: bool = True) -> list:
+    """Check that all files were converted.
+
+    Parameters
+    ----------
+    in_path
+        path to the "Images" directory (including "Images")
+    out_path
+        path where the converted image data should be saved
+    mip
+        whether to also check for maximum-intensity-projections
+
+    Returns
+    -------
+    List of missing files in ``out_path``
+    """
+
+    in_path = Path(in_path)
+    out_path = Path(out_path)
+    out_path_mip = out_path.parent / (str(out_path.stem) + "-MIP")
+
+    # check directories exist
+    if not in_path.exists():
+        raise FileNotFoundError
+    if not out_path.exists():
+        raise FileNotFoundError
+    if mip and not out_path_mip.exists():
+        raise FileNotFoundError
+
+    # check metadata files written
+    if save_metadata_files:
+        metadata_csv = out_path / "image_metadata.csv"
+        metadata_pkl = out_path / "image_metadata.pkl"
+        if (not metadata_csv.exists()) or (not metadata_pkl.exists()):
+            logger.warning(f"Metadata files not found in {str(out_path)}")
+        if mip:
+            metadata_csv = out_path_mip / "image_metadata.csv"
+            metadata_pkl = out_path_mip / "image_metadata.pkl"
+            if (not metadata_csv.exists()) or (not metadata_pkl.exists()):
+                logger.warning(f"Metadata files not found in {str(out_path_mip)}")
+
+    # get a list of imaging sites from filenames in in_path
+    unique_input_sites = set(
+        [tuple(re.findall(r"(?<=r|c|f)\d+", str(s)))
+            for s in in_path.glob("*.tiff")]
+    )
+    unique_output_sites = set(
+        [tuple(re.findall(r"(?<=r|c|f)\d+", str(s)))
+            for s in out_path.glob("*.tiff")]
+    )
+
+    missing_sites = unique_input_sites.difference(unique_output_sites)
+
+    if len(missing_sites!=0):
+        logger.warn(f"The following sites are expected in {str(out_path)}, but were not found")
+    for m in missing_sites:
+        logger.warn(f"Plate row {m[0]}; plate col {m[1]}; field {m[2]} (filename string = r{str(m[0]).zfill(2)}c{str(m[1]).zfill(2)}f{str(m[2]).zfill(2)})")
+    
+    return missing_sites
