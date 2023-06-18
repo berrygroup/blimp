@@ -53,7 +53,6 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
         "--jobscript_path",
         default=os.getcwd(),
         help="Directory to save PBS jobscripts (default = current working directory",
-        required=True,
     )
     parser.add_argument(
         "--output_format",
@@ -67,7 +66,7 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Whether to save maximum intensity projections? (default = False)",
     )
-    parser.add_argument("--user", metavar="ZID", help="Your zID for HPC submission(required)", required=True)
+    parser.add_argument("--user", metavar="ZID", help="Your zID for HPC submission(required)")
     parser.add_argument("--email", help="Email address for job notifications", required=False)
     parser.add_argument(
         "--batch",
@@ -79,6 +78,12 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
         default=False,
         action="store_true",
         help="whether to submit jobs after creating jobscripts",
+    )
+    parser.add_argument(
+        "--verify",
+        default=False,
+        action="store_true",
+        help="check if the conversion is complete (returns list of missing files)",
     )
     return None
 
@@ -128,20 +133,27 @@ def _convert_nd2(args) -> None:
 
 def _convert_operetta(args) -> None:
     """Wrapper for convert_operetta()"""
-    from blimp.preprocessing.convert_operetta import convert_operetta
+    from blimp.preprocessing.convert_operetta import convert_operetta, check_convert_operetta
 
-    convert_operetta(
-        in_path=args.input_path,
-        job_path=args.jobscript_path,
-        image_format=args.output_format,
-        n_batches=args.batch,
-        save_metadata_files=True,
-        mip=args.mip,
-        submit=args.submit,
-        user=args.user,
-        email=args.email,
-        dryrun=False,
-    )
+    if args.verify:
+        check_convert_operetta(
+            in_path=args.input_path,
+            save_metadata_files=True,
+            mip=args.mip,
+        )
+    else:
+        convert_operetta(
+            in_path=args.input_path,
+            job_path=args.jobscript_path,
+            image_format=args.output_format,
+            n_batches=args.batch,
+            save_metadata_files=True,
+            mip=args.mip,
+            submit=args.submit,
+            user=args.user,
+            email=args.email,
+            dryrun=False,
+        )
     return None
 
 

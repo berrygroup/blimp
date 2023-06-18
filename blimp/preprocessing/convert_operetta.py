@@ -47,7 +47,7 @@ def convert_operetta(
     Parameters
     ----------
     in_path
-        path to the "Images" directory (including "Images")
+        path to search for "Images" directories
     out_path
         path where the converted image data should be saved
     job_path
@@ -120,26 +120,59 @@ def convert_operetta(
 
 
 def check_convert_operetta(
-    in_path: Union[str, Path], out_path: Union[str, Path], mip: bool = False, save_metadata_files: bool = True
-) -> set:
+    in_path: Union[str, Path], mip: bool = False, save_metadata_files: bool = True
+) -> None:
     """Check that all files were converted.
 
     Parameters
     ----------
     in_path
-        path to the "Images" directory (including "Images")
-    out_path
-        path where the converted image data should be saved
+        path to search for "Images" directories
     mip
         whether to also check for maximum-intensity-projections
+    save_metadata_files
+        whether the metadata files should be saved after XML parsing
 
     Returns
     -------
-    List of missing files in ``out_path``
+    List of missing (non-converted) files
+    """
+    # search recursively for "Images" directories
+    logger.info("Searching for 'Images' directories...")
+    images_paths = find_images_dirs(in_path)
+    logger.info(f"Found {len(images_paths)} 'Images' directories...")
+
+    for images_dir in images_paths:
+        check_convert_operetta_dir(
+            in_path=images_dir,
+            mip=mip,
+            save_metadata_files=save_metadata_files,
+        )
+
+    return
+
+
+def check_convert_operetta_dir(
+    in_path: Union[str, Path], mip: bool = False, save_metadata_files: bool = True
+) -> set:
+    """Check that all files were converted (single directory).
+
+    Parameters
+    ----------
+    in_path
+        path to the "Images" directory (including "Images")
+    mip
+        whether to also check for maximum-intensity-projections
+    save_metadata_files
+        whether the metadata files should be saved after XML parsing
+
+    Returns
+    -------
+    List of missing (non-converted) files
     """
 
     in_path = Path(in_path)
-    out_path = Path(out_path)
+    out_path = in_path.parent / "OME-TIFF"
     out_path_mip = out_path.parent / (str(out_path.stem) + "-MIP")
 
     # check directories exist
@@ -156,11 +189,15 @@ def check_convert_operetta(
         metadata_pkl = out_path / "image_metadata.pkl"
         if (not metadata_csv.exists()) or (not metadata_pkl.exists()):
             logger.warning(f"Metadata files not found in {str(out_path)}")
+        else:
+            logger.info(f"Metadata files found in {str(out_path)}")
         if mip:
             metadata_csv = out_path_mip / "image_metadata.csv"
             metadata_pkl = out_path_mip / "image_metadata.pkl"
             if (not metadata_csv.exists()) or (not metadata_pkl.exists()):
                 logger.warning(f"Metadata files not found in {str(out_path_mip)}")
+            else:
+                logger.info(f"Metadata files found in {str(out_path_mip)}")
 
     # get a list of imaging sites from filenames in in_path
     unique_input_sites = {tuple(re.findall(r"(?<=r|c|f)\d+", str(s))) for s in in_path.glob("*.tiff")}
@@ -168,11 +205,32 @@ def check_convert_operetta(
 
     missing_sites = unique_input_sites.difference(unique_output_sites)
 
+    logger.info(f"Checking output directory...")
     if len(missing_sites) != 0:
         logger.warn(f"The following sites are expected in {str(out_path)}, but were not found")
-    for m in missing_sites:
-        logger.warn(
-            f"Plate row {m[0]}; plate col {m[1]}; field {m[2]} (filename string = r{str(m[0]).zfill(2)}c{str(m[1]).zfill(2)}f{str(m[2]).zfill(2)})"
-        )
+        for m in missing_sites:
+            logger.warn(
+                f"Plate row {m[0]}; plate col {m[1]}; field {m[2]} (filename string = r{str(m[0]).zfill(2)}c{str(m[1]).zfill(2)}f{str(m[2]).zfill(2)})"
+            )
+    else:
+        logger.info(f"Images corresponding to {len(unique_input_sites)} unique sites found in {in_path}")
+        logger.info(f"Images corresponding to {len(unique_output_sites)} unique imaging sites found in {out_path}")
+        logger.info(f"Conversion appears complete")
+
+    if mip:
+        logger.info(f"Checking MIP output directory...")
+        unique_output_sites_mip = {tuple(re.findall(r"(?<=r|c|f)\d+", str(s))) for s in out_path_mip.glob("*.tiff")}
+        missing_sites_mip = unique_input_sites.difference(unique_output_sites_mip)
+
+        if len(missing_sites) != 0:
+            logger.warn(f"The following sites are expected in {str(out_path_mip)}, but were not found")
+            for m in missing_sites_mip:
+                logger.warn(
+                    f"Plate row {m[0]}; plate col {m[1]}; field {m[2]} (filename string = r{str(m[0]).zfill(2)}c{str(m[1]).zfill(2)}f{str(m[2]).zfill(2)})"
+                )
+        else:
+            logger.info(f"Images corresponding to {len(unique_input_sites)} unique sites found in {in_path}")
+            logger.info(f"Images corresponding to {len(unique_output_sites_mip)} unique imaging sites found in {out_path_mip}")
+            logger.info(f"Conversion appears complete")
 
     return missing_sites
