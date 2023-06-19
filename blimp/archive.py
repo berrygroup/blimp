@@ -1,6 +1,7 @@
 """Convert Nikon nd2 files to standard open microscopy environment formats."""
 from typing import List, Union
 from pathlib import Path
+from datetime import datetime
 import os
 import re
 import stat
@@ -8,7 +9,8 @@ import logging
 
 import numpy as np
 
-from blimp.preprocessing import find_nd2_files, find_images_dirs
+from blimp.preprocessing.convert_operetta import find_images_dirs
+from blimp.preprocessing.convert_nd2 import find_nd2_files
 
 logger = logging.getLogger(__name__)
 
@@ -53,14 +55,14 @@ def write_archiving_script(
         f.write("## Inputs:\n")
         f.write(f"##     First name: {first_name}\n")
         f.write(f"##     Project:    {project_name}\n\n")
-        f.write("module add unswdataarchive/2020-03-19\n\n")
+        f.write("module add unswdataarchive/2021-02-17\n\n")
         f.write("export CONFIG_FILE=${HOME}/config.cfg\n\n")
         for file_path in file_paths:
             # use a regex to strip the first part of the filename that
             # we do not need to include in the upload destination
             relative_path = re.sub(r"^\/srv\/scratch\/berrylab\/z\d{7}\/", "", file_path)
             f.write(
-                f"java -Dmf.cfg=$CONFIG_FILE -cp /apps/unswdataarchive/2020-03-19/aterm.jar arc.mf.command.Execute import -verbose true -import-empty-folders true -namespace /UNSW_RDS/{project_name}/{first_name}/{relative_path} {file_path}\n"
+                f"java -Dmf.cfg=$CONFIG_FILE -cp /apps/unswdataarchive/2021-02-17/aterm.jar arc.mf.command.Execute import -verbose true -import-empty-folders true -namespace /UNSW_RDS/{project_name}/{first_name}/{relative_path} {file_path}\n"
             )
 
 
@@ -89,10 +91,12 @@ def archive(
         If input_type is not "nd2" or "operetta".
     """
 
-    # check_config_file()
+    check_config_file()
+
+    today = datetime.today().strftime("%Y-%m-%d")
 
     in_path = Path(in_path)
-    jobscript_path = Path(jobscript_path) / "archive_data_blimp.sh"
+    jobscript_path = Path(jobscript_path) / ("archive_data_blimp_" + today + ".sh")
 
     if input_type == "nd2":
         # Archive nd2 files individually since
