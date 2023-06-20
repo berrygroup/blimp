@@ -9,8 +9,8 @@ import logging
 
 import numpy as np
 
-from blimp.preprocessing.convert_operetta import find_images_dirs
 from blimp.preprocessing.convert_nd2 import find_nd2_files
+from blimp.preprocessing.convert_operetta import find_images_dirs
 
 logger = logging.getLogger(__name__)
 
