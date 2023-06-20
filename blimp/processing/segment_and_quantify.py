@@ -13,6 +13,7 @@ def segment_nuclei_cellpose(
     intensity_image: AICSImage,
     nuclei_channel: int = 0,
     threshold: float = 0,
+    flow_threshold: float = 0.4,
     timepoint: Union[int, None] = None,
 ) -> AICSImage:
     """Segment nuclei.
@@ -48,7 +49,7 @@ def segment_nuclei_cellpose(
         nuclei_images,
         diameter=None,
         channels=[0, 0],
-        flow_threshold=0.4,
+        flow_threshold=flow_threshold,
         cellprob_threshold=threshold,
         do_3D=False,
     )
