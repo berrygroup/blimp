@@ -3,7 +3,6 @@ from pathlib import Path
 from functools import reduce
 import logging
 
-from cellpose import models
 from aicsimageio import AICSImage
 import numpy as np
 import pandas as pd
@@ -35,6 +34,7 @@ def segment_nuclei_cellpose(
     AICSImage
         label_image
     """
+    from cellpose import models
 
     if timepoint is None:
         nuclei_images = [

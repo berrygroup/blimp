@@ -5,7 +5,6 @@ from pathlib import Path
 import os
 import logging
 
-from nd2reader import ND2Reader
 from aicsimageio.types import PhysicalPixelSizes
 from aicsimageio.writers import OmeTiffWriter
 import numpy as np
@@ -35,6 +34,7 @@ def convert_individual_nd2_to_ome_tiff(
     Returns
     -------
     """
+    from nd2reader import ND2Reader
 
     logger.info(f"Reading individual ND2 file {in_file_path}")
     images = ND2Reader(str(in_file_path))

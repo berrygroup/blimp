@@ -7,7 +7,6 @@ import json
 import logging
 import datetime
 
-from nd2reader import ND2Reader
 import numpy as np
 import pandas as pd
 
@@ -180,6 +179,7 @@ def nd2_extract_metadata_and_save(
     -------
     Dataframe containing the metadata written to file
     """
+    from nd2reader import ND2Reader
 
     logger.info(f"Acquisition_increment_order specified as {acquisition_increment_order}")
     if acquisition_increment_order != "TFZ":
