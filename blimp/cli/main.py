@@ -133,7 +133,10 @@ def _convert_nd2(args) -> None:
 
 def _convert_operetta(args) -> None:
     """Wrapper for convert_operetta()"""
-    from blimp.preprocessing.convert_operetta import convert_operetta, check_convert_operetta
+    from blimp.preprocessing.convert_operetta import (
+        convert_operetta,
+        check_convert_operetta,
+    )
 
     if args.verify:
         check_convert_operetta(

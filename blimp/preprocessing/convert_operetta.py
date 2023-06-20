@@ -119,9 +119,7 @@ def convert_operetta(
     return None
 
 
-def check_convert_operetta(
-    in_path: Union[str, Path], mip: bool = False, save_metadata_files: bool = True
-) -> None:
+def check_convert_operetta(in_path: Union[str, Path], mip: bool = False, save_metadata_files: bool = True) -> None:
     """Check that all files were converted.
 
     Parameters
@@ -152,9 +150,7 @@ def check_convert_operetta(
     return
 
 
-def check_convert_operetta_dir(
-    in_path: Union[str, Path], mip: bool = False, save_metadata_files: bool = True
-) -> set:
+def check_convert_operetta_dir(in_path: Union[str, Path], mip: bool = False, save_metadata_files: bool = True) -> set:
     """Check that all files were converted (single directory).
 
     Parameters
@@ -230,7 +226,9 @@ def check_convert_operetta_dir(
                 )
         else:
             logger.info(f"Images corresponding to {len(unique_input_sites)} unique sites found in {in_path}")
-            logger.info(f"Images corresponding to {len(unique_output_sites_mip)} unique imaging sites found in {out_path_mip}")
+            logger.info(
+                f"Images corresponding to {len(unique_output_sites_mip)} unique imaging sites found in {out_path_mip}"
+            )
             logger.info(f"Conversion appears complete")
 
     return missing_sites
