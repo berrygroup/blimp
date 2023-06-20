@@ -3,8 +3,7 @@ import sys
 import argparse
 
 from blimp.log import configure_logging
-
-from .prepare_config import prepare_config
+from blimp.cli.prepare_config import prepare_config
 
 # fmt: off
 header = """

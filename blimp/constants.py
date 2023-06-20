@@ -5,7 +5,7 @@ from configparser import ConfigParser, NoOptionError, NoSectionError
 import os
 import multiprocessing
 
-from blimp.utils import load_config
+from blimp.config import load_config
 
 
 def _get_value(config: ConfigParser, key: str, section: str = "DEFAULT") -> Optional[str]:
