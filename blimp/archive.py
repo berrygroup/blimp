@@ -1,12 +1,12 @@
 """Convert Nikon nd2 files to standard open microscopy environment formats."""
-from typing import List, Dict, Union
+from typing import Dict, List, Union
 from pathlib import Path
 from datetime import datetime
 import os
 import re
+import glob
 import stat
 import logging
-import glob
 
 import numpy as np
 
@@ -67,9 +67,7 @@ def write_archiving_script_nd2(
             )
 
 
-def split_operetta_files_into_archiving_batches(
-        images_dir: Union[Path,str]
-    ) -> Dict[str, List[str]]:
+def split_operetta_files_into_archiving_batches(images_dir: Union[Path, str]) -> Dict[str, List[str]]:
     """Splits filenames into groups based on the 'r00c00' pattern.
 
     Parameters
@@ -78,14 +76,14 @@ def split_operetta_files_into_archiving_batches(
 
     Returns
     -------
-        A dictionary containing groups of filenames as values, 
+        A dictionary containing groups of filenames as values,
         with the 'r00c00' pattern as keys.
     """
 
     filenames = os.listdir(images_dir)
-    groups = {}
+    groups: Dict[str, List[str]] = {}
 
-    pattern = r'r(\d{2})c(\d{2})'  # Regular expression pattern for 'r00c00'
+    pattern = r"r(\d{2})c(\d{2})"  # Regular expression pattern for 'r00c00'
     for filename in filenames:
         match = re.search(pattern, filename)
         if match:
@@ -93,21 +91,19 @@ def split_operetta_files_into_archiving_batches(
             if key not in groups:
                 groups[key] = []
             groups[key].append(filename)
-    
+
     return groups
 
 
 def write_archiving_batch_files(
-        archive_dir: Union[Path, str],
-        images_dir: Union[Path, str],
-        groups: Dict[str, List[str]]
-    ) -> None:
-    """Writes groups of filenames to separate text files, 
+    archive_dir: Union[Path, str], images_dir: Union[Path, str], groups: Dict[str, List[str]]
+) -> None:
+    """Writes groups of filenames to separate text files,
     for use as input to `tar` with the '-T' option.
 
     Parameters
     ----------
-        groups: A dictionary containing groups of filenames, 
+        groups: A dictionary containing groups of filenames,
         where keys are 'r00c00' patterns and values are lists
         of filenames.
     """
@@ -115,9 +111,9 @@ def write_archiving_batch_files(
     images_dir = Path(images_dir)
     for key, filenames in groups.items():
         file_name = archive_dir / (key + ".txt")
-        with open(file_name, 'w') as file:
+        with open(file_name, "w") as file:
             for filename in filenames:
-                file.write((str(images_dir / filename)) + '\n')
+                file.write((str(images_dir / filename)) + "\n")
 
 
 def write_archiving_script_operetta(
@@ -152,8 +148,8 @@ def write_archiving_script_operetta(
         f.write("export CONFIG_FILE=${HOME}/config.cfg\n\n")
         f.write("## Compress into batch files:\n\n")
         for file_path in file_paths:
-            if Path(file_path).stem=="Archive":
-                archive_batch_files = glob.glob(str(Path(file_path) / '*.txt'))
+            if Path(file_path).stem == "Archive":
+                archive_batch_files = glob.glob(str(Path(file_path) / "*.txt"))
                 for batch_file in archive_batch_files:
                     f.write(f"tar -cvzf {str(Path(batch_file).with_suffix('.tar.gz'))} -T {batch_file}\n")
         f.write("\n## Upload:\n\n")
@@ -218,10 +214,7 @@ def archive(
                 archive_dir.mkdir(parents=True, exist_ok=True)
             # split file list into batches and write as text files
             batches = split_operetta_files_into_archiving_batches(image_dir)
-            write_archiving_batch_files(
-                archive_dir=archive_dir,
-                images_dir=image_dir,
-                groups=batches)
+            write_archiving_batch_files(archive_dir=archive_dir, images_dir=image_dir, groups=batches)
         sub_dirs = ["Archive", "Assaylayout", "FFC_Profile"]
         archive_dirs = np.concatenate([[Path(d).parent / s for s in sub_dirs] for d in image_dirs])
         write_archiving_script_operetta(archive_dirs.flatten(), jobscript_path, first_name, project_name)
