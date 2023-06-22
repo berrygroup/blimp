@@ -116,7 +116,7 @@ def write_archiving_batch_files(
             with open(archive_batch_filename, "w") as file:
                 for image_filename in image_filenames:
                     file.write((str(images_dir / image_filename)) + "\n")
-        except IOError:
+        except OSError:
             raise FileNotFoundError(f"Cannot write to {archive_batch_filename}.")
     return
 
@@ -173,22 +173,22 @@ def write_archiving_script_operetta(
                 local_checksum_path = archive_path.parent / "checksum_Archive_Local.csv"
                 # compute local checksums
                 f.write("\n## Compute checksums locally:\n\n")
-                f.write(f"csv_file=\"{str(local_checksum_path)}\"\n")
-                f.write(f"folder_path=\"{str(archive_path)}\"\n")
+                f.write(f'csv_file="{str(local_checksum_path)}"\n')
+                f.write(f'folder_path="{str(archive_path)}"\n')
                 f.write("work_dir=$(pwd)\n\n")
                 f.write("# crc32 perl script has a bug that reads the first hexadecimal in the path\n")
-                f.write("# to prevent this from being an issue we change directory and pass filenames only\n") 
-                f.write("cd \"$folder_path\"\n\n")
-                f.write("echo \"name,csum\" > \"$csv_file\"\n\n")
+                f.write("# to prevent this from being an issue we change directory and pass filenames only\n")
+                f.write('cd "$folder_path"\n\n')
+                f.write('echo "name,csum" > "$csv_file"\n\n')
                 f.write("for file_path in ./*.txt; do\n\n")
-                f.write("    checksum=$(crc32 \"$file_path\")\n")
+                f.write('    checksum=$(crc32 "$file_path")\n')
                 f.write("    checksum=$(echo \"$checksum\" | tr '[:lower:]' '[:upper:]')\n\n")
-                f.write("    file_name=$(basename \"$file_path\")\n")
-                f.write("    echo \"$file_name,$checksum\" >> \"$csv_file\"\n")
+                f.write('    file_name=$(basename "$file_path")\n')
+                f.write('    echo "$file_name,$checksum" >> "$csv_file"\n')
                 f.write("done\n\n")
-                f.write("# change back to working directory\n") 
-                f.write("cd \"$work_dir\"\n")
-                f.write("echo \"Checksums written to $csv_file\"\n\n")
+                f.write("# change back to working directory\n")
+                f.write('cd "$work_dir"\n')
+                f.write('echo "Checksums written to $csv_file"\n\n')
 
                 # get checksums from archive
                 f.write("\n## Compute checksums on data archive:\n\n")
@@ -201,11 +201,11 @@ def write_archiving_script_operetta(
             for batch_file in archive_batch_files:
                 f.write(f"rm -v {str(Path(batch_file).with_suffix('.tar.gz'))} \n")
 
-    except IOError:
+    except OSError:
         if Path(script_path).parent.exists():
-            raise IOError(f"Could not write to {script_path}.")
+            raise OSError(f"Could not write to {script_path}.")
         else:
-            raise IOError(f"Could not write to {script_path}. Parent folder {Path(script_path).parent} does not exist.")
+            raise OSError(f"Could not write to {script_path}. Parent folder {Path(script_path).parent} does not exist.")
 
 
 def archive(
