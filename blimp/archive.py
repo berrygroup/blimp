@@ -175,6 +175,7 @@ def write_archiving_script_operetta(
             if archive_path is not None:
                 archive_relative_path = re.sub(r"^\/srv\/scratch\/berrylab\/z\d{7}\/", "", str(archive_path))
                 local_checksum_path = archive_path.parent / "checksum_Archive_Local.csv"
+                diff_checksum_path = archive_path.parent / "diff_checksum_Archive_Local_vs_UNSW_RDS.csv"
                 # compute local checksums
                 f.write("\n## Compute checksums locally:\n\n")
                 f.write(f'csv_file="{str(local_checksum_path)}"\n')
@@ -184,7 +185,9 @@ def write_archiving_script_operetta(
                 f.write("# to prevent this from being an issue we change directory and pass filenames only\n")
                 f.write('cd "$folder_path"\n\n')
                 f.write('echo "name,csum" > "$csv_file"\n\n')
-                f.write("for file_path in ./*.txt; do\n\n")
+                f.write("# use extended globbing for pattern matching of both .txt and .tar.gz\n")
+                f.write("shopt -s extglob\n\n")
+                f.write("for file_path in ./@(*.txt|*.tar.gz); do\n\n")
                 f.write('    checksum=$(crc32 "$file_path")\n')
                 f.write("    checksum=$(echo \"$checksum\" | tr '[:lower:]' '[:upper:]')\n\n")
                 f.write('    file_name=$(basename "$file_path")\n')
@@ -200,6 +203,10 @@ def write_archiving_script_operetta(
                 f.write(
                     f"java -Dmf.cfg=$CONFIG_FILE -jar /apps/unswdataarchive/2021-02-17/aterm.jar nogui \"asset.query :action get-values :where namespace>='/UNSW_RDS/{project_name}/{first_name}/{archive_relative_path}' :xpath -ename name name :xpath -ename csum content/csum :output-format csv :out file:{unsw_rds_checksum_path}\"\n"
                 )
+
+                # compare checksums
+                f.write("\n## Compare local and remote checksums:\n\n")
+                f.write(f"diff <(sort {str(local_checksum_path)}) <(sort {str(unsw_rds_checksum_path)}) > {str(diff_checksum_path)}\n")
 
             f.write("\n## Remove local compressed data:\n\n")
             for batch_file in archive_batch_files:
