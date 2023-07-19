@@ -51,7 +51,7 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
         "-j",
         "--jobscript_path",
         default=os.getcwd(),
-        help="Directory to save PBS jobscripts (default = current working directory",
+        help="Directory to save PBS jobscripts (default = current working directory)",
     )
     parser.add_argument(
         "--output_format",
@@ -65,7 +65,7 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Whether to save maximum intensity projections? (default = False)",
     )
-    parser.add_argument("--user", metavar="ZID", help="Your zID for HPC submission(required)")
+    parser.add_argument("--user", metavar="ZID", help="Your zID for HPC submission (required)")
     parser.add_argument("--email", help="Email address for job notifications", required=False)
     parser.add_argument(
         "--batch",
@@ -76,13 +76,19 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
         "--submit",
         default=False,
         action="store_true",
-        help="whether to submit jobs after creating jobscripts",
+        help="Whether to submit jobs after creating jobscripts (default = False)",
     )
     parser.add_argument(
-        "--verify",
+        "--verify-only",
         default=False,
         action="store_true",
-        help="check if the conversion is complete (returns list of missing files)",
+        help="""
+        Check if the conversion is complete (default = False). Note that
+        this option does not actually attempt to do any conversion, but
+        instead returns information via logging statements as to whether
+        all files have already been successfully converted. Use with
+        '-vv' to show results.
+    """,
     )
     return None
 
@@ -137,7 +143,7 @@ def _convert_operetta(args) -> None:
         check_convert_operetta,
     )
 
-    if args.verify:
+    if args.verify_only:
         check_convert_operetta(
             in_path=args.input_path,
             save_metadata_files=True,
