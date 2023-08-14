@@ -26,10 +26,10 @@ Image registration
 .. autosummary::
     :toctree: api
 
-    preprocessing.register_2D
-    preprocessing.transform_2D
-    preprocessing.calculate_shifts
-    preprocessing.apply_shifts
+    preprocessing.registration.register_2D
+    preprocessing.registration.transform_2D
+    preprocessing.registration.calculate_shifts
+    preprocessing.registration.apply_shifts
 
 Processing
 ~~~~~~~~~~
