@@ -1,3 +1,7 @@
+"""Copyright 2023 (C) University of New South Wales Original author:
+
+Scott Berry <scott.berry@unsw.edu.au>
+"""
 # pip install itk-elastix
 from typing import List, Tuple, Union, Literal, overload
 from numbers import Integral
