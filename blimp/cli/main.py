@@ -65,7 +65,7 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Whether to save maximum intensity projections? (default = False)",
     )
-    parser.add_argument("--user", metavar="ZID", help="Your zID for HPC submission (required)")
+    parser.add_argument("--user", metavar="ZID", help="Your zID for HPC submission (required)", required=True)
     parser.add_argument("--email", help="Email address for job notifications", required=False)
     parser.add_argument(
         "--batch",
