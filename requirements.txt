@@ -6,6 +6,7 @@ importlib_metadata>=5.1.0
 itk-elastix==0.15.0
 matplotlib>=3.6.3
 nd2reader>=3.3.0
+numpy==1.20.3
 packaging>=23.0
 pandas>=1.5.2
 pystackreg>=0.2.7
