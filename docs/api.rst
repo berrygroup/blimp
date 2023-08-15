@@ -17,19 +17,8 @@ File handling
     preprocessing.nd2_to_ome_tiff
     preprocessing.convert_operetta
     preprocessing.operetta_to_ome_tiff
-    preprocessing.get_image_metadata
-    preprocessing.get_plate_metadata
-
-Image registration
-^^^^^^^^^^^^^^^^^^
-
-.. autosummary::
-    :toctree: api
-
-    preprocessing.registration.register_2D
-    preprocessing.registration.transform_2D
-    preprocessing.registration.calculate_shifts
-    preprocessing.registration.apply_shifts
+    preprocessing.operetta_parse_metadata.get_image_metadata
+    preprocessing.operetta_parse_metadata.get_plate_metadata
 
 Processing
 ~~~~~~~~~~
@@ -40,6 +29,6 @@ Processing
 .. autosummary::
     :toctree: api
 
-    processing.segment_nuclei_cellpose
-    processing.quantify
-    processing.segment_and_quantify
+    processing.segment_and_quantify.quantify
+    processing.segment_and_quantify.segment_and_quantify
+    processing.segment_and_quantify.segment_nuclei_cellpose
