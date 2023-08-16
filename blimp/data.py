@@ -2,6 +2,7 @@ from typing import Union
 from pathlib import Path
 import os
 import shutil
+import logging
 import tempfile
 
 from tqdm import tqdm
@@ -10,6 +11,8 @@ import requests
 from blimp.constants import SCRIPTS_DIR
 
 Path_t = Union[str, Path]
+
+logger = logging.getLogger(__name__)
 
 
 def load_example_data(data_dir: Path_t = None) -> Path_t:
@@ -44,20 +47,24 @@ def load_test_data():
     """
     Download test data to ``SCRIPTS_DIR/tests``.
     """
-    url = "https://figshare.com/ndownloader/files/34988353?private_link=0c3534797222eed8f10d"
+    url = "https://figshare.com/ndownloader/files/42033189"
     base_dir = os.path.join(SCRIPTS_DIR, "tests")
-    archive_path = os.path.join(base_dir, "_test_data.zip")
+    print(f"base_dir = {base_dir}")
+    archive_path = os.path.join(base_dir, "_data.zip")
     # check if is downloaded already
     if os.path.exists(os.path.join(base_dir, "_data")) and os.path.exists(os.path.join(base_dir, "_experiments")):
-        datacontent = os.listdir(os.path.join(base_dir, "_data"))
-        experimentcontent = os.listdir(os.path.join(base_dir, "_experiments"))
-        if "channels_metadata.csv" in datacontent and "reference_experiment" in experimentcontent:
+        datacontent = os.listdir(os.path.join(base_dir, "_data", "resources"))
+        if "affine.txt" in datacontent:
+            logger.info(
+                f"Using previously downloaded/extracted test data. Delete {os.path.join(base_dir, '_data')} directory to force re-download."
+            )
             return
     # have to unpack/redownload
     if os.path.exists(archive_path):
+        logger.info(f"Extracting test data. Delete {archive_path} directory to force re-download.")
         shutil.unpack_archive(archive_path, base_dir)
     else:
-        print("Path or dataset does not yet exist. Attempting to download...")
+        logger.info(f"{archive_path} or dataset does not yet exist. Attempting to download from figshare...")
         download(url, output_path=archive_path)
         shutil.unpack_archive(archive_path, base_dir)
     return

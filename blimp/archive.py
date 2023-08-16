@@ -8,8 +8,6 @@ import glob
 import stat
 import logging
 
-import numpy as np
-
 from blimp.preprocessing.convert_nd2 import find_nd2_files
 from blimp.preprocessing.convert_operetta import find_images_dirs
 
@@ -206,7 +204,9 @@ def write_archiving_script_operetta(
 
                 # compare checksums
                 f.write("\n## Compare local and remote checksums:\n\n")
-                f.write(f"diff <(sort {str(local_checksum_path)}) <(sort {str(unsw_rds_checksum_path)}) > {str(diff_checksum_path)}\n")
+                f.write(
+                    f"diff <(sort {str(local_checksum_path)}) <(sort {str(unsw_rds_checksum_path)}) > {str(diff_checksum_path)}\n"
+                )
 
             f.write("\n## Remove local compressed data:\n\n")
             for batch_file in archive_batch_files:
@@ -280,13 +280,12 @@ def archive(
             archive_dirs = [Path(image_dir).parent / s for s in sub_dirs]
             for d in archive_dirs:
                 logger.debug(f"Creating archiving script for {d}")
-            if i==0:
+            if i == 0:
                 logger.debug(f"Creating new archiving script in {jobscript_path}")
-                write_archiving_script_operetta(archive_dirs, jobscript_path, first_name, project_name,append=False)
+                write_archiving_script_operetta(archive_dirs, jobscript_path, first_name, project_name, append=False)
             else:
                 logger.debug(f"Appending to existing archving script in {jobscript_path}")
-                write_archiving_script_operetta(archive_dirs, jobscript_path, first_name, project_name,append=True)
-
+                write_archiving_script_operetta(archive_dirs, jobscript_path, first_name, project_name, append=True)
 
     else:
         logger.error(f"input_type {input_type} not recognised. Please specify 'nd2' or 'operetta' input_type.")

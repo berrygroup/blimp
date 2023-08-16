@@ -54,6 +54,19 @@ If needed, recreate the ``tox`` environment::
 
     tox -e py38 --recreate
 
+Test data is stored on
+`figshare <https://figshare.com/articles/dataset/blimp_test_data/23972244>`_.
+To add more examples and for distributed testing, download this archive, add
+additional subfolders, to the ``_data`` or ``_experiments`` folders, compress:
+
+::
+
+   zip -r _data.zip _data _experiments
+
+and upload as a new version of the same figshare record
+(`doi.org/10.6084/m9.figshare.23972244 <https://doi.org/10.6084/m9.figshare.23972244>`_)
+
+
 Writing documentation
 ---------------------
 We use ``numpy``-style docstrings for the documentation.
