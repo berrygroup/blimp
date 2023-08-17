@@ -5,6 +5,8 @@ import logging
 
 from aicsimageio import AICSImage
 from aicsimageio.transforms import reshape_data
+from matplotlib import pyplot as plt
+
 import numpy as np
 import basicpy
 import dask.array as da
@@ -112,6 +114,23 @@ class IlluminationCorrection:
         for c in range(images.dims.C):
             self._correctors[c].fit(images.get_image_data("TYX", C=c))
 
+    def plot(self):
+        if isinstance(self._correctors, list):
+            fig, axes = plt.subplots(self.dims.C, 3, figsize=(9, 3*self.dims.C))
+            for i in range(self.dims.C):
+                im = axes[i,0].imshow(self.correctors[i].flatfield)
+                fig.colorbar(im, ax=axes[i,0])
+                axes[i,0].set_title("Flatfield")
+                im = axes[i,1].imshow(self.correctors[i].darkfield)
+                fig.colorbar(im, ax=axes[i,1])
+                axes[i,1].set_title("Darkfield")
+                axes[i,2].plot(self.correctors[i].baseline)
+                axes[i,2].set_xlabel("Frame")
+                axes[i,2].set_ylabel("Baseline")
+            fig.tight_layout()
+        else:
+            raise RuntimeError("Cannot plot ``IlluminationCorrection`` if correctors are not defined")
+    
     @property
     def file_name(self):
         return self._file_name
