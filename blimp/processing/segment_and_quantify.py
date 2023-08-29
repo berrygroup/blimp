@@ -354,7 +354,7 @@ def _quantify_single_timepoint(
 
         label_array = label_image.get_image_data("YX", C=obj_index, T=timepoint, Z=0)
 
-        # get morphology features
+        # Morphology features
         # -----------------------
         features = pd.DataFrame(
             skimage.measure.regionprops_table(
@@ -364,7 +364,7 @@ def _quantify_single_timepoint(
             )
         ).rename(columns=lambda x: obj + "_" + x if x != "label" else x)
 
-        # get intensity features
+        # Intensity features
         # ----------------------
         # iterate over selected channels
         for channel in intensity_channels_list:
@@ -383,7 +383,7 @@ def _quantify_single_timepoint(
 
                 features = features.merge(intensity_features, on="label")
 
-        # get texture features
+        # Texture features
         # ----------------------
         # iterate over selected channels
         if calculate_textures:
@@ -462,8 +462,45 @@ def segment_and_quantify(
     metadata_file: Union[str, Path, None] = None,
     timepoint: Union[int, None] = None,
 ):
-    """Segment objects and quantify intensities of all channels relative to
-    objects."""
+    """
+    Segment objects and quantify intensities of all channels relative to objects.
+
+    Parameters
+    ----------
+    image_file
+        Path to the input image file.
+    nuclei_channel
+        Index of the nuclei channel in the input image, by default 0.
+    metadata_file
+        Path to the metadata file or None to use the default location, by default None.
+    timepoint
+        Timepoint to process or None for all timepoints, by default None.
+
+    Returns
+    -------
+    Tuple[AICSImage, pandas.DataFrame]
+        A tuple containing the nuclei label image and a DataFrame with quantified features.
+
+    Notes
+    -----
+    This function segments objects using the specified nuclei channel and then quantifies
+    intensities of all channels relative to the segmented objects. The results are saved as
+    label images and features in corresponding directories. The segmented nuclei label image
+    and the quantified features DataFrame are returned as a tuple.
+
+    Examples
+    --------
+    >>> image_file = "path/to/image.tif"
+    >>> nuclei_channel = 0
+    >>> metadata_file = "path/to/metadata.pkl"
+    >>> timepoint = 1
+    >>> nuclei_label_image, features_df = segment_and_quantify(image_file, nuclei_channel, metadata_file, timepoint)
+    >>> print(features_df.head())
+       ObjectID  Channel0  Channel1  ...  MetadataField1  MetadataField2  MetadataField3
+    0         1     123.4     567.8  ...             1.0             2.0             3.0
+    1         2     234.5     678.9  ...             1.0             2.0             3.0
+    ...       ...       ...       ...  ...             ...             ...             ...
+    """
     from blimp.preprocessing.operetta_parse_metadata import load_image_metadata
 
     # read intensity image and metadata
@@ -480,9 +517,9 @@ def segment_and_quantify(
     metadata = load_image_metadata(metadata_file)
 
     # make label image directory
-    label_image_dir = Path(image_file).parent / "label_image"
+    label_image_dir = Path(image_file).parent / "LABEL_IMAGE"
     label_image_dir.mkdir(parents=True, exist_ok=True)
-    features_dir = Path(image_file).parent / "features"
+    features_dir = Path(image_file).parent / "FEATURES"
     features_dir.mkdir(parents=True, exist_ok=True)
 
     # segment
