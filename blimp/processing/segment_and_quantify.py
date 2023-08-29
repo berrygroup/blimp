@@ -412,6 +412,7 @@ def _quantify_single_timepoint(
         features_list.append(features)
 
     # combine results for all objects (assumes matching labels)
+    # TODO: generalise this for aggregate quantification, etc.
     features = reduce(
         lambda left, right: pd.merge(left, right, on=["label"], how="outer"),
         features_list,
