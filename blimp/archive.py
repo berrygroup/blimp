@@ -199,7 +199,7 @@ def write_archiving_script_operetta(
                 f.write("\n## Compute checksums on data archive:\n\n")
                 unsw_rds_checksum_path = archive_path.parent / "checksum_Archive_UNSW_RDS.csv"
                 f.write(
-                    f"java -Dmf.cfg=$CONFIG_FILE -jar /apps/unswdataarchive/2021-02-17/aterm.jar nogui \"asset.query :action get-values :where namespace>='/UNSW_RDS/{project_name}/{first_name}/{archive_relative_path}' :xpath -ename name name :xpath -ename csum content/csum :output-format csv :out file:{unsw_rds_checksum_path}\"\n"
+                    f"java -Dmf.cfg=$CONFIG_FILE -jar /apps/unswdataarchive/2021-02-17/aterm.jar nogui \"asset.query :action get-values :where namespace>='/UNSW_RDS/{project_name}/{first_name}/{archive_relative_path}' :xpath -ename name name :xpath -ename csum content/csum :output-format csv :out file:{unsw_rds_checksum_path} :size 1000\"\n"
                 )
 
                 # compare checksums
