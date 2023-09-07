@@ -4,6 +4,7 @@ from functools import reduce
 import logging
 
 from aicsimageio import AICSImage
+from skimage.segmentation import clear_border
 import numpy as np
 import pandas as pd
 import mahotas as mh
@@ -298,6 +299,18 @@ def _calculate_texture_features_single_object(
     return haralick_df
 
 
+def border_objects(label_array: np.ndarray) -> pd.DataFrame:
+    all_object_labels = [x for x in np.unique(label_array) if x != 0]
+
+    label_array_non_border = clear_border(label_array)
+    non_border_object_labels = np.unique(label_array_non_border)
+
+    border_objects = pd.DataFrame({"label": all_object_labels})
+    border_objects["is_border"] = border_objects.label.map(lambda x: False if x in non_border_object_labels else True)
+
+    return border_objects
+
+
 def _quantify_single_timepoint(
     intensity_image: AICSImage,
     label_image: AICSImage,
@@ -363,7 +376,6 @@ def _quantify_single_timepoint(
                     "label",
                     "centroid",
                     "area",
-                    "num_pixels",
                     "area_convex",
                     "axis_major_length",
                     "axis_minor_length",
@@ -375,6 +387,10 @@ def _quantify_single_timepoint(
                 separator="_",
             )
         ).rename(columns=lambda x: obj + "_" + x if x != "label" else x)
+
+        features = features.merge(
+            border_objects(label_array).rename(columns=lambda x: obj + "_" + x if x != "label" else x), on="label"
+        )
 
         # Intensity features
         # ----------------------
@@ -445,7 +461,7 @@ def quantify(
     texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_scales: list = [1, 3],
-    ):
+):
     """Quantify all channels in an image relative to a matching segmentation
     label image.
 
@@ -467,16 +483,19 @@ def quantify(
 
     if timepoint is None:
         features = pd.concat(
-            [_quantify_single_timepoint(
-                intensity_image=intensity_image,
-                label_image=label_image,
-                t=t,
-                intensity_channels=intensity_channels,
-                intensity_objects=intensity_objects,
-                calculate_textures=calculate_textures,
-                texture_channels=texture_channels,
-                texture_objects=texture_objects,
-                texture_scales=texture_scales) for t in range(intensity_image.dims[["T"]][0])]
+            [
+                _quantify_single_timepoint(
+                    intensity_image=intensity_image,
+                    label_image=label_image,
+                    intensity_channels=intensity_channels,
+                    intensity_objects=intensity_objects,
+                    calculate_textures=calculate_textures,
+                    texture_channels=texture_channels,
+                    texture_objects=texture_objects,
+                    texture_scales=texture_scales,
+                )
+                for t in range(intensity_image.dims[["T"]][0])
+            ]
         )
     else:
         features = _quantify_single_timepoint(intensity_image, label_image, timepoint)
