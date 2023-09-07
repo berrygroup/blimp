@@ -439,7 +439,13 @@ def quantify(
     intensity_image: AICSImage,
     label_image: AICSImage,
     timepoint: Union[int, None] = None,
-):
+    intensity_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    intensity_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    calculate_textures: Optional[bool] = False,
+    texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    texture_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    texture_scales: list = [1, 3],
+    ):
     """Quantify all channels in an image relative to a matching segmentation
     label image.
 
@@ -461,7 +467,16 @@ def quantify(
 
     if timepoint is None:
         features = pd.concat(
-            [_quantify_single_timepoint(intensity_image, label_image, t) for t in range(intensity_image.dims[["T"]][0])]
+            [_quantify_single_timepoint(
+                intensity_image=intensity_image,
+                label_image=label_image,
+                t=t,
+                intensity_channels=intensity_channels,
+                intensity_objects=intensity_objects,
+                calculate_textures=calculate_textures,
+                texture_channels=texture_channels,
+                texture_objects=texture_objects,
+                texture_scales=texture_scales) for t in range(intensity_image.dims[["T"]][0])]
         )
     else:
         features = _quantify_single_timepoint(intensity_image, label_image, timepoint)
