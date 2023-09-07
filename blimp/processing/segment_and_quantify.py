@@ -359,7 +359,19 @@ def _quantify_single_timepoint(
         features = pd.DataFrame(
             skimage.measure.regionprops_table(
                 label_array,
-                properties=["label", "centroid", "area"],
+                properties=[
+                    "label",
+                    "centroid",
+                    "area",
+                    "num_pixels",
+                    "area_convex",
+                    "axis_major_length",
+                    "axis_minor_length",
+                    "eccentricity",
+                    "extent",
+                    "feret_diameter_max",
+                    "solidity",
+                ],
                 separator="_",
             )
         ).rename(columns=lambda x: obj + "_" + x if x != "label" else x)
