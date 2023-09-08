@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [tool.black]
 line-length = 120
-target-version = ['py38']
+target-version = ['py310']
 include = '\.pyi?$'
 exclude = '''
 (
@@ -26,7 +26,7 @@ exclude = '''
 
 [tool.isort]
 profile = "black"
-py_version = "38"
+py_version = "310"
 skip = "docs/source/conf.py,.tox,build"
 line_length = 88
 multi_line_output = 3
