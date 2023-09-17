@@ -5,6 +5,7 @@ from pathlib import Path
 import os
 import logging
 
+from aicsimageio import AICSImage
 from aicsimageio.types import PhysicalPixelSizes
 from aicsimageio.writers import OmeTiffWriter
 import numpy as np
@@ -16,6 +17,63 @@ logger = logging.getLogger(__name__)
 
 
 def convert_individual_nd2_to_ome_tiff(
+    in_file_path: Union[str, Path],
+    out_path: Union[str, Path],
+    out_path_mip: Union[str, Path] = None,
+):
+    """Reads an nd2 file and writes a set of image files corresponding to
+    single imaging sites (field of view).
+
+    Parameters
+    ----------
+    in_file_path
+        Full path to the .nd2 image file
+    out_path
+        Full path to the folder for OME-TIFFs
+    out_path_mip
+        Full path to the folder z-projected OME-TIFFs
+    Returns
+    -------
+    """
+    from nd2reader import ND2Reader
+
+    logger.info(f"Reading individual ND2 file {in_file_path}")
+    images = AICSImage(str(in_file_path))
+
+    for s, scene in enumerate(images.scenes):
+        out_file_path = Path(out_path) / Path(Path(in_file_path).stem + "_" + str(s + 1).zfill(4) + ".ome.tiff")
+        images.set_scene(s)
+        image_data = images.get_image_data("TCZYX")
+
+        OmeTiffWriter.save(
+            data=image_data,
+            uri=out_file_path,
+            dim_order="TCZYX",
+            channel_names=images.channel_names,
+            physical_pixel_sizes=images.physical_pixel_sizes,
+            parser="lxml"
+        )
+
+        if out_path_mip is not None:
+
+            out_file_path_mip = Path(out_path_mip) / Path(
+                Path(in_file_path).stem + "_" + str(s + 1).zfill(4) + ".ome.tiff"
+            )
+
+            logger.debug(f"Writing OME-TIFF MIP, field-of-view #{s}")
+            OmeTiffWriter.save(
+                data=np.max(image_data, axis=2, keepdims=True),
+                uri=out_file_path_mip,
+                dim_order="TCZYX",
+                channel_names=images.channel_names,
+                physical_pixel_sizes=images.physical_pixel_sizes,
+                parser="lxml",
+            )
+
+    return out_file_path
+
+
+def convert_individual_nd2_to_ome_tiff_nd2_reader(
     in_file_path: Union[str, Path],
     out_path: Union[str, Path],
     out_path_mip: Union[str, Path] = None,
