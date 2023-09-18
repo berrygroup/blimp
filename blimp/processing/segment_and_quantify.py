@@ -383,6 +383,9 @@ def _quantify_single_timepoint(
                     "extent",
                     "feret_diameter_max",
                     "solidity",
+                    "perimeter",
+                    "perimeter_crofton",
+                    "euler_number"
                 ],
                 separator="_",
             )
