@@ -35,7 +35,6 @@ def convert_individual_nd2_to_ome_tiff(
     Returns
     -------
     """
-    from nd2reader import ND2Reader
 
     logger.info(f"Reading individual ND2 file {in_file_path}")
     images = AICSImage(str(in_file_path))
@@ -51,7 +50,7 @@ def convert_individual_nd2_to_ome_tiff(
             dim_order="TCZYX",
             channel_names=images.channel_names,
             physical_pixel_sizes=images.physical_pixel_sizes,
-            parser="lxml"
+            parser="lxml",
         )
 
         if out_path_mip is not None:
