@@ -30,6 +30,8 @@ HARALICK_BASE_NAMES = [
 def segment_nuclei_cellpose(
     intensity_image: AICSImage,
     nuclei_channel: int = 0,
+    model_type: str = "nuclei",
+    diameter: Optional[int] = None,
     threshold: float = 0,
     flow_threshold: float = 0.4,
     timepoint: Union[int, None] = None,
@@ -62,10 +64,10 @@ def segment_nuclei_cellpose(
     else:
         nuclei_images = [intensity_image.get_image_data("ZYX", C=nuclei_channel, T=timepoint)]
 
-    cellpose_nuclei_model = models.Cellpose(gpu=False, model_type="nuclei")
-    masks, flows, styles, diams = cellpose_nuclei_model.eval(
+    cellpose_model = models.CellposeModel(gpu=False, model_type=model_type)
+    masks, flows, styles = cellpose_model.eval(
         nuclei_images,
-        diameter=None,
+        diameter=diameter,
         channels=[0, 0],
         flow_threshold=flow_threshold,
         cellprob_threshold=threshold,
@@ -385,7 +387,7 @@ def _quantify_single_timepoint(
                     "solidity",
                     "perimeter",
                     "perimeter_crofton",
-                    "euler_number"
+                    "euler_number",
                 ],
                 separator="_",
             )
