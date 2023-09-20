@@ -115,7 +115,7 @@ class IlluminationCorrection:
 
     def plot(self):
         if isinstance(self._correctors, list):
-            fig, axes = plt.subplots(self.dims.C, 3, figsize=(9, 3 * self.dims.C))
+            fig, axes = plt.subplots(self.dims.C, 3, figsize=(9, 3 * self.dims.C), squeeze=False)
             for i in range(self.dims.C):
                 im = axes[i, 0].imshow(self.correctors[i].flatfield)
                 fig.colorbar(im, ax=axes[i, 0])
