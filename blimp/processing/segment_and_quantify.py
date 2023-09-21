@@ -492,6 +492,7 @@ def quantify(
                 _quantify_single_timepoint(
                     intensity_image=intensity_image,
                     label_image=label_image,
+                    timepoint=t,
                     intensity_channels=intensity_channels,
                     intensity_objects=intensity_objects,
                     calculate_textures=calculate_textures,
