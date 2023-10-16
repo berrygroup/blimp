@@ -1,5 +1,5 @@
 """Extract and parse metadata from Nikon nd2 files."""
-from typing import Union
+from typing import Tuple, Union
 from pathlib import Path
 import os
 import re
@@ -26,7 +26,7 @@ image_metadata_dtypes = {
 }
 
 
-def split_acquisition_metadata_planes(l: list) -> list:
+def split_acquisition_metadata_planes(l: list) -> Tuple[list, int]:
     """Splits a list of metadata fields into channel-specific metadata sublists
     by the occurrence of "Plane".
 
@@ -41,10 +41,17 @@ def split_acquisition_metadata_planes(l: list) -> list:
         List of metadata lists for each plane
     """
     # https://stackoverflow.com/questions/69832116/split-a-list-into-sublists-based-on-the-value-of-an-element
+
     x = [i for i, s in enumerate(l) if re.search("^Plane", s.lstrip())]
-    y = x[1:] + [len(l)]
-    z = [l[i:j] for i, j in zip(x, y)]
-    return z
+    if x == []:
+        logger.warning(
+            "Keyword 'Plane' not found in additional metadata, channel-specific additional metadata may be incorrect."
+        )
+        return (l, 1)
+    else:
+        y = x[1:] + [len(l)]
+        z = [l[i:j] for i, j in zip(x, y)]
+        return (z, len(z))
 
 
 def parse_additional_metadata(acq_metadata: dict) -> list:
@@ -62,8 +69,11 @@ def parse_additional_metadata(acq_metadata: dict) -> list:
         list of additional metadata as individual strings for each channel
     """
     logger.debug("Parsing additional metadata")
-    metadata_planes = split_acquisition_metadata_planes(acq_metadata["TextInfoItem_5"].split("\r\n"))
-    metadata = ["\\n".join(plane) for plane in metadata_planes]
+    metadata_planes, n_planes = split_acquisition_metadata_planes(acq_metadata["TextInfoItem_5"].split("\r\n"))
+    if n_planes == 1:
+        metadata = ["\\n".join(metadata_planes)]
+    else:
+        metadata = ["\\n".join(plane) for plane in metadata_planes]
     metadata = [s.replace(",", ";") for s in metadata]
 
     return metadata
