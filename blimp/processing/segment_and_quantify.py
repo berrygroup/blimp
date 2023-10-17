@@ -358,6 +358,12 @@ def _quantify_single_timepoint(
 
     features_list = []
 
+    def intensity_sd(regionmask, intensity_image):
+        return np.std(intensity_image[regionmask])
+
+    def intensity_median(regionmask, intensity_image):
+        return np.median(intensity_image[regionmask])
+    
     intensity_channels_list = _get_channel_names(intensity_image, intensity_channels)
     intensity_objects_list = _get_channel_names(label_image, intensity_objects)
     if calculate_textures:
@@ -410,6 +416,7 @@ def _quantify_single_timepoint(
                         label_array,
                         intensity_array,
                         properties=["label", "intensity_mean"],
+                        extra_properties=(intensity_sd, intensity_median),
                         separator="_",
                     )
                 ).rename(columns=lambda x: obj + "_" + x + "_" + channel if x != "label" else x)
@@ -492,6 +499,7 @@ def quantify(
                 _quantify_single_timepoint(
                     intensity_image=intensity_image,
                     label_image=label_image,
+                    timepoint=t,
                     intensity_channels=intensity_channels,
                     intensity_objects=intensity_objects,
                     calculate_textures=calculate_textures,
