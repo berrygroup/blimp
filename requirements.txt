@@ -1,4 +1,4 @@
-aicsimageio[nd2]==4.9.4
+aicsimageio[nd2]>=4.12.1
 basicpy>=1.1.0
 cellpose>=2.2.3
 importlib_metadata>=5.1.0
