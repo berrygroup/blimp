@@ -363,7 +363,7 @@ def _quantify_single_timepoint(
 
     def intensity_median(regionmask, intensity_image):
         return np.median(intensity_image[regionmask])
-    
+
     intensity_channels_list = _get_channel_names(intensity_image, intensity_channels)
     intensity_objects_list = _get_channel_names(label_image, intensity_objects)
     if calculate_textures:
