@@ -346,6 +346,59 @@ def average_images(images: List[AICSImage]) -> AICSImage:
     return AICSImage(arr, channel_names=images[0].channel_names, physical_pixel_sizes=images[0].physical_pixel_sizes)
 
 
+def std_images(images: List[AICSImage]) -> AICSImage:
+    """
+    Calculate the standard deviation (per pixel) of multiple images.
+
+    Parameters
+    ----------
+    image_list
+        A list of `AICSImage` objects.
+
+    Returns
+    -------
+    AICSImage
+        The standard deviation image.
+
+    Raise
+    ------
+    TypeError
+        if elements of image_list have incorrect types
+    ValueError
+        if images in image_list have different dimensions
+
+    Notes
+    -----
+    This function first checks that all images in the list have matching dimension
+    sizes using the `check_uniform_dimension_sizes()` function. If the dimensions
+    do not match, an error message is logged and the program exits. Otherwise, the
+    function calculates the mean of all images for each channel and stacks the
+    resulting arrays together along the `C` axis, returning the final average
+    image as a numpy array.
+    """
+    try:
+        dimension_sizes_match = check_uniform_dimension_sizes(images)
+    except TypeError:
+        raise TypeError("Cannot average over list elements of different types")
+
+    if not dimension_sizes_match:
+        raise ValueError("Cannot average over images of different sizes")
+    else:
+        channel_stds = [
+            np.std([image.get_image_dask_data("TZYX", C=channel) for image in images], axis=0)
+            for channel in range(0, images[0].dims.C)
+        ]
+        arr = np.stack(channel_stds, axis=1)
+
+    if images[0].dtype.kind in ["i", "u"]:
+        # round to nearest integer
+        arr = np.rint(arr).astype(images[0].dtype)
+    else:
+        arr = arr.astype(images[0].dtype)
+
+    return AICSImage(arr, channel_names=images[0].channel_names, physical_pixel_sizes=images[0].physical_pixel_sizes)
+
+
 def concatenate_images(
     images: Union[AICSImage, List[AICSImage]], axis: Union[int, str] = 0, order: str = "interleave"
 ) -> AICSImage:
