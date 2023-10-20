@@ -149,8 +149,8 @@ class IlluminationCorrection:
         elif self._method == "pixel_z_score":
             # calculate mean and std images
             image_list = [AICSImage(images.get_image_dask_data('TCZYX',T=t)) for t in range(images.dims.T)]
-            self._mean_image = average_images(image_list)
-            self._std_image = std_images(image_list)
+            self._mean_image = average_images(image_list, keep_same_type=False)
+            self._std_image = std_images(image_list, keep_same_type=False)
             self._mean_mean_image = [np.mean(self._mean_image.get_image_data('YX',C=c)) for c in range(self._dims.C)]
             self._mean_std_image = [np.mean(self._std_image.get_image_data('YX',C=c)) for c in range(self._dims.C)]
 
@@ -179,13 +179,13 @@ class IlluminationCorrection:
                 for i in range(self.dims.C):
 
                     im_dat = self.mean_image.get_image_data('YX',C=i)
-                    upp = np.quantile(im_dat,0.98)
+                    upp = np.quantile(im_dat,0.95)
                     im = axes[i, 0].imshow(im_dat,vmin=0,vmax=upp)
                     fig.colorbar(im, ax=axes[i, 0])
                     axes[i, 0].set_title("Mean image")
 
                     im_dat = self.std_image.get_image_data('YX',C=i)
-                    upp = np.quantile(im_dat,0.98)
+                    upp = np.quantile(im_dat,0.95)
                     im = axes[i, 1].imshow(im_dat,vmin=0,vmax=upp)
                     fig.colorbar(im, ax=axes[i, 1])
                     axes[i, 1].set_title("Std. image")
@@ -302,6 +302,25 @@ class IlluminationCorrection:
         return correct_illumination(image, self)
 
 
+def pixel_z_score(
+    original: np.ndarray,
+    mean_image: np.ndarray,
+    std_image: np.ndarray,
+    mean_mean_image: float,
+    mean_std_image: float
+) -> np.ndarray:
+
+    z = (original.astype(float) - mean_image) / std_image
+    corrected = mean_mean_image + (mean_std_image * z)
+
+    if original.dtype.kind in ["i", "u"]:
+        corrected = np.rint(corrected).astype(original.dtype)
+    else:
+        corrected = corrected.astype(original.dtype)
+
+    return corrected
+
+
 def _correct_illumination(
     image: Union[AICSImage, np.ndarray, da.core.Array],
     illumination_correction: IlluminationCorrection,
@@ -357,19 +376,20 @@ def _correct_illumination(
                 axis=0,
             )
         elif illumination_correction.method=="pixel_z_score":
-            # z = (raw_image - mean_image) / sd_image
-            # corrected_image = mean_mean + (mean_sd * z)
+
             corr = np.stack(
                 [
                     np.stack(
                         [
                             np.stack(
                                 [
-                                    illumination_correction.mean_mean_image + (
-                                        illumination_correction.mean_std_image * (
-                                            (im.get_image_data("YX", C=c, Z=z, T=t) - illumination_correction.mean_image.get_image_data("YX", C=c, Z=z, T=t)) / illumination_correction.std_image.get_image_data("YX", C=c, Z=z, T=t)
-                                            )
-                                        )
+                                    pixel_z_score(
+                                        original = im.get_image_data("YX", C=c, Z=z, T=t),
+                                        mean_image = illumination_correction.mean_image.get_image_data("YX", C=c, Z=z, T=t),
+                                        std_image = illumination_correction.std_image.get_image_data("YX", C=c, Z=z, T=t),
+                                        mean_mean_image = illumination_correction.mean_mean_image[c],
+                                        mean_std_image = illumination_correction.mean_std_image[c]
+                                    )
                                     for z in range(im.dims.Z)
                                 ],
                                 axis=0,

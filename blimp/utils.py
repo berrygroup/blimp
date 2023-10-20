@@ -293,7 +293,7 @@ def check_uniform_dimension_sizes(
     return result
 
 
-def average_images(images: List[AICSImage]) -> AICSImage:
+def average_images(images: List[AICSImage], keep_same_type: bool = True) -> AICSImage:
     """
     Calculate the average of multiple images.
 
@@ -337,16 +337,17 @@ def average_images(images: List[AICSImage]) -> AICSImage:
         ]
         arr = np.stack(channel_averages, axis=1)
 
-    if images[0].dtype.kind in ["i", "u"]:
-        # round to nearest integer
-        arr = np.rint(arr).astype(images[0].dtype)
-    else:
-        arr = arr.astype(images[0].dtype)
+    if keep_same_type:
+        if images[0].dtype.kind in ["i", "u"]:
+            # round to nearest integer
+            arr = np.rint(arr).astype(images[0].dtype)
+        else:
+            arr = arr.astype(images[0].dtype)
 
     return AICSImage(arr, channel_names=images[0].channel_names, physical_pixel_sizes=images[0].physical_pixel_sizes)
 
 
-def std_images(images: List[AICSImage]) -> AICSImage:
+def std_images(images: List[AICSImage], keep_same_type: bool = True) -> AICSImage:
     """
     Calculate the standard deviation (per pixel) of multiple images.
 
@@ -390,11 +391,12 @@ def std_images(images: List[AICSImage]) -> AICSImage:
         ]
         arr = np.stack(channel_stds, axis=1)
 
-    if images[0].dtype.kind in ["i", "u"]:
-        # round to nearest integer
-        arr = np.rint(arr).astype(images[0].dtype)
-    else:
-        arr = arr.astype(images[0].dtype)
+    if keep_same_type:
+        if images[0].dtype.kind in ["i", "u"]:
+            # round to nearest integer
+            arr = np.rint(arr).astype(images[0].dtype)
+        else:
+            arr = arr.astype(images[0].dtype)
 
     return AICSImage(arr, channel_names=images[0].channel_names, physical_pixel_sizes=images[0].physical_pixel_sizes)
 
