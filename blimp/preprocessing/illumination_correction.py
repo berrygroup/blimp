@@ -13,6 +13,7 @@ import dask.array as da
 from blimp.utils import (
     equal_dims,
     average_images,
+    std_images,
     concatenate_images,
     convert_array_dtype,
     check_uniform_dimension_sizes,
@@ -24,17 +25,23 @@ logger = logging.getLogger(__name__)
 class IlluminationCorrection:
     def __init__(
         self,
+        method: Union[Literal["pixel_z_score"], Literal["basic"]] = "pixel_z_score",
         reference_images: Union[List[AICSImage], List[str], List[Path], None] = None,
         timelapse: Union[bool, Literal["multiplicative"], Literal["additive"]] = None,
         from_file: Union[str, Path] = None,
         **kwargs,
     ):
 
+        self._method = method
         self._timelapse = timelapse
         self._dims = None
         self._file_path = None
         self._file_name = None
         self._correctors = None
+        self._mean_image = None
+        self._std_image = None
+        self._mean_mean_image = None
+        self._mean_std_image = None
 
         # 1. Initialise using reference images and set correctors using fit()
         if reference_images is not None:
@@ -85,8 +92,28 @@ class IlluminationCorrection:
         return self._dims
 
     @property
+    def method(self):
+        return self._method
+
+    @property
     def timelapse(self):
         return self._timelapse
+
+    @property
+    def mean_image(self):
+        return self._mean_image
+
+    @property
+    def std_image(self):
+        return self._std_image
+
+    @property
+    def mean_mean_image(self):
+        return self._mean_mean_image
+
+    @property
+    def mean_std_image(self):
+        return self._mean_std_image
 
     @property
     def correctors(self):
@@ -105,30 +132,68 @@ class IlluminationCorrection:
             # use the 'T' axis to concatenate images
             images = concatenate_images(reference_images, axis="T", order="append")
         else:
+            if self._method == "pixel_z_score":
+                raise NotImplementedError(
+                    "``pixel_z_score`` method not implemented for timelapse data. "
+                    + "Set ``timelapse=False`` to calculate a constant correction across time"
+                )
             # average each timepoint
             images = average_images(reference_images)
 
         self._dims = reference_images[0].dims
-        self._correctors = [basicpy.BaSiC(**kwargs) for _ in range(images.dims.C)]
-        for c in range(images.dims.C):
-            self._correctors[c].fit(images.get_image_data("TYX", C=c))
+        if self._method == "basic":
+            self._correctors = [basicpy.BaSiC(**kwargs) for _ in range(self._dims.C)]
+            for c in range(images.dims.C):
+                self._correctors[c].fit(images.get_image_data("TYX", C=c))
+
+        elif self._method == "pixel_z_score":
+            # calculate mean and std images
+            image_list = [AICSImage(images.get_image_dask_data('TCZYX',T=t)) for t in range(images.dims.T)]
+            self._mean_image = average_images(image_list)
+            self._std_image = std_images(image_list)
+            self._mean_mean_image = [np.mean(self._mean_image.get_image_data('YX',C=c)) for c in range(self._dims.C)]
+            self._mean_std_image = [np.mean(self._std_image.get_image_data('YX',C=c)) for c in range(self._dims.C)]
+
 
     def plot(self):
-        if isinstance(self._correctors, list):
-            fig, axes = plt.subplots(self.dims.C, 3, figsize=(9, 3 * self.dims.C), squeeze=False)
-            for i in range(self.dims.C):
-                im = axes[i, 0].imshow(self.correctors[i].flatfield)
-                fig.colorbar(im, ax=axes[i, 0])
-                axes[i, 0].set_title("Flatfield")
-                im = axes[i, 1].imshow(self.correctors[i].darkfield)
-                fig.colorbar(im, ax=axes[i, 1])
-                axes[i, 1].set_title("Darkfield")
-                axes[i, 2].plot(self.correctors[i].baseline)
-                axes[i, 2].set_xlabel("Frame")
-                axes[i, 2].set_ylabel("Baseline")
-            fig.tight_layout()
-        else:
-            raise RuntimeError("Cannot plot ``IlluminationCorrection`` if correctors are not defined")
+        if self._method == "basic":
+            if isinstance(self._correctors, list):
+                fig, axes = plt.subplots(self.dims.C, 3, figsize=(9, 3 * self.dims.C), squeeze=False)
+                for i in range(self.dims.C):
+                    im = axes[i, 0].imshow(self.correctors[i].flatfield)
+                    fig.colorbar(im, ax=axes[i, 0])
+                    axes[i, 0].set_title("Flatfield")
+                    im = axes[i, 1].imshow(self.correctors[i].darkfield)
+                    fig.colorbar(im, ax=axes[i, 1])
+                    axes[i, 1].set_title("Darkfield")
+                    axes[i, 2].plot(self.correctors[i].baseline)
+                    axes[i, 2].set_xlabel("Frame")
+                    axes[i, 2].set_ylabel("Baseline")
+                fig.tight_layout()
+            else:
+                raise RuntimeError("Cannot plot ``IlluminationCorrection`` if correctors are not defined")
+
+        elif self._method == "pixel_z_score":
+            if isinstance(self._mean_image, AICSImage):
+                fig, axes = plt.subplots(self.dims.C, 2, figsize=(9, 3 * self.dims.C), squeeze=False)
+                for i in range(self.dims.C):
+
+                    im_dat = self.mean_image.get_image_data('YX',C=i)
+                    upp = np.quantile(im_dat,0.98)
+                    im = axes[i, 0].imshow(im_dat,vmin=0,vmax=upp)
+                    fig.colorbar(im, ax=axes[i, 0])
+                    axes[i, 0].set_title("Mean image")
+
+                    im_dat = self.std_image.get_image_data('YX',C=i)
+                    upp = np.quantile(im_dat,0.98)
+                    im = axes[i, 1].imshow(im_dat,vmin=0,vmax=upp)
+                    fig.colorbar(im, ax=axes[i, 1])
+                    axes[i, 1].set_title("Std. image")
+
+                fig.tight_layout()
+            else:
+                raise RuntimeError("``mean_image`` not defined, cannot plot ``IlluminationCorrection``")
+
 
     @property
     def file_name(self):
@@ -155,11 +220,22 @@ class IlluminationCorrection:
 
     def save(self, path: Union[str, Path]):
         self.file_path = path
-        if isinstance(self._correctors, list):
-            with open(self._file_path, "wb") as f:  # type: ignore
-                pickle.dump(self, f)
-        else:
-            raise RuntimeError("Cannot save ``IlluminationCorrection`` if correctors are not defined")
+        if self._method == "basic":
+            if isinstance(self._correctors, list):
+                with open(self._file_path, "wb") as f:  # type: ignore
+                    pickle.dump(self, f)
+            else:
+                raise RuntimeError("Cannot save ``IlluminationCorrection`` if correctors are not defined (method = ``basic``)")
+        elif self._method == "pixel_z_score":
+            if isinstance(self._mean_image,AICSImage) and isinstance(self._std_image,AICSImage):
+                with open(self._file_path, "wb") as f:  # type: ignore
+                    pickle.dump(self, f)
+                # also save mean_image and std_image in the same directory for ease of external validation
+                self._mean_image.save(self._file_path.parent / (self._file_path.stem + '_mean_image.ome.tiff'))
+                self._std_image.save(self._file_path.parent / (self._file_path.stem + '_std_image.ome.tiff'))
+            else:
+                raise RuntimeError("Cannot save ``IlluminationCorrection`` if mean and std have not been calculated (method = ``basic``)")
+
 
     def load(self, path: Union[str, Path, None] = None):
 
@@ -184,27 +260,41 @@ class IlluminationCorrection:
         if str(illumination_correction._file_path) != str(path):
             logger.warn(
                 f"``file_path =`` {str(illumination_correction._file_path)} in object "
-                + f"stored at {str(path)} does not match. Overwriting new ``file_path``"
+                + f"stored at {str(path)} does not match. Overwriting ``file_path`` attribute"
             )
             illumination_correction.file_path = path
-        if not isinstance(illumination_correction._correctors, list):
-            raise RuntimeError(f"Object at {path} does not have a list of correctors.")
-        if not all(isinstance(c, basicpy.BaSiC) for c in illumination_correction._correctors):
-            raise RuntimeError(f"Correctors in object at {path} have unrecognised type.")
-        if illumination_correction.dims is None:
+        if illumination_correction._dims is None:
             raise RuntimeError(f"Object at {path} has no ``dims`` attribute.")
-        if illumination_correction.timelapse is None:
+        if illumination_correction._timelapse is None:
             raise RuntimeError(f"Object at {path} has no ``timelapse`` attribute.")
-        if illumination_correction.dims.C != len(illumination_correction._correctors):
-            raise RuntimeError(
-                f"Object at {path} has ``dims`` = {illumination_correction.dims.C} "
-                + f"but only {len(illumination_correction._correctors)} correctors."
-            )
+        if illumination_correction._method is None:
+            raise RuntimeError(f"Object at {path} has no ``method`` attribute.")
+
+        if illumination_correction._method == "basic":
+            if not isinstance(illumination_correction._correctors, list):
+                raise RuntimeError(f"Object at {path} does not have a list of correctors.")
+            if not all(isinstance(c, basicpy.BaSiC) for c in illumination_correction._correctors):
+                raise RuntimeError(f"Correctors in object at {path} have unrecognised type.")
+            if illumination_correction._dims.C != len(illumination_correction._correctors):
+                raise RuntimeError(
+                    f"Object at {path} has ``dims`` = {illumination_correction._dims.C} "
+                    + f"but only {len(illumination_correction._correctors)} correctors."
+                )
+        elif illumination_correction._method == "pixel_z_score":
+            pass
+        else:
+            raise RuntimeError(f"Object at {path} has unrecognised ``method`` attribute.")
 
         # 4. Set attributes
-        self._correctors = illumination_correction.correctors
         self._dims = illumination_correction.dims
         self._timelapse = illumination_correction.timelapse
+
+        if illumination_correction._method == "basic":
+            self._correctors = illumination_correction.correctors
+        elif illumination_correction._method == "pixel_z_score":
+            self._mean_image = illumination_correction.mean_image
+            self._std_image = illumination_correction.std_image
+
 
     def correct(
         self, image: Union[AICSImage, np.ndarray, da.core.Array, List[AICSImage], List[np.ndarray], List[da.core.Array]]
@@ -243,30 +333,62 @@ def _correct_illumination(
                 "``IlluminationCorrection`` object has incorrect ``dims``: expected "
                 + f"{im.dims}, found {illumination_correction.dims}."
             )
-        corr = np.stack(
-            [
-                np.stack(
-                    [
-                        np.stack(
-                            [
-                                illumination_correction.correctors[c].transform(
-                                    im.get_image_data("YX", C=c, Z=z, T=t),
-                                    timelapse=illumination_correction.timelapse,
-                                )[0]
-                                for z in range(im.dims.Z)
-                            ],
-                            axis=0,
-                        )
-                        for c in range(im.dims.C)
-                    ],
-                    axis=0,
-                )
-                for t in range(im.dims.T)
-            ],
-            axis=0,
-        )
+        if illumination_correction.method=="basic":
+            corr = np.stack(
+                [
+                    np.stack(
+                        [
+                            np.stack(
+                                [
+                                    illumination_correction.correctors[c].transform(
+                                        im.get_image_data("YX", C=c, Z=z, T=t),
+                                        timelapse=illumination_correction.timelapse,
+                                    )[0]
+                                    for z in range(im.dims.Z)
+                                ],
+                                axis=0,
+                            )
+                            for c in range(im.dims.C)
+                        ],
+                        axis=0,
+                    )
+                    for t in range(im.dims.T)
+                ],
+                axis=0,
+            )
+        elif illumination_correction.method=="pixel_z_score":
+            # z = (raw_image - mean_image) / sd_image
+            # corrected_image = mean_mean + (mean_sd * z)
+            corr = np.stack(
+                [
+                    np.stack(
+                        [
+                            np.stack(
+                                [
+                                    illumination_correction.mean_mean_image + (
+                                        illumination_correction.mean_std_image * (
+                                            (im.get_image_data("YX", C=c, Z=z, T=t) - illumination_correction.mean_image.get_image_data("YX", C=c, Z=z, T=t)) / illumination_correction.std_image.get_image_data("YX", C=c, Z=z, T=t)
+                                            )
+                                        )
+                                    for z in range(im.dims.Z)
+                                ],
+                                axis=0,
+                            )
+                            for c in range(im.dims.C)
+                        ],
+                        axis=0,
+                    )
+                    for t in range(im.dims.T)
+                ],
+                axis=0,
+            )
     # 2b. correct data where corrections are time-dependent
     else:
+        if illumination_correction.method=="pixel_z_score":
+            raise NotImplementedError(
+                "``pixel_z_score`` method not implemented for timelapse data. "
+                + "Set ``timelapse=False`` to calculate a constant correction across time"
+            )
         if not equal_dims(im, illumination_correction, dimensions="TCYX"):
             raise ValueError(
                 "``IlluminationCorrection`` object has incorrect ``dims``: expected "
