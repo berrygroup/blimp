@@ -332,7 +332,7 @@ def average_images(images: List[AICSImage]) -> AICSImage:
         raise ValueError("Cannot average over images of different sizes")
     else:
         channel_averages = [
-            np.mean([image.get_image_dask_data("TZYX", C=channel) for image in images], axis=0)
+            np.mean([image.get_image_data("TZYX", C=channel) for image in images], axis=0)
             for channel in range(0, images[0].dims.C)
         ]
         arr = np.stack(channel_averages, axis=1)
@@ -383,9 +383,9 @@ def std_images(images: List[AICSImage]) -> AICSImage:
 
     if not dimension_sizes_match:
         raise ValueError("Cannot average over images of different sizes")
-    else:
+    else:   
         channel_stds = [
-            np.std([image.get_image_dask_data("TZYX", C=channel) for image in images], axis=0)
+            np.std([image.get_image_data("TZYX", C=channel) for image in images], axis=0)
             for channel in range(0, images[0].dims.C)
         ]
         arr = np.stack(channel_stds, axis=1)
