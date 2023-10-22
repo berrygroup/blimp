@@ -22,7 +22,7 @@ INPUT_DIR={INPUT_DIR}
 OUTPUT_DIR={INPUT_DIR}/OME-TIFF
 
 source /home/{USER}/.bashrc
-conda activate berrylab-default
+conda activate berrylab-py310
 
 cd $PBS_O_WORKDIR
 
