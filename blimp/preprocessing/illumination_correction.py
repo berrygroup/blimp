@@ -14,6 +14,7 @@ from blimp.utils import (
     equal_dims,
     average_images,
     std_images,
+    mean_std_welford,
     concatenate_images,
     convert_array_dtype,
     check_uniform_dimension_sizes,
@@ -134,31 +135,32 @@ class IlluminationCorrection:
         except TypeError:
             raise TypeError("All reference images should be ``AICSImage``s")
 
-        if not self._timelapse:
-            # use the 'T' axis to concatenate images
-            images = concatenate_images(reference_images, axis="T", order="append")
-        else:
-            if self._method == "pixel_z_score":
+        self._dims = reference_images[0].dims
+
+        if self._method == "pixel_z_score":
+            # Use the Welford method, which computes mean and std using data
+            # loaded in series (to reduce the memory requirement)
+            if not self._timelapse:
+                self._mean_image, self._std_image = mean_std_welford(reference_images)
+                self._mean_mean_image = [np.mean(self._mean_image.get_image_data('YX',C=c)) for c in range(self._dims.C)]
+                self._mean_std_image = [np.mean(self._std_image.get_image_data('YX',C=c)) for c in range(self._dims.C)]
+            else:
                 raise NotImplementedError(
                     "``pixel_z_score`` method not implemented for timelapse data. "
                     + "Set ``timelapse=False`` to calculate a constant correction across time"
                 )
-            # average each timepoint
-            images = average_images(reference_images)
+        elif self._method == "basic":
+            # Use pybasic
+            if not self._timelapse:
+                # use the 'T' axis to concatenate images
+                images = concatenate_images(reference_images, axis="T", order="append")
+            else:
+                # if timelapse, average each timepoint
+                images = average_images(reference_images)
 
-        self._dims = reference_images[0].dims
-        if self._method == "basic":
             self._correctors = [basicpy.BaSiC(**kwargs) for _ in range(self._dims.C)]
             for c in range(images.dims.C):
                 self._correctors[c].fit(images.get_image_data("TYX", C=c))
-
-        elif self._method == "pixel_z_score":
-            # calculate mean and std images
-            image_list = [AICSImage(images.get_image_dask_data('TCZYX',T=t)) for t in range(images.dims.T)]
-            self._mean_image = average_images(image_list, keep_same_type=False)
-            self._std_image = std_images(image_list, keep_same_type=False)
-            self._mean_mean_image = [np.mean(self._mean_image.get_image_data('YX',C=c)) for c in range(self._dims.C)]
-            self._mean_std_image = [np.mean(self._std_image.get_image_data('YX',C=c)) for c in range(self._dims.C)]
 
 
     def plot(self):

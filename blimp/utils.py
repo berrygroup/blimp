@@ -3,6 +3,7 @@ from typing import List, Union, Optional
 import logging
 
 from aicsimageio import AICSImage
+from welford import Welford
 import numpy as np
 import dask.array as da
 
@@ -291,6 +292,41 @@ def check_uniform_dimension_sizes(
         result = False
 
     return result
+
+
+def mean_std_welford(images: List[AICSImage], log_transform : bool = False) -> tuple:
+    n_c = images[0].dims.C
+    w = [Welford() for i in range(n_c)]
+    for image in images:
+        for c in range(n_c):
+            array = image.get_image_data('YX',C=c,T=0,Z=0)
+            if log_transform:
+                is_zero = array == 0
+                if np.any(is_zero):
+                    logger.warn('image contains zero values')
+                array = np.log10(array)
+                # The log10 transform sets zero pixel values to -inf
+                array[is_zero] = 0
+            if np.any(np.isinf(array)):
+                logger.warn('skip image because it contains infinite values')
+            else:
+                w[c].add(array)
+
+    mean_arrays = [w[c].mean for c in range(n_c)]
+    std_arrays = [np.sqrt(w[c].var_s) for c in range(n_c)]
+
+    m = AICSImage(
+        np.stack(mean_arrays,axis=0)[np.newaxis,:,np.newaxis,:,:],
+        channel_names=images[0].channel_names,
+        physical_pixel_sizes=images[0].physical_pixel_sizes
+    )
+    s = AICSImage(
+        np.stack(std_arrays,axis=0)[np.newaxis,:,np.newaxis,:,:],
+        channel_names=images[0].channel_names,
+        physical_pixel_sizes=images[0].physical_pixel_sizes
+    )
+
+    return m, s
 
 
 def average_images(images: List[AICSImage], keep_same_type: bool = True) -> AICSImage:
