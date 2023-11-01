@@ -4,7 +4,7 @@ import pickle
 import logging
 
 from matplotlib import pyplot as plt
-from aicsimageio import AICSImage
+from aicsimageio import AICSImage, readers
 from aicsimageio.transforms import reshape_data
 import numpy as np
 import basicpy
@@ -28,8 +28,8 @@ class IlluminationCorrection:
         self,
         method: Union[Literal["pixel_z_score"], Literal["basic"]] = "pixel_z_score",
         reference_images: Union[List[AICSImage], List[str], List[Path], None] = None,
-        timelapse: Union[bool, Literal["multiplicative"], Literal["additive"]] = None,
-        from_file: Union[str, Path] = None,
+        timelapse: Union[bool, Literal["multiplicative"], Literal["additive"], None] = None,
+        from_file: Union[str, Path, None] = None,
         **kwargs,
     ):
 
@@ -73,7 +73,7 @@ class IlluminationCorrection:
                 if is_input_AICSImage:
                     self.fit(reference_images, **kwargs)  # type: ignore
                 elif is_input_files:
-                    images = [AICSImage(image) for image in reference_images]
+                    images = [AICSImage(image, reader=readers.ome_tiff_reader.OmeTiffReader) for image in reference_images]
                     self.fit(images, **kwargs)
 
         # 2. Read from a file using load()
