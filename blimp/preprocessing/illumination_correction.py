@@ -393,8 +393,8 @@ def _correct_illumination(
                                 [
                                     pixel_z_score(
                                         original = im.get_image_data("YX", C=c, Z=z, T=t),
-                                        mean_image = illumination_correction.mean_image.get_image_data("YX", C=c, Z=z, T=t),
-                                        std_image = illumination_correction.std_image.get_image_data("YX", C=c, Z=z, T=t),
+                                        mean_image = illumination_correction.mean_image.get_image_data("YX", C=c, Z=z, T=0),
+                                        std_image = illumination_correction.std_image.get_image_data("YX", C=c, Z=z, T=0),
                                         mean_mean_image = illumination_correction.mean_mean_image[c],
                                         mean_std_image = illumination_correction.mean_std_image[c]
                                     )
