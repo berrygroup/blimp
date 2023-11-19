@@ -61,7 +61,7 @@ def write_archiving_script_nd2(
             # we do not need to include in the upload destination
             relative_path = re.sub(r"^\/srv\/scratch\/berrylab\/z\d{7}\/", "", file_path)
             f.write(
-                f"java -Dmf.cfg=$CONFIG_FILE -cp /apps/unswdataarchive/2021-02-17/aterm.jar arc.mf.command.Execute import -verbose true -import-empty-folders true -namespace /UNSW_RDS/{project_name}/{first_name}/{str(Path(relative_path).parent)} {file_path}\n"
+                f"java -Dmf.cfg=$CONFIG_FILE -cp /apps/unswdataarchive/2021-02-17/aterm.jar arc.mf.command.Execute import -verbose true -import-empty-folders true -namespace /UNSW_RDS/{project_name}/{first_name}/{str(Path(relative_path).parent)} '{file_path}'\n"
             )
 
 
