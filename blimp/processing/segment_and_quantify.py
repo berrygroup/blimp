@@ -31,6 +31,7 @@ def segment_nuclei_cellpose(
     intensity_image: AICSImage,
     nuclei_channel: int = 0,
     model_type: str = "nuclei",
+    pretrained_model: Union[str,Path,None] = None,
     diameter: Optional[int] = None,
     threshold: float = 0,
     flow_threshold: float = 0.4,
@@ -64,15 +65,22 @@ def segment_nuclei_cellpose(
     else:
         nuclei_images = [intensity_image.get_image_data("ZYX", C=nuclei_channel, T=timepoint)]
 
-    cellpose_model = models.CellposeModel(gpu=False, model_type=model_type)
-    masks, flows, styles = cellpose_model.eval(
-        nuclei_images,
-        diameter=diameter,
-        channels=[0, 0],
-        flow_threshold=flow_threshold,
-        cellprob_threshold=threshold,
-        do_3D=False,
-    )
+    if pretrained_model is None:
+        cellpose_model = models.CellposeModel(gpu=False, model_type=model_type)
+        masks, flows, styles = cellpose_model.eval(
+            nuclei_images,
+            diameter=diameter,
+            channels=[0, 0],
+            flow_threshold=flow_threshold,
+            cellprob_threshold=threshold,
+            do_3D=False,
+        )
+    else:
+        cellpose_model = models.CellposeModel(gpu=False,pretrained_model=str(pretrained_model))
+        masks, flows, styles = cellpose_model.eval(
+            nuclei_images,
+            channels = [0,0]
+        )
 
     segmentation = AICSImage(
         np.stack(masks)[:, np.newaxis, np.newaxis, :],
