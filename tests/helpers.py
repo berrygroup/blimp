@@ -12,6 +12,7 @@ from blimp.constants import blimp_config
 
 logger = logging.getLogger(__name__)
 
+
 # -- FIXTURES ---
 @pytest.fixture()
 def _ensure_test_data():
