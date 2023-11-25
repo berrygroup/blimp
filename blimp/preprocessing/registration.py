@@ -251,7 +251,6 @@ def _recast_array(
     dtype: np.dtype,
     remove_negative: bool = False,
 ) -> np.ndarray:
-
     # if desired dtype is integer, round the values
     if issubclass(dtype.type, Integral):
         arr = np.round(arr)
@@ -540,7 +539,7 @@ def _crop_array(arr: np.ndarray, mask: np.ndarray):
 def crop_image(image: AICSImage, mask: np.ndarray):
     old = image.get_image_data("TCZYX")
     new_yx = _crop_array(mask, mask).shape
-    new = np.ndarray(shape=list(old.shape[:3]) + list(new_yx), dtype=image.dtype)
+    new: np.ndarray = np.ndarray(shape=list(old.shape[:3]) + list(new_yx), dtype=image.dtype)
     for t in range(old.shape[0]):
         for c in range(old.shape[1]):
             for z in range(old.shape[2]):
