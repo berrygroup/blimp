@@ -4,7 +4,7 @@ import pickle
 import logging
 
 from matplotlib import pyplot as plt
-from aicsimageio import AICSImage, readers
+from aicsimageio import readers, AICSImage
 from aicsimageio.transforms import reshape_data
 import numpy as np
 import basicpy
@@ -13,7 +13,6 @@ import dask.array as da
 from blimp.utils import (
     equal_dims,
     average_images,
-    std_images,
     mean_std_welford,
     concatenate_images,
     convert_array_dtype,
@@ -32,7 +31,6 @@ class IlluminationCorrection:
         from_file: Union[str, Path, None] = None,
         **kwargs,
     ):
-
         self._method = method
         self._timelapse = timelapse
         self._dims = None
@@ -73,7 +71,9 @@ class IlluminationCorrection:
                 if is_input_AICSImage:
                     self.fit(reference_images, **kwargs)  # type: ignore
                 elif is_input_files:
-                    images = [AICSImage(image, reader=readers.ome_tiff_reader.OmeTiffReader) for image in reference_images]
+                    images = [
+                        AICSImage(image, reader=readers.ome_tiff_reader.OmeTiffReader) for image in reference_images
+                    ]
                     self.fit(images, **kwargs)
 
         # 2. Read from a file using load()
@@ -87,8 +87,10 @@ class IlluminationCorrection:
                 raise ValueError("``method`` is not specified in file {self._file_path}")
             elif self._method == "pixel_z_score":
                 # FIXME: recompute mean_mean and mean_std on loading as these seem to not be stored in file
-                self._mean_mean_image = [np.mean(self._mean_image.get_image_data('YX',C=c)) for c in range(self._dims.C)]
-                self._mean_std_image = [np.mean(self._std_image.get_image_data('YX',C=c)) for c in range(self._dims.C)]
+                self._mean_mean_image = [
+                    np.mean(self._mean_image.get_image_data("YX", C=c)) for c in range(self._dims.C)
+                ]
+                self._mean_std_image = [np.mean(self._std_image.get_image_data("YX", C=c)) for c in range(self._dims.C)]
 
         # 3. Initialise empty
         else:
@@ -142,8 +144,10 @@ class IlluminationCorrection:
             # loaded in series (to reduce the memory requirement)
             if not self._timelapse:
                 self._mean_image, self._std_image = mean_std_welford(reference_images)
-                self._mean_mean_image = [np.mean(self._mean_image.get_image_data('YX',C=c)) for c in range(self._dims.C)]
-                self._mean_std_image = [np.mean(self._std_image.get_image_data('YX',C=c)) for c in range(self._dims.C)]
+                self._mean_mean_image = [
+                    np.mean(self._mean_image.get_image_data("YX", C=c)) for c in range(self._dims.C)
+                ]
+                self._mean_std_image = [np.mean(self._std_image.get_image_data("YX", C=c)) for c in range(self._dims.C)]
             else:
                 raise NotImplementedError(
                     "``pixel_z_score`` method not implemented for timelapse data. "
@@ -161,7 +165,6 @@ class IlluminationCorrection:
             self._correctors = [basicpy.BaSiC(**kwargs) for _ in range(self._dims.C)]
             for c in range(images.dims.C):
                 self._correctors[c].fit(images.get_image_data("TYX", C=c))
-
 
     def plot(self):
         if self._method == "basic":
@@ -185,23 +188,21 @@ class IlluminationCorrection:
             if isinstance(self._mean_image, AICSImage):
                 fig, axes = plt.subplots(self.dims.C, 2, figsize=(9, 3 * self.dims.C), squeeze=False)
                 for i in range(self.dims.C):
-
-                    im_dat = self.mean_image.get_image_data('YX',C=i)
-                    upp = np.quantile(im_dat,0.95)
-                    im = axes[i, 0].imshow(im_dat,vmin=0,vmax=upp)
+                    im_dat = self.mean_image.get_image_data("YX", C=i)
+                    upp = np.quantile(im_dat, 0.95)
+                    im = axes[i, 0].imshow(im_dat, vmin=0, vmax=upp)
                     fig.colorbar(im, ax=axes[i, 0])
                     axes[i, 0].set_title("Mean image")
 
-                    im_dat = self.std_image.get_image_data('YX',C=i)
-                    upp = np.quantile(im_dat,0.95)
-                    im = axes[i, 1].imshow(im_dat,vmin=0,vmax=upp)
+                    im_dat = self.std_image.get_image_data("YX", C=i)
+                    upp = np.quantile(im_dat, 0.95)
+                    im = axes[i, 1].imshow(im_dat, vmin=0, vmax=upp)
                     fig.colorbar(im, ax=axes[i, 1])
                     axes[i, 1].set_title("Std. image")
 
                 fig.tight_layout()
             else:
                 raise RuntimeError("``mean_image`` not defined, cannot plot ``IlluminationCorrection``")
-
 
     @property
     def file_name(self):
@@ -233,20 +234,26 @@ class IlluminationCorrection:
                 with open(self._file_path, "wb") as f:  # type: ignore
                     pickle.dump(self, f)
             else:
-                raise RuntimeError("Cannot save ``IlluminationCorrection`` if correctors are not defined (method = ``basic``)")
+                raise RuntimeError(
+                    "Cannot save ``IlluminationCorrection`` if correctors are not defined (method = ``basic``)"
+                )
         elif self._method == "pixel_z_score":
-            if isinstance(self._mean_image,AICSImage) and isinstance(self._std_image,AICSImage):
+            if (
+                isinstance(self._mean_image, AICSImage)
+                and isinstance(self._std_image, AICSImage)
+                and isinstance(self._file_path, Path)
+            ):
                 with open(self._file_path, "wb") as f:  # type: ignore
                     pickle.dump(self, f)
                 # also save mean_image and std_image in the same directory for ease of external validation
-                self._mean_image.save(self._file_path.parent / (self._file_path.stem + '_mean_image.ome.tiff'))
-                self._std_image.save(self._file_path.parent / (self._file_path.stem + '_std_image.ome.tiff'))
+                self._mean_image.save(self._file_path.parent / (self._file_path.stem + "_mean_image.ome.tiff"))
+                self._std_image.save(self._file_path.parent / (self._file_path.stem + "_std_image.ome.tiff"))
             else:
-                raise RuntimeError("Cannot save ``IlluminationCorrection`` if mean and std have not been calculated (method = ``basic``)")
-
+                raise RuntimeError(
+                    "Cannot save ``IlluminationCorrection`` if mean and std have not been calculated (method = ``basic``)"
+                )
 
     def load(self, path: Union[str, Path, None] = None):
-
         # 1. Check inputs
         if isinstance(path, (str, Path)):
             path = Path(path)
@@ -303,7 +310,6 @@ class IlluminationCorrection:
             self._mean_image = illumination_correction.mean_image
             self._std_image = illumination_correction.std_image
 
-
     def correct(
         self, image: Union[AICSImage, np.ndarray, da.core.Array, List[AICSImage], List[np.ndarray], List[da.core.Array]]
     ):
@@ -311,13 +317,8 @@ class IlluminationCorrection:
 
 
 def pixel_z_score(
-    original: np.ndarray,
-    mean_image: np.ndarray,
-    std_image: np.ndarray,
-    mean_mean_image: float,
-    mean_std_image: float
+    original: np.ndarray, mean_image: np.ndarray, std_image: np.ndarray, mean_mean_image: float, mean_std_image: float
 ) -> np.ndarray:
-
     z = (original.astype(float) - mean_image) / std_image
     corrected = mean_mean_image + (mean_std_image * z)
 
@@ -334,7 +335,6 @@ def _correct_illumination(
     illumination_correction: IlluminationCorrection,
     dimension_order_in: Optional[str] = None,
 ) -> Union[AICSImage, np.ndarray]:
-
     # 1. check input types and convert to AICSImage
     if isinstance(image, np.ndarray):
         if dimension_order_in is None:
@@ -360,7 +360,7 @@ def _correct_illumination(
                 "``IlluminationCorrection`` object has incorrect ``dims``: expected "
                 + f"{im.dims}, found {illumination_correction.dims}."
             )
-        if illumination_correction.method=="basic":
+        if illumination_correction.method == "basic":
             corr = np.stack(
                 [
                     np.stack(
@@ -383,8 +383,7 @@ def _correct_illumination(
                 ],
                 axis=0,
             )
-        elif illumination_correction.method=="pixel_z_score":
-
+        elif illumination_correction.method == "pixel_z_score":
             corr = np.stack(
                 [
                     np.stack(
@@ -392,11 +391,13 @@ def _correct_illumination(
                             np.stack(
                                 [
                                     pixel_z_score(
-                                        original = im.get_image_data("YX", C=c, Z=z, T=t),
-                                        mean_image = illumination_correction.mean_image.get_image_data("YX", C=c, Z=z, T=0),
-                                        std_image = illumination_correction.std_image.get_image_data("YX", C=c, Z=z, T=0),
-                                        mean_mean_image = illumination_correction.mean_mean_image[c],
-                                        mean_std_image = illumination_correction.mean_std_image[c]
+                                        original=im.get_image_data("YX", C=c, Z=z, T=t),
+                                        mean_image=illumination_correction.mean_image.get_image_data(
+                                            "YX", C=c, Z=z, T=0
+                                        ),
+                                        std_image=illumination_correction.std_image.get_image_data("YX", C=c, Z=z, T=0),
+                                        mean_mean_image=illumination_correction.mean_mean_image[c],
+                                        mean_std_image=illumination_correction.mean_std_image[c],
                                     )
                                     for z in range(im.dims.Z)
                                 ],
@@ -412,7 +413,7 @@ def _correct_illumination(
             )
     # 2b. correct data where corrections are time-dependent
     else:
-        if illumination_correction.method=="pixel_z_score":
+        if illumination_correction.method == "pixel_z_score":
             raise NotImplementedError(
                 "``pixel_z_score`` method not implemented for timelapse data. "
                 + "Set ``timelapse=False`` to calculate a constant correction across time"
@@ -456,7 +457,6 @@ def correct_illumination(
     illumination_correction: IlluminationCorrection,
     dimension_order_in: str = "TCZYX",
 ) -> Union[AICSImage, np.ndarray, List[AICSImage], List[np.ndarray]]:
-
     # individual input -> individual output
     if isinstance(images, (AICSImage, np.ndarray, da.core.Array)):
         res = _correct_illumination(images, illumination_correction, dimension_order_in)
