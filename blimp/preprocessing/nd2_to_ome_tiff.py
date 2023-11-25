@@ -256,23 +256,25 @@ def nd2_to_ome_tiff(
     filename_list = _get_list_of_files_current_batch(in_path=in_path, n_batches=n_batches, batch_id=batch_id)
 
     # if keep_stacks is False, out_path to None
-    if not keep_stacks:
-        out_path = None
+    if keep_stacks:
+        out_path_stack = out_path
+    else:
+        out_path_stack = None
 
     logger.info(f"Converting nd2 files: {filename_list}")
     for f in filename_list:
         in_file_path = in_path / f
         convert_individual_nd2_to_ome_tiff(
             in_file_path=in_file_path,
-            out_path=out_path,
+            out_path=out_path_stack,
             out_path_mip=out_path_mip,
         )
 
         # save metadata
-        if out_path is not None:
-            logger.info(f"Saving metadata for {in_file_path} in {out_path}")
+        if out_path_stack is not None:
+            logger.info(f"Saving metadata for {in_file_path} in {out_path_stack}")
             nd2_metadata = nd2_extract_metadata_and_save(
-                in_file_path=in_file_path, out_path=out_path, y_direction=y_direction
+                in_file_path=in_file_path, out_path=out_path_stack, y_direction=y_direction
             )
 
         # save mip metadata
