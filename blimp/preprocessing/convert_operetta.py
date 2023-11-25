@@ -169,10 +169,8 @@ def convert_operetta(
 
 
 def check_convert_operetta(
-        in_path: Union[str, Path],
-        mip: bool = False,
-        keep_stacks: bool = True,
-        save_metadata_files: bool = True) -> None:
+    in_path: Union[str, Path], mip: bool = False, keep_stacks: bool = True, save_metadata_files: bool = True
+) -> None:
     """Check that all files were converted.
 
     Parameters
@@ -207,10 +205,8 @@ def check_convert_operetta(
 
 
 def check_convert_operetta_dir(
-        in_path: Union[str, Path],
-        mip: bool = False,
-        keep_stacks: bool = True,
-        save_metadata_files: bool = True) -> set:
+    in_path: Union[str, Path], mip: bool = False, keep_stacks: bool = True, save_metadata_files: bool = True
+) -> set:
     """Check that all files were converted (single directory).
 
     Parameters

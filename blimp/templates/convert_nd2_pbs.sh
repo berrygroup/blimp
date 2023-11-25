@@ -18,8 +18,8 @@
 
 ###---------------------------------------------------------------------------
 
-INPUT_DIR={INPUT_DIR}
-OUTPUT_DIR={INPUT_DIR}/OME-TIFF
+INPUT_DIR="{INPUT_DIR}"
+OUTPUT_DIR="{INPUT_DIR}/OME-TIFF"
 
 source /home/{USER}/.bashrc
 conda activate berrylab-py310
@@ -27,7 +27,7 @@ conda activate berrylab-py310
 cd $PBS_O_WORKDIR
 
 python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/nd2_to_ome_tiff.py \
--i $INPUT_DIR -o $OUTPUT_DIR --batch {N_BATCHES} ${{PBS_ARRAY_INDEX}} \
-{MIP} -y {Y_DIRECTION}
+-i "$INPUT_DIR" -o "$OUTPUT_DIR" --batch {N_BATCHES} ${{PBS_ARRAY_INDEX}} \
+{MIP} {KEEP_STACKS} -y {Y_DIRECTION}
 
 conda deactivate

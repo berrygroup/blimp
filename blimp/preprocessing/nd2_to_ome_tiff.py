@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 def convert_individual_nd2_to_ome_tiff(
     in_file_path: Union[str, Path],
-    out_path: Union[str, Path],
-    out_path_mip: Union[str, Path] = None,
+    out_path: Union[str, Path, None],
+    out_path_mip: Union[str, Path, None] = None,
 ):
     """Reads an nd2 file and writes a set of image files corresponding to
     single imaging sites (field of view).
@@ -40,21 +40,21 @@ def convert_individual_nd2_to_ome_tiff(
     images = AICSImage(str(in_file_path))
 
     for s, scene in enumerate(images.scenes):
-        out_file_path = Path(out_path) / Path(Path(in_file_path).stem + "_" + str(s + 1).zfill(4) + ".ome.tiff")
-        images.set_scene(s)
-        image_data = images.get_image_data("TCZYX")
+        if out_path is not None:
+            out_file_path = Path(out_path) / Path(Path(in_file_path).stem + "_" + str(s + 1).zfill(4) + ".ome.tiff")
+            images.set_scene(s)
+            image_data = images.get_image_data("TCZYX")
 
-        OmeTiffWriter.save(
-            data=image_data,
-            uri=out_file_path,
-            dim_order="TCZYX",
-            channel_names=images.channel_names,
-            physical_pixel_sizes=images.physical_pixel_sizes,
-            parser="lxml",
-        )
+            OmeTiffWriter.save(
+                data=image_data,
+                uri=out_file_path,
+                dim_order="TCZYX",
+                channel_names=images.channel_names,
+                physical_pixel_sizes=images.physical_pixel_sizes,
+                parser="lxml",
+            )
 
         if out_path_mip is not None:
-
             out_file_path_mip = Path(out_path_mip) / Path(
                 Path(in_file_path).stem + "_" + str(s + 1).zfill(4) + ".ome.tiff"
             )
@@ -74,8 +74,8 @@ def convert_individual_nd2_to_ome_tiff(
 
 def convert_individual_nd2_to_ome_tiff_nd2_reader(
     in_file_path: Union[str, Path],
-    out_path: Union[str, Path],
-    out_path_mip: Union[str, Path] = None,
+    out_path: Union[str, Path, None],
+    out_path_mip: Union[str, Path, None] = None,
 ):
     """Reads an nd2 file and writes a set of image files corresponding to
     single imaging sites (field of view).
@@ -102,23 +102,22 @@ def convert_individual_nd2_to_ome_tiff_nd2_reader(
     images.iter_axes = "v"
 
     for i, img in enumerate(images):
-
-        out_file_path = Path(out_path) / Path(Path(in_file_path).stem + "_" + str(i + 1).zfill(4) + ".ome.tiff")
-
         voxel_dimensions = _get_zyx_resolution(img.metadata)
 
-        logger.debug(f"Writing OME-TIFF, field-of-view #{i}")
-        OmeTiffWriter.save(
-            data=img,
-            uri=out_file_path,
-            dim_order="TCZYX",
-            channel_names=img.metadata["channels"],
-            physical_pixel_sizes=voxel_dimensions,
-            parser="lxml",
-        )
+        if out_path is not None:
+            out_file_path = Path(out_path) / Path(Path(in_file_path).stem + "_" + str(i + 1).zfill(4) + ".ome.tiff")
+
+            logger.debug(f"Writing OME-TIFF, field-of-view #{i}")
+            OmeTiffWriter.save(
+                data=img,
+                uri=out_file_path,
+                dim_order="TCZYX",
+                channel_names=img.metadata["channels"],
+                physical_pixel_sizes=voxel_dimensions,
+                parser="lxml",
+            )
 
         if out_path_mip is not None:
-
             out_file_path_mip = Path(out_path_mip) / Path(
                 Path(in_file_path).stem + "_" + str(i + 1).zfill(4) + ".ome.tiff"
             )
@@ -204,6 +203,7 @@ def nd2_to_ome_tiff(
     n_batches: int = 1,
     batch_id: int = 0,
     mip: bool = False,
+    keep_stacks: bool = False,
     y_direction: str = "down",
 ) -> None:
     """Reads an folder of nd2 files and converts to OME-TIFFs. Can perform
@@ -221,6 +221,8 @@ def nd2_to_ome_tiff(
         current batch to process
     mip
         whether to save maximum-intensity-projections
+    keep_stacks
+        whether to save stacks
     y_direction
         direction of increasing (stage) y-coordinates (possible
         values are "up" and "down")
@@ -253,6 +255,10 @@ def nd2_to_ome_tiff(
     # get list of files to process
     filename_list = _get_list_of_files_current_batch(in_path=in_path, n_batches=n_batches, batch_id=batch_id)
 
+    # if keep_stacks is False, out_path to None
+    if not keep_stacks:
+        out_path = None
+
     logger.info(f"Converting nd2 files: {filename_list}")
     for f in filename_list:
         in_file_path = in_path / f
@@ -261,10 +267,13 @@ def nd2_to_ome_tiff(
             out_path=out_path,
             out_path_mip=out_path_mip,
         )
-        logger.info(f"Saving metadata for {in_file_path} in {out_path}")
-        nd2_metadata = nd2_extract_metadata_and_save(
-            in_file_path=in_file_path, out_path=out_path, y_direction=y_direction
-        )
+
+        # save metadata
+        if out_path is not None:
+            logger.info(f"Saving metadata for {in_file_path} in {out_path}")
+            nd2_metadata = nd2_extract_metadata_and_save(
+                in_file_path=in_file_path, out_path=out_path, y_direction=y_direction
+            )
 
         # save mip metadata
         if out_path_mip is not None:
@@ -313,6 +322,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--keep_stacks",
+        default=False,
+        action="store_true",
+        help="Whether to save image stacks (all z-planes)? (default = False)",
+    )
+
+    parser.add_argument(
         "-y",
         "--y_direction",
         default="down",
@@ -345,5 +361,6 @@ if __name__ == "__main__":
         n_batches=args.batch[0],
         batch_id=args.batch[1],
         mip=args.mip,
+        keep_stacks=args.keep_stacks,
         y_direction=args.y_direction,
     )

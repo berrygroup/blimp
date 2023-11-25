@@ -42,7 +42,6 @@ def _get_setup_parser():
 
 
 def _add_convert_args(parser: argparse.ArgumentParser) -> None:
-
     parser.add_argument(
         "-i", "--input_path", help="Top-level directory to search for images to be converted (required)", required=True
     )
@@ -102,7 +101,6 @@ def _add_convert_operetta_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_convert_nd2_args(parser: argparse.ArgumentParser) -> None:
-
     parser.add_argument(
         "-y",
         "--y_direction",
@@ -172,7 +170,6 @@ def _convert_operetta(args) -> None:
 
 
 def _add_archive_args(parser: argparse.ArgumentParser) -> None:
-
     parser.add_argument(
         "-i", "--input_path", help="Top-level directory to search for images to be converted (required)", required=True
     )
@@ -227,7 +224,6 @@ def _archive_operetta(args) -> None:
 
 
 def _get_full_parser() -> argparse.ArgumentParser:
-
     # ----------- #
     # BASE PARSER #
     # ----------- #

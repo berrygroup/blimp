@@ -227,7 +227,6 @@ class BLImage(AICSImage):
         timelapse=None,
         **kwargs: Any,
     ) -> np.ndarray:
-
         # first get a standardised representation as a numpy array
         arr = super().get_image_data("TCZYX", **kwargs)
         if timelapse is None:

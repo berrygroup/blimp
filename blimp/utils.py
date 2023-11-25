@@ -2,8 +2,8 @@
 from typing import List, Union, Optional
 import logging
 
-from aicsimageio import AICSImage
 from welford import Welford
+from aicsimageio import AICSImage
 import numpy as np
 import dask.array as da
 
@@ -27,7 +27,6 @@ AXIS_INT_TO_STR = {0: "T", 1: "C", 2: "Z", 3: "Y", 4: "X"}
 
 
 def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
-
     # check requested type is allowed
     allowed_types = np.sctypes["int"] + np.sctypes["uint"] + np.sctypes["float"]
     if not dtype in allowed_types:
@@ -294,23 +293,23 @@ def check_uniform_dimension_sizes(
     return result
 
 
-def mean_std_welford(images: List[AICSImage], log_transform : bool = False) -> tuple:
+def mean_std_welford(images: List[AICSImage], log_transform: bool = False) -> tuple:
     n_c = images[0].dims.C
     w = [Welford() for i in range(n_c)]
     for image in images:
         for c in range(n_c):
             # use lazy loading to see if this fixes the memory leak
-            array_lazy = image.get_image_dask_data('YX',C=c,T=0,Z=0)
+            array_lazy = image.get_image_dask_data("YX", C=c, T=0, Z=0)
             array = array_lazy.compute()
             if log_transform:
                 is_zero = array == 0
                 if np.any(is_zero):
-                    logger.warn('image contains zero values')
+                    logger.warn("image contains zero values")
                 array = np.log10(array)
                 # The log10 transform sets zero pixel values to -inf
                 array[is_zero] = 0
             if np.any(np.isinf(array)):
-                logger.warn('skip image because it contains infinite values')
+                logger.warn("skip image because it contains infinite values")
             else:
                 w[c].add(array)
 
@@ -318,14 +317,14 @@ def mean_std_welford(images: List[AICSImage], log_transform : bool = False) -> t
     std_arrays = [np.sqrt(w[c].var_s) for c in range(n_c)]
 
     m = AICSImage(
-        np.stack(mean_arrays,axis=0)[np.newaxis,:,np.newaxis,:,:],
+        np.stack(mean_arrays, axis=0)[np.newaxis, :, np.newaxis, :, :],
         channel_names=images[0].channel_names,
-        physical_pixel_sizes=images[0].physical_pixel_sizes
+        physical_pixel_sizes=images[0].physical_pixel_sizes,
     )
     s = AICSImage(
-        np.stack(std_arrays,axis=0)[np.newaxis,:,np.newaxis,:,:],
+        np.stack(std_arrays, axis=0)[np.newaxis, :, np.newaxis, :, :],
         channel_names=images[0].channel_names,
-        physical_pixel_sizes=images[0].physical_pixel_sizes
+        physical_pixel_sizes=images[0].physical_pixel_sizes,
     )
 
     return m, s
@@ -422,7 +421,7 @@ def std_images(images: List[AICSImage], keep_same_type: bool = True) -> AICSImag
 
     if not dimension_sizes_match:
         raise ValueError("Cannot average over images of different sizes")
-    else:   
+    else:
         channel_stds = [
             np.std([image.get_image_data("TZYX", C=channel) for image in images], axis=0)
             for channel in range(0, images[0].dims.C)

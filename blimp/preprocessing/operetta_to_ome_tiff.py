@@ -291,6 +291,7 @@ def operetta_to_ome_tiff(
     batch_id: int = 0,
     save_metadata_files: bool = True,
     mip: bool = False,
+    keep_stacks: bool = False,
 ) -> None:
     """Convert individual TIFFs from Operetta to standard OME-TIFFs.
 
@@ -315,6 +316,9 @@ def operetta_to_ome_tiff(
     mip
         whether to save maximum-intensity-projections
     """
+
+    if (not mip) and (not keep_stacks):
+        logger.error("Neither mip nor keep_stacks are true. Images will not be saved.")
 
     # setup paths
     in_path = Path(in_path)
@@ -436,14 +440,15 @@ def operetta_to_ome_tiff(
             )
 
         # write to OME TIFF (metadata provided is written to TIFF file)
-        OmeTiffWriter.save(
-            data=multi_timepoint_img,
-            uri=out_file_path,
-            dim_order="TCZYX",
-            channel_names=channel_names,
-            physical_pixel_sizes=voxel_dimensions,
-            parser="lxml",
-        )
+        if keep_stacks:
+            OmeTiffWriter.save(
+                data=multi_timepoint_img,
+                uri=out_file_path,
+                dim_order="TCZYX",
+                channel_names=channel_names,
+                physical_pixel_sizes=voxel_dimensions,
+                parser="lxml",
+            )
 
         # write MIP to OME TIFF
         if mip:
@@ -510,6 +515,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--keep_stacks",
+        default=False,
+        action="store_true",
+        help="Whether to save image stacks (all z-planes)? (default = False)",
+    )
+
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -528,4 +540,5 @@ if __name__ == "__main__":
         batch_id=args.batch[1],
         save_metadata_files=args.save_metadata_files,
         mip=args.mip,
+        keep_stacks=args.keep_stacks,
     )

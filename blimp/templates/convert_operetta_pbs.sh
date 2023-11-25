@@ -5,8 +5,8 @@
 #PBS -N ConvertOperetta
 #PBS -l select=1:ncpus=1:mem=32gb
 #PBS -l walltime=04:00:00
-#PBS -j oe
-#PBS -k n
+#PBS -o {LOG_DIR}/
+#PBS -e {LOG_DIR}/
 #PBS -M {USER_EMAIL}
 #PBS -m ae
 
@@ -18,8 +18,8 @@
 
 ###---------------------------------------------------------------------------
 
-INPUT_DIR={INPUT_DIR}
-OUTPUT_DIR={INPUT_DIR}/OME-TIFF
+INPUT_DIR="{INPUT_DIR}"
+OUTPUT_DIR="{INPUT_DIR}/OME-TIFF"
 
 source /home/{USER}/.bashrc
 conda activate berrylab-py310
@@ -27,7 +27,7 @@ conda activate berrylab-py310
 cd $PBS_O_WORKDIR
 
 python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/operetta_to_ome_tiff.py \
--i $INPUT_DIR/Images -o $OUTPUT_DIR -f Index.idx.xml --batch {N_BATCHES} \
-${{PBS_ARRAY_INDEX}} -s -m
+-i "$INPUT_DIR/Images" -o "$OUTPUT_DIR" -f Index.idx.xml --batch {N_BATCHES} \
+${{PBS_ARRAY_INDEX}} {MIP} {KEEP_STACKS} {SAVE_METADATA_FILES}
 
 conda deactivate
