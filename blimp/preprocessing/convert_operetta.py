@@ -17,13 +17,53 @@ def find_images_dirs(basepath: Union[str, Path]):
     return glob.glob(basepath + "/**/Images", recursive=True)
 
 
-def generate_pbs_script(template, input_dir, user, email, n_batches):
+def generate_pbs_script(
+    template: str,
+    input_dir: str,
+    log_dir: str,
+    user: str,
+    email: str,
+    n_batches: int,
+    mip: bool,
+    keep_stacks: bool,
+    save_metadata_files: bool,
+) -> str:
+    """Formats a PBS jobscript template using input arguments.
+
+    Parameters
+    ----------
+    template
+        PBS jobscript template
+    input_dir
+        full path to images directory
+    log_dir
+        full path to where output logs should be written
+    user
+        usename for job submission (zID on katana)
+    email
+        email address for notifications
+    n_batches
+        how many batches into which processing should
+        be split
+    mip
+        whether to save maximum-intensity-projections
+    keep_stacks
+        whether to save stacks
+
+    Returns
+    -------
+    Template as a formatted string to be written to file
+    """
     return template.format(
         INPUT_DIR=input_dir,
+        LOG_DIR=log_dir,
         USER=user,
         USER_EMAIL=email,
         N_BATCHES=n_batches,
         BATCH_MAX=n_batches - 1,
+        MIP="--mip" if mip else "",
+        KEEP_STACKS="--keep_stacks" if keep_stacks else "",
+        SAVE_METADATA_FILES="--save_metadata_files" if save_metadata_files else "",
     )
 
 
@@ -35,6 +75,7 @@ def convert_operetta(
     n_batches: int = 1,
     save_metadata_files: bool = True,
     mip: bool = False,
+    keep_stacks: bool = True,
     submit: bool = False,
     user: str = "z1234567",
     email: str = "foo@bar.com",
@@ -67,6 +108,8 @@ def convert_operetta(
         whether the metadata files should be saved after XML parsing
     mip
         whether to save maximum-intensity-projections
+    keep_stacks
+        whether to save stacks
     submit
         whether to also submit the batch jobs to the cluster
     user
@@ -77,15 +120,17 @@ def convert_operetta(
         prepare scripts and echo commands without submitting
     """
 
-    # create jobdir if it does not exist
+    # create job/log directory if it does not exist
     job_path = Path(job_path)
-    if not job_path.exists():
-        job_path.mkdir(parents=True, exist_ok=True)
+    log_path = job_path / "log"
+    if not log_path.exists():
+        log_path.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Jobscripts will be written to {job_path.resolve()}")
 
     # search recursively for "Images" directories
     images_paths = find_images_dirs(in_path)
     images_parent_paths = [Path(p).parent for p in images_paths]
-    jobscript_paths = [job_path / ("batch_convert_" + str(p.stem) + ".pbs") for p in images_parent_paths]
+    jobscript_paths = [job_path / ("batch_convert_operetta_" + str(p.stem) + ".pbs") for p in images_parent_paths]
 
     # read template from file
     if template_path is None:
@@ -96,11 +141,15 @@ def convert_operetta(
     # create jobscripts using template
     for images_parent_path, jobscript_path in zip(images_parent_paths, jobscript_paths):
         jobscript = generate_pbs_script(
-            jobscript_template,
-            images_parent_path,
-            user,
-            email,
-            int(n_batches),
+            template=jobscript_template,
+            input_dir=str(images_parent_path.resolve()),
+            log_dir=str(log_path.resolve()),
+            user=user,
+            email=email,
+            n_batches=int(n_batches),
+            mip=mip,
+            keep_stacks=keep_stacks,
+            save_metadata_files=save_metadata_files,
         )
         # write to files
         with open(jobscript_path, "w+") as f:
@@ -119,7 +168,11 @@ def convert_operetta(
     return None
 
 
-def check_convert_operetta(in_path: Union[str, Path], mip: bool = False, save_metadata_files: bool = True) -> None:
+def check_convert_operetta(
+        in_path: Union[str, Path],
+        mip: bool = False,
+        keep_stacks: bool = True,
+        save_metadata_files: bool = True) -> None:
     """Check that all files were converted.
 
     Parameters
@@ -128,6 +181,8 @@ def check_convert_operetta(in_path: Union[str, Path], mip: bool = False, save_me
         path to search for "Images" directories
     mip
         whether to also check for maximum-intensity-projections
+    keep_stacks
+        whether to also check for stacks
     save_metadata_files
         whether the metadata files should be saved after XML parsing
 
@@ -144,13 +199,18 @@ def check_convert_operetta(in_path: Union[str, Path], mip: bool = False, save_me
         check_convert_operetta_dir(
             in_path=images_dir,
             mip=mip,
+            keep_stacks=keep_stacks,
             save_metadata_files=save_metadata_files,
         )
 
     return
 
 
-def check_convert_operetta_dir(in_path: Union[str, Path], mip: bool = False, save_metadata_files: bool = True) -> set:
+def check_convert_operetta_dir(
+        in_path: Union[str, Path],
+        mip: bool = False,
+        keep_stacks: bool = True,
+        save_metadata_files: bool = True) -> set:
     """Check that all files were converted (single directory).
 
     Parameters
@@ -159,6 +219,8 @@ def check_convert_operetta_dir(in_path: Union[str, Path], mip: bool = False, sav
         path to the "Images" directory (including "Images")
     mip
         whether to also check for maximum-intensity-projections
+    keep_stacks
+        whether to also check for stacks
     save_metadata_files
         whether the metadata files should be saved after XML parsing
 

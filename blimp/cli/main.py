@@ -46,7 +46,6 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-i", "--input_path", help="Top-level directory to search for images to be converted (required)", required=True
     )
-
     parser.add_argument(
         "-j",
         "--jobscript_path",
@@ -59,11 +58,16 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
         help="Output format for images (TIFF or NGFF, currently only TIFF implemented)",
     )
     parser.add_argument(
-        "-m",
         "--mip",
         default=False,
         action="store_true",
         help="Whether to save maximum intensity projections? (default = False)",
+    )
+    parser.add_argument(
+        "--keep_stacks",
+        default=False,
+        action="store_true",
+        help="Whether to save image stacks (all z-planes)? (default = False)",
     )
     parser.add_argument("--user", metavar="ZID", help="Your zID for HPC submission (required)", required=True)
     parser.add_argument("--email", help="Email address for job notifications", required=False)
@@ -127,6 +131,7 @@ def _convert_nd2(args) -> None:
         image_format=args.output_format,
         n_batches=args.batch,
         mip=args.mip,
+        keep_stacks=args.keep_stacks,
         y_direction=args.y_direction,
         submit=args.submit,
         user=args.user,
@@ -157,6 +162,7 @@ def _convert_operetta(args) -> None:
             n_batches=args.batch,
             save_metadata_files=True,
             mip=args.mip,
+            keep_stacks=args.keep_stacks,
             submit=args.submit,
             user=args.user,
             email=args.email,

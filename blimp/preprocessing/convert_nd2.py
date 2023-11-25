@@ -35,6 +35,7 @@ def generate_pbs_script(
     email: str,
     n_batches: int,
     mip: bool,
+    keep_stacks: bool,
     y_direction: str,
 ) -> str:
     """Formats a PBS jobscript template using input arguments.
@@ -56,6 +57,8 @@ def generate_pbs_script(
         be split
     mip
         whether to save maximum-intensity-projections
+    keep_stacks
+        whether to save stacks
     y_direction
         y_direction parameter for nd2_to_ome_tiff
 
@@ -70,7 +73,8 @@ def generate_pbs_script(
         USER_EMAIL=email,
         N_BATCHES=n_batches,
         BATCH_MAX=n_batches - 1,
-        MIP="-m" if mip else "",
+        MIP="--mip" if mip else "",
+        KEEP_STACKS="--keep_stacks" if keep_stacks else "",
         Y_DIRECTION=y_direction,
     )
 
@@ -83,6 +87,7 @@ def convert_nd2(
     n_batches: int = 1,
     y_direction: str = "down",
     mip: bool = False,
+    keep_stacks: bool = True,
     submit: bool = False,
     user: str = "z1234567",
     email: str = "foo@bar.com",
@@ -107,6 +112,8 @@ def convert_nd2(
         number of batches into which the processing should be split.
     mip
         whether to save maximum-intensity-projections
+    keep_stacks
+        whether to save stacks
     y_direction
         direction of increasing (stage) y-coordinates (possible
         values are "up" and "down")
@@ -129,7 +136,7 @@ def convert_nd2(
     log_path = job_path / "log"
     if not log_path.exists():
         log_path.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Jobscripts will be written to {job_path}")
+    logger.info(f"Jobscripts will be written to {job_path.resolve()}")
 
     # search recursively for directories containing nd2 files
     nd2_paths = find_nd2_files(in_path)
@@ -151,12 +158,13 @@ def convert_nd2(
     for im_par_path, job_path in zip(nd2_parent_paths, job_paths):
         jobscript = generate_pbs_script(
             template=jobscript_template,
-            input_dir=str(im_par_path),
-            log_dir=str(log_path),
+            input_dir=str(im_par_path.resolve()),
+            log_dir=str(log_path.resolve()),
             user=user,
             email=email,
             n_batches=int(n_batches),
             mip=mip,
+            keep_stacks=keep_stacks,
             y_direction=y_direction,
         )
         # write to files
