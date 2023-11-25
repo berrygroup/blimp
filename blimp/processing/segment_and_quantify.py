@@ -31,7 +31,7 @@ def segment_nuclei_cellpose(
     intensity_image: AICSImage,
     nuclei_channel: int = 0,
     model_type: str = "nuclei",
-    pretrained_model: Union[str,Path,None] = None,
+    pretrained_model: Union[str, Path, None] = None,
     diameter: Optional[int] = None,
     threshold: float = 0,
     flow_threshold: float = 0.4,
@@ -76,11 +76,8 @@ def segment_nuclei_cellpose(
             do_3D=False,
         )
     else:
-        cellpose_model = models.CellposeModel(gpu=False,pretrained_model=str(pretrained_model))
-        masks, flows, styles = cellpose_model.eval(
-            nuclei_images,
-            channels = [0,0]
-        )
+        cellpose_model = models.CellposeModel(gpu=False, pretrained_model=str(pretrained_model))
+        masks, flows, styles = cellpose_model.eval(nuclei_images, channels=[0, 0])
 
     segmentation = AICSImage(
         np.stack(masks)[:, np.newaxis, np.newaxis, :],
@@ -380,7 +377,6 @@ def _quantify_single_timepoint(
 
     # iterate over all object types in the segmentation
     for obj_index, obj in enumerate(label_image.channel_names):
-
         label_array = label_image.get_image_data("YX", C=obj_index, T=timepoint, Z=0)
 
         # Morphology features
