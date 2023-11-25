@@ -222,7 +222,6 @@ def test_average_images_invalid_input_channel_size(image_list_invalid_channel_si
 
 
 def test_average_images_dtypes(image_list):
-
     # Test that dtypes do not change
     result = blimp.utils.average_images(image_list)
     assert result.dtype == image_list[0].dtype
@@ -313,7 +312,6 @@ def test_convert_array_dtype():
 
 
 def test_equal_dims():
-
     a = AICSImage(np.random.random((1, 2, 3, 4, 5)))
     b = AICSImage(np.random.random((1, 2, 3, 4, 5)))
     # invalid input
