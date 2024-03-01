@@ -117,8 +117,8 @@ def _get_channel_names(image: AICSImage, input: Optional[Union[int, str, List[Un
         raise ValueError("Input must be an integer, a string, a list of integers/strings, or None.")
 
     if isinstance(input, int):
-        if input not in image.channel_names:
-            raise ValueError("Integer input must be a valid channel name.")
+        if input not in range(len(image.channel_names)):
+            raise ValueError("Integer input must be in the range 0 to {}.".format(len(image.channel_names)))
         return [image.channel_names[input]]
 
     elif isinstance(input, str):
