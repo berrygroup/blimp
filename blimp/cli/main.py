@@ -116,6 +116,14 @@ def _add_convert_nd2_args(parser: argparse.ArgumentParser) -> None:
         right!
     """,
     )
+    parser.add_argument(
+        "-c",
+        "--channel_names",
+        type=str,
+        nargs='+',
+        default=None,
+        help="List of channel names",
+    )
     return None
 
 
@@ -131,6 +139,7 @@ def _convert_nd2(args) -> None:
         mip=args.mip,
         keep_stacks=args.keep_stacks,
         y_direction=args.y_direction,
+        channel_names=args.channel_names,
         submit=args.submit,
         user=args.user,
         email=args.email,

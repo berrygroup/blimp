@@ -1,5 +1,5 @@
 """Convert Nikon nd2 files to standard open microscopy environment formats."""
-from typing import Union
+from typing import Union, List
 from pathlib import Path
 import os
 import glob
@@ -37,6 +37,7 @@ def generate_pbs_script(
     mip: bool,
     keep_stacks: bool,
     y_direction: str,
+    channel_names: Union[str, List[str], None] = None,
 ) -> str:
     """Formats a PBS jobscript template using input arguments.
 
@@ -61,11 +62,21 @@ def generate_pbs_script(
         whether to save stacks
     y_direction
         y_direction parameter for nd2_to_ome_tiff
+    channel_names
+        List of channel names in case those found in the 
+        image metadata are incorrect and need to be replaced
 
     Returns
     -------
     Template as a formatted string to be written to file
     """
+    if channel_names is None:
+        channel_names = ""
+    else:
+        if isinstance(channel_names, str):
+            channel_names = [channel_names]
+        channel_names = "--channel_names " + (" ".join(channel_names))
+
     return template.format(
         INPUT_DIR=input_dir,
         LOG_DIR=log_dir,
@@ -76,6 +87,7 @@ def generate_pbs_script(
         MIP="--mip" if mip else "",
         KEEP_STACKS="--keep_stacks" if keep_stacks else "",
         Y_DIRECTION=y_direction,
+        CHANNEL_NAMES=channel_names,
     )
 
 
@@ -86,6 +98,7 @@ def convert_nd2(
     template_path: Union[str, Path, None] = None,
     n_batches: int = 1,
     y_direction: str = "down",
+    channel_names: Union[str, List[str], None] = None,
     mip: bool = False,
     keep_stacks: bool = True,
     submit: bool = False,
@@ -117,6 +130,9 @@ def convert_nd2(
     y_direction
         direction of increasing (stage) y-coordinates (possible
         values are "up" and "down")
+    channel_names
+        List of channel names in case those found in the 
+        image metadata are incorrect and need to be replaced
     submit
         whether to also submit the batch jobs to the cluster
     user
@@ -166,6 +182,7 @@ def convert_nd2(
             mip=mip,
             keep_stacks=keep_stacks,
             y_direction=y_direction,
+            channel_names=channel_names,
         )
         # write to files
         with open(job_path, "w+") as f:

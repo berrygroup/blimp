@@ -1,6 +1,6 @@
 """Convert Nikon nd2 files to open microscopy environment OME-TIFF format."""
 from glob import glob
-from typing import Union
+from typing import List, Union
 from pathlib import Path
 import os
 import logging
@@ -20,6 +20,7 @@ def convert_individual_nd2_to_ome_tiff(
     in_file_path: Union[str, Path],
     out_path: Union[str, Path, None],
     out_path_mip: Union[str, Path, None] = None,
+    channel_names: Union[str, List[str], None] = None,
 ):
     """Reads an nd2 file and writes a set of image files corresponding to
     single imaging sites (field of view).
@@ -32,12 +33,28 @@ def convert_individual_nd2_to_ome_tiff(
         Full path to the folder for OME-TIFFs
     out_path_mip
         Full path to the folder z-projected OME-TIFFs
+    channel_names
+        List of channel names in case those found in the 
+        image metadata are incorrect
     Returns
     -------
     """
 
     logger.info(f"Reading individual ND2 file {in_file_path}")
     images = AICSImage(str(in_file_path))
+
+    if channel_names is None:
+        channel_names = images.channel_names
+        logger.debug(f"Using channel names from image file {channel_names}.")
+    elif isinstance(channel_names, str):
+        channel_names = [channel_names]
+    elif isinstance(channel_names, list):
+        for channel_name in channel_names:
+            if not isinstance(channel_name, str):
+                raise ValueError("Channel names must be strings.")
+        logger.debug(f"Using channel names from input {channel_names}.")
+    else:
+        ValueError("Unknown error in channel names.")
 
     for s, scene in enumerate(images.scenes):
         if out_path is not None:
@@ -49,7 +66,7 @@ def convert_individual_nd2_to_ome_tiff(
                 data=image_data,
                 uri=out_file_path,
                 dim_order="TCZYX",
-                channel_names=images.channel_names,
+                channel_names=channel_names,
                 physical_pixel_sizes=images.physical_pixel_sizes,
                 parser="lxml",
             )
@@ -64,7 +81,7 @@ def convert_individual_nd2_to_ome_tiff(
                 data=np.max(image_data, axis=2, keepdims=True),
                 uri=out_file_path_mip,
                 dim_order="TCZYX",
-                channel_names=images.channel_names,
+                channel_names=channel_names,
                 physical_pixel_sizes=images.physical_pixel_sizes,
                 parser="lxml",
             )
@@ -205,6 +222,7 @@ def nd2_to_ome_tiff(
     mip: bool = False,
     keep_stacks: bool = False,
     y_direction: str = "down",
+    channel_names: Union[str, List[str], None] = None,
 ) -> None:
     """Reads an folder of nd2 files and converts to OME-TIFFs. Can perform
     batch processing.
@@ -226,6 +244,9 @@ def nd2_to_ome_tiff(
     y_direction
         direction of increasing (stage) y-coordinates (possible
         values are "up" and "down")
+    channel_names
+        List of channel names in case those found in the 
+        image metadata are incorrect and need to be replaced
 
     Returns
     -------
@@ -268,6 +289,7 @@ def nd2_to_ome_tiff(
             in_file_path=in_file_path,
             out_path=out_path_stack,
             out_path_mip=out_path_mip,
+            channel_names=channel_names,
         )
 
         # save metadata
@@ -347,6 +369,15 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "-c",
+        "--channel_names",
+        type=str,
+        nargs='+',
+        default=None,
+        help="List of channel names",
+    )
+
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -365,4 +396,5 @@ if __name__ == "__main__":
         mip=args.mip,
         keep_stacks=args.keep_stacks,
         y_direction=args.y_direction,
+        channel_names=args.channel_names,
     )

@@ -28,6 +28,6 @@ cd $PBS_O_WORKDIR
 
 python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/nd2_to_ome_tiff.py \
 -i "$INPUT_DIR" -o "$OUTPUT_DIR" --batch {N_BATCHES} ${{PBS_ARRAY_INDEX}} \
-{MIP} {KEEP_STACKS} -y {Y_DIRECTION}
+{MIP} {KEEP_STACKS} -y {Y_DIRECTION} {CHANNEL_NAMES}
 
 conda deactivate
