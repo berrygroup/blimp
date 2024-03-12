@@ -19,7 +19,7 @@
 ###---------------------------------------------------------------------------
 
 INPUT_DIR="{INPUT_DIR}"
-OUTPUT_DIR="{INPUT_DIR}/OME-TIFF"
+OUTPUT_DIR="{OUTPUT_DIR}"
 
 source /home/{USER}/.bashrc
 conda activate berrylab-py310

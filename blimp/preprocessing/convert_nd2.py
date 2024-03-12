@@ -1,6 +1,7 @@
 """Convert Nikon nd2 files to standard open microscopy environment formats."""
 from typing import Union, List
 from pathlib import Path
+import re
 import os
 import glob
 import logging
@@ -30,6 +31,7 @@ def find_nd2_files(basepath: Union[Path, str]) -> list:
 def generate_pbs_script(
     template: str,
     input_dir: str,
+    output_dir: str,
     log_dir: str,
     user: str,
     email: str,
@@ -47,10 +49,12 @@ def generate_pbs_script(
         PBS jobscript template
     input_dir
         full path to images directory
+    output_dir
+        full path to output directory
     log_dir
         full path to where output logs should be written
     user
-        usename for job submission (zID on katana)
+        usename (zID on katana) for job submission and location of scripts
     email
         email address for notifications
     n_batches
@@ -79,6 +83,7 @@ def generate_pbs_script(
 
     return template.format(
         INPUT_DIR=input_dir,
+        OUTPUT_DIR=output_dir,
         LOG_DIR=log_dir,
         USER=user,
         USER_EMAIL=email,
@@ -136,7 +141,7 @@ def convert_nd2(
     submit
         whether to also submit the batch jobs to the cluster
     user
-        username (your zID, must match the path to your data)
+        username (your zID)
     email
         email address for job notifications
     dryrun
@@ -164,6 +169,26 @@ def convert_nd2(
 
     job_paths = [job_path / ("batch_convert_nd2_" + str(p.stem) + ".pbs") for p in nd2_parent_paths]
 
+    # check that zID of input matches zID of output directory
+    out_paths = []
+    # find the zID in the path
+    pattern = re.compile(r'/z\d{7}')
+    for path in nd2_parent_paths:
+        path_str = str(path)
+        if pattern.search(path_str):
+            # Replace the folder name with the user's 
+            # zID (and append OME-TIFF)
+            input_user = pattern.search(path_str).group()
+            out_path = path_str.replace(input_user, f'/{user}')
+            out_path = Path(out_path) / "OME-TIFF"
+            logger.info(f"zID in input path does not match user's zID, adjusting output path to {str(out_path)}")
+            out_paths.append(out_path)
+        else:
+            # Or if zIDs match, just add the original path 
+            # to the output path list (appending OME-TIFF)
+            logger.debug(f"zID in input path matches user's zID, output path is {str(out_path)}")
+            out_paths.append(path / "OME-TIFF")
+
     # read template from file
     if template_path is None:
         jobscript_template = read_template("convert_nd2_pbs.sh")
@@ -171,10 +196,11 @@ def convert_nd2(
         jobscript_template = Path(template_path).read_text()
 
     # create jobscripts using template
-    for im_par_path, job_path in zip(nd2_parent_paths, job_paths):
+    for im_par_path, out_path, job_path in zip(nd2_parent_paths, out_paths, job_paths):
         jobscript = generate_pbs_script(
             template=jobscript_template,
             input_dir=str(im_par_path.resolve()),
+            output_dir=str(out_path.resolve()),
             log_dir=str(log_path.resolve()),
             user=user,
             email=email,
