@@ -57,10 +57,12 @@ def convert_individual_nd2_to_ome_tiff(
         ValueError("Unknown error in channel names.")
 
     for s, scene in enumerate(images.scenes):
-        if out_path is not None:
-            out_file_path = Path(out_path) / Path(Path(in_file_path).stem + "_" + str(s + 1).zfill(4) + ".ome.tiff")
+        if out_path is not None or out_path_mip is not None:
             images.set_scene(s)
             image_data = images.get_image_data("TCZYX")
+
+        if out_path is not None:
+            out_file_path = Path(out_path) / Path(Path(in_file_path).stem + "_" + str(s + 1).zfill(4) + ".ome.tiff")
 
             OmeTiffWriter.save(
                 data=image_data,
