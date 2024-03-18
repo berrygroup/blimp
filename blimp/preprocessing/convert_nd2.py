@@ -169,14 +169,14 @@ def convert_nd2(
 
     job_paths = [job_path / ("batch_convert_nd2_" + str(p.stem) + ".pbs") for p in nd2_parent_paths]
 
-    # check that zID of input matches zID of output directory
+    # check that zID of input path matches user's zID (otherwise no write access for output)
     out_paths = []
     # find the zID in the path
     pattern = re.compile(r'/z\d{7}')
     for path in nd2_parent_paths:
         path_str = str(path)
         if pattern.search(path_str):
-            # Replace the folder name with the user's 
+            # Replace the zID in input folder name with the user's 
             # zID (and append OME-TIFF)
             input_user = pattern.search(path_str).group()
             out_path = path_str.replace(input_user, f'/{user}')
