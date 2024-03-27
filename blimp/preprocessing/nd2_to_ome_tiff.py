@@ -88,7 +88,7 @@ def convert_individual_nd2_to_ome_tiff(
                 parser="lxml",
             )
 
-    return out_file_path
+    return
 
 
 def convert_individual_nd2_to_ome_tiff_nd2_reader(
