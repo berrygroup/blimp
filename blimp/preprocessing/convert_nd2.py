@@ -1,8 +1,8 @@
 """Convert Nikon nd2 files to standard open microscopy environment formats."""
-from typing import Union, List
+from typing import List, Union
 from pathlib import Path
-import re
 import os
+import re
 import glob
 import logging
 
@@ -67,7 +67,7 @@ def generate_pbs_script(
     y_direction
         y_direction parameter for nd2_to_ome_tiff
     channel_names
-        List of channel names in case those found in the 
+        List of channel names in case those found in the
         image metadata are incorrect and need to be replaced
 
     Returns
@@ -136,7 +136,7 @@ def convert_nd2(
         direction of increasing (stage) y-coordinates (possible
         values are "up" and "down")
     channel_names
-        List of channel names in case those found in the 
+        List of channel names in case those found in the
         image metadata are incorrect and need to be replaced
     submit
         whether to also submit the batch jobs to the cluster
@@ -172,19 +172,19 @@ def convert_nd2(
     # check that zID of input path matches user's zID (otherwise no write access for output)
     out_paths = []
     # find the zID in the path
-    pattern = re.compile(r'/z\d{7}')
+    pattern = re.compile(r"/z\d{7}")
     for path in nd2_parent_paths:
         path_str = str(path)
         if pattern.search(path_str):
-            # Replace the zID in input folder name with the user's 
+            # Replace the zID in input folder name with the user's
             # zID (and append OME-TIFF)
             input_user = pattern.search(path_str).group()
-            out_path = path_str.replace(input_user, f'/{user}')
+            out_path = path_str.replace(input_user, f"/{user}")
             out_path = Path(out_path) / "OME-TIFF"
             logger.info(f"zID in input path does not match user's zID, adjusting output path to {str(out_path)}")
             out_paths.append(out_path)
         else:
-            # Or if zIDs match, just add the original path 
+            # Or if zIDs match, just add the original path
             # to the output path list (appending OME-TIFF)
             logger.debug(f"zID in input path matches user's zID, output path is {str(out_path)}")
             out_paths.append(path / "OME-TIFF")

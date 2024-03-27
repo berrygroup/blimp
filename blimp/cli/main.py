@@ -120,7 +120,7 @@ def _add_convert_nd2_args(parser: argparse.ArgumentParser) -> None:
         "-c",
         "--channel_names",
         type=str,
-        nargs='+',
+        nargs="+",
         default=None,
         help="List of channel names",
     )

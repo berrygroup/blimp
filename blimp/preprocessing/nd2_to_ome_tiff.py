@@ -34,7 +34,7 @@ def convert_individual_nd2_to_ome_tiff(
     out_path_mip
         Full path to the folder z-projected OME-TIFFs
     channel_names
-        List of channel names in case those found in the 
+        List of channel names in case those found in the
         image metadata are incorrect
     Returns
     -------
@@ -247,7 +247,7 @@ def nd2_to_ome_tiff(
         direction of increasing (stage) y-coordinates (possible
         values are "up" and "down")
     channel_names
-        List of channel names in case those found in the 
+        List of channel names in case those found in the
         image metadata are incorrect and need to be replaced
 
     Returns
@@ -374,7 +374,7 @@ if __name__ == "__main__":
         "-c",
         "--channel_names",
         type=str,
-        nargs='+',
+        nargs="+",
         default=None,
         help="List of channel names",
     )
