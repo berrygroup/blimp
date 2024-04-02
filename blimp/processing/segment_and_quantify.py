@@ -129,7 +129,7 @@ def expand_objects_watershed(
 
     # Close holes in objects.
     foreground_mask = regions > 0
-    holes = mh.close_holes(foreground_mask) - foreground_mask
+    holes = np.logical_xor(mh.close_holes(foreground_mask),foreground_mask)
     holes = mh.morph.dilate(holes)
     holes_labeled, n_holes = mh.label(holes)
     for i in range(1, n_holes + 1):
