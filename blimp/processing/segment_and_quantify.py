@@ -117,7 +117,7 @@ def expand_objects_watershed(
     # background regions will compete with the foreground regions and
     # thereby work as a stop criterion for expansion of primary objects.
 
-    labels = seeds_image + background_image
+    labels = np.where(seeds_image != 0, seeds_image, background_image)
     regions = mh.cwatershed(np.invert(intensity_image), labels)
     # Remove background regions
     n_objects = len(np.unique(seeds_image[seeds_image > 0]))
@@ -225,19 +225,21 @@ def segment_secondary(
     if not has_background:
         secondary_label_image = primary_label_image
     else:
-        # A simple, fixed threshold doesn't work for SE stains. Therefore, we
-        # use adaptive thresholding to determine background regions,
+        # We use adaptive thresholding to determine background regions,
         # i.e. regions in the intensity_image that should not be covered by
         # secondary objects.
-        n_objects = len(np.unique(primary_label_image[1:]))
+        n_objects = len(np.unique(primary_label_image))
         # logger.info(
         #    'primary label image has %d objects',
         #    n_objects - 1
         # )
+        if np.max(primary_label_image) != n_objects - 1:
+            raise ValueError(
+                f"Objects are not consecutively labeled, please relabel before secondary segmentation."
+            )
         # SB: Added a catch for images with no primary objects
         # note that background is an 'object'
         if n_objects > 1:
-            # TODO: consider using contrast_treshold as input parameter
             background_mask = mh.thresholding.bernsen(intensity_image, 5, contrast_threshold)
             if min_threshold is not None:
                 # logger.info(
@@ -250,8 +252,11 @@ def segment_secondary(
                 #    'set upper threshold level to %d', max_threshold
                 # )
                 background_mask[intensity_image > max_threshold] = False
-            # background_mask = mh.morph.open(background_mask)
-            background_label_image = mh.label(background_mask)[0]
+            background_label_image = (mh.label(background_mask)[0] > 0).astype(np.int32)
+            if n_objects >= 2147483646:
+                raise ValueError(
+                    f"Number of objects ({n_objects}) exceeds 32-bit datatype."
+                )
             background_label_image[background_mask] += n_objects
 
             # logger.info('detect secondary objects via watershed transform')
@@ -326,7 +331,7 @@ def _get_channel_names(image: AICSImage, input: Optional[Union[int, str, List[Un
         return list(set(channel_names))  # Remove duplicates
 
 
-def cropped_array_containing_object(array: np.ndarray, bboxes: list, label: int) -> np.ndarray:
+def cropped_array_containing_object(array: np.ndarray, bboxes: list, label: int, pad: int=1) -> np.ndarray:
     """
     Extract a region from the input array corresponding to a single object.
 
@@ -369,7 +374,7 @@ def cropped_array_containing_object(array: np.ndarray, bboxes: list, label: int)
     if array is None:
         raise ValueError("No intensity image available.")
     bbox = bboxes[label]
-    return extract_bbox(array, bbox=bbox, pad=1)
+    return extract_bbox(array, bbox=bbox, pad=pad)
 
 
 def extract_bbox(array: np.ndarray, bbox: list, pad: int = 0) -> np.ndarray:
