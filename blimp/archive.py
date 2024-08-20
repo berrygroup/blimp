@@ -160,7 +160,7 @@ def write_archiving_script_operetta(
                     f.write("## Compress batches:\n\n")
                     archive_batch_files = glob.glob(str(Path(file_path) / "*.txt"))
                     for batch_file in archive_batch_files:
-                        f.write(f"tar -cvzf {str(Path(batch_file).with_suffix('.tar.gz'))} -T {batch_file}\n")
+                        f.write(f"tar -cvzf '{str(Path(batch_file).with_suffix('.tar.gz'))}' -T '{batch_file}'\n")
 
             f.write("\n## Upload:\n\n")
             for file_path in file_paths:
@@ -168,7 +168,7 @@ def write_archiving_script_operetta(
                 # we do not need to include in the upload destination
                 relative_path = re.sub(r"^\/srv\/scratch\/berrylab\/z\d{7}\/", "", file_path)
                 f.write(
-                    f"java -Dmf.cfg=$CONFIG_FILE -cp /apps/unswdataarchive/2021-02-17/aterm.jar arc.mf.command.Execute import -verbose true -import-empty-folders true -namespace /UNSW_RDS/{project_name}/{first_name}/{relative_path} {file_path}\n"
+                    f"java -Dmf.cfg=$CONFIG_FILE -cp /apps/unswdataarchive/2021-02-17/aterm.jar arc.mf.command.Execute import -verbose true -import-empty-folders true -namespace '/UNSW_RDS/{project_name}/{first_name}/{relative_path}' '{file_path}'\n"
                 )
             if archive_path is not None:
                 archive_relative_path = re.sub(r"^\/srv\/scratch\/berrylab\/z\d{7}\/", "", str(archive_path))
