@@ -947,9 +947,17 @@ def _quantify_single_timepoint_3D(
     intensity_channels_list = _get_channel_names(intensity_image, intensity_channels)
     intensity_objects_list = _get_channel_names(label_image, intensity_objects)
 
+    if calculate_textures:
+        texture_objects_list = _get_channel_names(label_image, texture_objects)
+
     # iterate over all object types in the segmentation
     for obj_index, obj in enumerate(label_image.channel_names):
         label_array = label_image.get_image_data("ZYX", C=obj_index, T=timepoint)
+
+        if calculate_textures:
+            calculate_textures_for_this_object = obj in texture_objects_list
+        else:
+            calculate_textures_for_this_object = False
 
         # Morphology features
         # -----------------------
@@ -1011,10 +1019,10 @@ def _quantify_single_timepoint_3D(
             label_image=label_image_object_mip,
             timepoint=timepoint,
             intensity_channels=intensity_channels,
-            intensity_objects=intensity_objects,
-            calculate_textures=calculate_textures,
+            intensity_objects=obj + "-3D-MIP",
+            calculate_textures=calculate_textures_for_this_object,
             texture_channels=texture_channels,
-            texture_objects=texture_objects,
+            texture_objects=obj + "-3D-MIP",
             texture_scales=texture_scales
         )
         # eliminate centroid and border features, which are meaningless in a
@@ -1037,10 +1045,10 @@ def _quantify_single_timepoint_3D(
             label_image=label_image_object_middle,
             timepoint=timepoint,
             intensity_channels=intensity_channels,
-            intensity_objects=intensity_objects,
-            calculate_textures=calculate_textures,
+            intensity_objects=obj + "-3D-Middle",
+            calculate_textures=calculate_textures_for_this_object,
             texture_channels=texture_channels,
-            texture_objects=texture_objects,
+            texture_objects=obj + "-3D-Middle",
             texture_scales=texture_scales
         )
         # eliminate centroid and border features, which are meaningless in a
