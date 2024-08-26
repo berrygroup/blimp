@@ -1,4 +1,4 @@
-from typing import List, Union, Optional, Tuple
+from typing import List, Tuple, Union, Optional
 from pathlib import Path
 from functools import reduce
 import logging
@@ -129,7 +129,7 @@ def expand_objects_watershed(
 
     # Close holes in objects.
     foreground_mask = regions > 0
-    holes = np.logical_xor(mh.close_holes(foreground_mask),foreground_mask)
+    holes = np.logical_xor(mh.close_holes(foreground_mask), foreground_mask)
     holes = mh.morph.dilate(holes)
     holes_labeled, n_holes = mh.label(holes)
     for i in range(1, n_holes + 1):
@@ -234,9 +234,7 @@ def segment_secondary(
         #    n_objects - 1
         # )
         if np.max(primary_label_image) != n_objects - 1:
-            raise ValueError(
-                f"Objects are not consecutively labeled, please relabel before secondary segmentation."
-            )
+            raise ValueError(f"Objects are not consecutively labeled, please relabel before secondary segmentation.")
         # SB: Added a catch for images with no primary objects
         # note that background is an 'object'
         if n_objects > 1:
@@ -254,9 +252,7 @@ def segment_secondary(
                 background_mask[intensity_image > max_threshold] = False
             background_label_image = (mh.label(background_mask)[0] > 0).astype(np.int32)
             if n_objects >= 2147483646:
-                raise ValueError(
-                    f"Number of objects ({n_objects}) exceeds 32-bit datatype."
-                )
+                raise ValueError(f"Number of objects ({n_objects}) exceeds 32-bit datatype.")
             background_label_image[background_mask] += n_objects
 
             # logger.info('detect secondary objects via watershed transform')
@@ -303,9 +299,7 @@ def _get_channel_names(image: AICSImage, input: Optional[Union[int, str, List[Un
 
     if isinstance(input, int):
         if input not in range(len(image.channel_names)):
-            raise ValueError(
-                f"Integer input for channel name must be in the range 0 to {len(image.channel_names)}."
-            )
+            raise ValueError(f"Integer input for channel name must be in the range 0 to {len(image.channel_names)}.")
         return [image.channel_names[input]]
 
     elif isinstance(input, str):
@@ -331,7 +325,7 @@ def _get_channel_names(image: AICSImage, input: Optional[Union[int, str, List[Un
         return list(set(channel_names))  # Remove duplicates
 
 
-def cropped_array_containing_object(array: np.ndarray, bboxes: list, label: int, pad: int=1) -> np.ndarray:
+def cropped_array_containing_object(array: np.ndarray, bboxes: list, label: int, pad: int = 1) -> np.ndarray:
     """
     Extract a region from the input array corresponding to a single object.
 
@@ -426,7 +420,7 @@ def _object_mips_3D(
 
     This function computes the MIP for each labeled region in a 3D intensity array.
     It identifies individual regions based on the provided label array, crops the
-    corresponding regions from the intensity array, masks out regions not belonging 
+    corresponding regions from the intensity array, masks out regions not belonging
     to the current label, and then calculates the MIP along the z-axis for each region.
 
     Parameters
@@ -440,7 +434,7 @@ def _object_mips_3D(
     Returns
     -------
     List
-        A list of 2D numpy arrays, each representing the MIP of a labeled region along 
+        A list of 2D numpy arrays, each representing the MIP of a labeled region along
         the z-axis.
     """
 
@@ -449,33 +443,22 @@ def _object_mips_3D(
 
     for index, region in enumerate(regions):
         bbox = region.bbox
-        object_crop = intensity_array[
-            bbox[0]:bbox[3],
-            bbox[1]:bbox[4],
-            bbox[2]:bbox[5]
-        ]
-        mask_crop = label_array[
-            bbox[0]:bbox[3],
-            bbox[1]:bbox[4],
-            bbox[2]:bbox[5]
-        ]
+        object_crop = intensity_array[bbox[0] : bbox[3], bbox[1] : bbox[4], bbox[2] : bbox[5]]
+        mask_crop = label_array[bbox[0] : bbox[3], bbox[1] : bbox[4], bbox[2] : bbox[5]]
         object_crop_masked = np.copy(object_crop)
-        object_crop_masked[mask_crop!=index+1] = 0
+        object_crop_masked[mask_crop != index + 1] = 0
         mips[index] = object_crop_masked.max(axis=0)
     return mips
 
 
-def _object_middle_planes_3D(
-    intensity_array: np.ndarray,
-    label_array: np.ndarray
-) -> List:
+def _object_middle_planes_3D(intensity_array: np.ndarray, label_array: np.ndarray) -> List:
     """
     Extract middle planes of labeled 3D regions.
 
     This function computes the middle plane for each labeled region in a 3D intensity array.
     It identifies individual regions based on the provided label array, determines the middle
     plane along the z-axis for each region, crops the corresponding region from the intensity
-    array, masks out regions not belonging to the current label, and then stores the masked 
+    array, masks out regions not belonging to the current label, and then stores the masked
     middle plane.
 
     Parameters
@@ -496,34 +479,26 @@ def _object_middle_planes_3D(
     meds = [None] * len(regions)
     for index, region in enumerate(regions):
         bbox = region.bbox
-        object_crop = intensity_array[
-            int(np.rint((bbox[0]+bbox[3])/2.)),
-            bbox[1]:bbox[4],
-            bbox[2]:bbox[5]
-        ]
-        mask_crop = label_array[
-            int(np.rint((bbox[0]+bbox[3])/2.)),
-            bbox[1]:bbox[4],
-            bbox[2]:bbox[5]
-        ]
+        object_crop = intensity_array[int(np.rint((bbox[0] + bbox[3]) / 2.0)), bbox[1] : bbox[4], bbox[2] : bbox[5]]
+        mask_crop = label_array[int(np.rint((bbox[0] + bbox[3]) / 2.0)), bbox[1] : bbox[4], bbox[2] : bbox[5]]
         object_crop_masked = np.copy(object_crop)
-        object_crop_masked[mask_crop!=index+1] = 0
+        object_crop_masked[mask_crop != index + 1] = 0
         meds[index] = object_crop_masked
     return meds
 
 
 def concatenated_projection_image_3D(
-    intensity_image: AICSImage, 
-    label_image: AICSImage, 
-    label_channel: int = 0, 
+    intensity_image: AICSImage,
+    label_image: AICSImage,
+    label_channel: int = 0,
     label_name: str = "Nuclei-3D-MIP",
-    projection_type: str = "MIP"
+    projection_type: str = "MIP",
 ) -> Tuple[AICSImage, AICSImage]:
     """
     Generate concatenated projections (MIPs or middle planes) for 3D intensity and label images.
 
-    This function computes either the Maximum Intensity Projections (MIPs) or middle planes 
-    for the labeled regions in a 3D intensity image, and concatenates them to form a single 
+    This function computes either the Maximum Intensity Projections (MIPs) or middle planes
+    for the labeled regions in a 3D intensity image, and concatenates them to form a single
     2D image per channel. It also creates a concatenated projection image for the label image itself.
 
     This can be used to compute intensity feature values using the standard quantification pipeline
@@ -536,16 +511,16 @@ def concatenated_projection_image_3D(
     label_image : AICSImage
         AICSImage object containing the 3D label data.
     label_channel : int, optional
-        The channel index in `label_image` to be used for generating the label projection, 
+        The channel index in `label_image` to be used for generating the label projection,
         by default 0.
     projection_type : str, optional
-        Type of projection to generate. Either "MIP" for Maximum Intensity Projection 
+        Type of projection to generate. Either "MIP" for Maximum Intensity Projection
         or "middle" for middle plane projection, by default "MIP".
 
     Returns
     -------
     Tuple[AICSImage, AICSImage]
-        A tuple containing two AICSImage objects: the concatenated projection of the intensity 
+        A tuple containing two AICSImage objects: the concatenated projection of the intensity
         image and the concatenated projection of the label image.
 
     Raises
@@ -559,7 +534,7 @@ def concatenated_projection_image_3D(
     # Check if dimensions of intensity_image and label_image match
     if label_image.dims[["T", "Z", "Y", "X"]] != intensity_image.dims[["T", "Z", "Y", "X"]]:
         raise ValueError("The dimensions of label_image and intensity_image do not match.")
-    
+
     # Check if the Z-dimension is greater than 1
     if label_image.dims.Z <= 1:
         raise ValueError("Both label_image and intensity_image must have a Z-dimension greater than 1.")
@@ -576,16 +551,15 @@ def concatenated_projection_image_3D(
 
     # Generate label projection arrays
     label_projection_arrays = projection_func(
-        intensity_array=label_image.get_image_data('ZYX', C=label_channel),
-        label_array=label_image.get_image_data('ZYX', C=label_channel)
+        intensity_array=label_image.get_image_data("ZYX", C=label_channel),
+        label_array=label_image.get_image_data("ZYX", C=label_channel),
     )
 
     y_extent = max(m.shape[0] for m in label_projection_arrays)
-    
+
     # Concatenate label projection arrays
     concat_label_projection_arrays = np.concatenate(
-        [np.pad(m, pad_width=(y_extent - m.shape[0], 0), constant_values=0) for m in label_projection_arrays],
-        axis=1
+        [np.pad(m, pad_width=(y_extent - m.shape[0], 0), constant_values=0) for m in label_projection_arrays], axis=1
     )
 
     projection_label_image = AICSImage(
@@ -598,19 +572,19 @@ def concatenated_projection_image_3D(
     concat_intensity_projection_arrays = [
         np.concatenate(
             [
-                np.pad(m, pad_width=(y_extent - m.shape[0], 0), constant_values=0) 
+                np.pad(m, pad_width=(y_extent - m.shape[0], 0), constant_values=0)
                 for m in projection_func(
-                    intensity_array=intensity_image.get_image_data('ZYX', C=channel),
-                    label_array=label_image.get_image_data('ZYX', C=label_channel),
+                    intensity_array=intensity_image.get_image_data("ZYX", C=channel),
+                    label_array=label_image.get_image_data("ZYX", C=label_channel),
                 )
             ],
-            axis=1
-        ) 
+            axis=1,
+        )
         for channel in range(intensity_image.dims.C)
     ]
-    
+
     concat_intensity_projection_stack = np.stack(concat_intensity_projection_arrays, axis=0)
-    
+
     projection_intensity_image = AICSImage(
         concat_intensity_projection_stack[np.newaxis, :, np.newaxis, :, :],
         channel_names=intensity_image.channel_names,
@@ -711,21 +685,21 @@ def border_objects(label_array: np.ndarray) -> pd.DataFrame:
 
 
 def border_objects_XY_3D(label_image, label_channel=0):
-    label_array = label_image.get_image_data('ZYX', C=label_channel)
+    label_array = label_image.get_image_data("ZYX", C=label_channel)
     all_object_labels = [x for x in np.unique(label_array) if x != 0]
 
     all_border_object_labels = set()
 
     for z in range(label_image.dims.Z):
-        label_array_plane = label_image.get_image_data('YX', Z=z, C=label_channel)
+        label_array_plane = label_image.get_image_data("YX", Z=z, C=label_channel)
         all_object_labels_plane = [x for x in np.unique(label_array_plane) if x != 0]
 
         label_array_XY_non_border = clear_border(label_array_plane)
         border_object_labels = set(all_object_labels_plane) - set(np.unique(label_array_XY_non_border))
         all_border_object_labels.update(border_object_labels)
 
-    border_objects = pd.DataFrame({'label': all_object_labels})
-    border_objects['is_border_XY'] = border_objects['label'].isin(all_border_object_labels)
+    border_objects = pd.DataFrame({"label": all_object_labels})
+    border_objects["is_border_XY"] = border_objects["label"].isin(all_border_object_labels)
 
     return border_objects
 
@@ -896,8 +870,8 @@ def _quantify_single_timepoint_3D(
     WARNING: 3D morphology features have not yet been thoroughly tested
 
     Textures are not calculate on 3D images, but rather on object-based
-    maximum-intensity projections, and on the 2D image extracted from the 
-    "middle" (central-Z) plane of each object. 
+    maximum-intensity projections, and on the 2D image extracted from the
+    "middle" (central-Z) plane of each object.
 
     Parameters
     ----------
@@ -928,10 +902,12 @@ def _quantify_single_timepoint_3D(
         quantified data (n_rows = # objects, n_cols = # features)
     """
 
-    if (intensity_image.physical_pixel_sizes is None or
-        intensity_image.physical_pixel_sizes.Z is None or
-        intensity_image.physical_pixel_sizes.Y is None or
-        intensity_image.physical_pixel_sizes.X is None):
+    if (
+        intensity_image.physical_pixel_sizes is None
+        or intensity_image.physical_pixel_sizes.Z is None
+        or intensity_image.physical_pixel_sizes.Y is None
+        or intensity_image.physical_pixel_sizes.X is None
+    ):
         raise ValueError(
             "intensity_image has undetermined physical_pixel_sizes. Cannot calculate 3D morphology features."
         )
@@ -965,9 +941,9 @@ def _quantify_single_timepoint_3D(
             skimage.measure.regionprops_table(
                 label_array,
                 spacing=(
-                    intensity_image.physical_pixel_sizes.Z/1.0e6,
-                    intensity_image.physical_pixel_sizes.Y/1.0e6,
-                    intensity_image.physical_pixel_sizes.X/1.0e6
+                    intensity_image.physical_pixel_sizes.Z / 1.0e6,
+                    intensity_image.physical_pixel_sizes.Y / 1.0e6,
+                    intensity_image.physical_pixel_sizes.X / 1.0e6,
                 ),
                 properties=[
                     "label",
@@ -1007,12 +983,10 @@ def _quantify_single_timepoint_3D(
         # Object MIP features
         # ----------------------------
         # Use maximum-intensity projection to isolate a 2D image from each 3D object.
-        # Areas outside the objects are masked. 
+        # Areas outside the objects are masked.
         intensity_image_object_mip, label_image_object_mip = concatenated_projection_image_3D(
-            intensity_image,
-            label_image,
-            label_name=obj + "-3D-MIP",
-            projection_type="MIP")
+            intensity_image, label_image, label_name=obj + "-3D-MIP", projection_type="MIP"
+        )
 
         object_mip_features = _quantify_single_timepoint(
             intensity_image=intensity_image_object_mip,
@@ -1023,22 +997,20 @@ def _quantify_single_timepoint_3D(
             calculate_textures=calculate_textures_for_this_object,
             texture_channels=texture_channels,
             texture_objects=obj + "-3D-MIP",
-            texture_scales=texture_scales
+            texture_scales=texture_scales,
         )
         # eliminate centroid and border features, which are meaningless in a
-        # concatenated image, and TimepointID, which we add later to avoid 
+        # concatenated image, and TimepointID, which we add later to avoid
         # duplication
         object_mip_features.drop(
-            list(object_mip_features.filter(regex='centroid|border|TimepointID')),
-            axis=1, inplace=True)
+            list(object_mip_features.filter(regex="centroid|border|TimepointID")), axis=1, inplace=True
+        )
 
         # Object middle Z-plane features
         # -----------------------
         intensity_image_object_middle, label_image_object_middle = concatenated_projection_image_3D(
-            intensity_image,
-            label_image,
-            label_name=obj + "-3D-Middle",
-            projection_type="middle")
+            intensity_image, label_image, label_name=obj + "-3D-Middle", projection_type="middle"
+        )
 
         object_middle_features = _quantify_single_timepoint(
             intensity_image=intensity_image_object_middle,
@@ -1049,39 +1021,32 @@ def _quantify_single_timepoint_3D(
             calculate_textures=calculate_textures_for_this_object,
             texture_channels=texture_channels,
             texture_objects=obj + "-3D-Middle",
-            texture_scales=texture_scales
+            texture_scales=texture_scales,
         )
         # eliminate centroid and border features, which are meaningless in a
-        # concatenated image, and TimepointID, which we add later to avoid 
+        # concatenated image, and TimepointID, which we add later to avoid
         # duplication
         object_middle_features.drop(
-            list(object_middle_features.filter(regex='centroid|border|TimepointID')),
-            axis=1,
-            inplace=True
+            list(object_middle_features.filter(regex="centroid|border|TimepointID")), axis=1, inplace=True
         )
 
         # Border features
         # ---------------
         # Is an object touching the 3D border?
-        border_3D = border_objects(
-            label_image.get_image_data('ZYX', C=obj_index)
-        ).rename(columns=lambda x: obj + "_3D_" + x if x != "label" else x)
+        border_3D = border_objects(label_image.get_image_data("ZYX", C=obj_index)).rename(
+            columns=lambda x: obj + "_3D_" + x if x != "label" else x
+        )
 
         # Is an object touching the XY border?
-        border_XY_3D = border_objects_XY_3D(
-            label_image,
-            label_channel=obj_index
-            ).rename(columns=lambda x: obj + "_" + x if x != "label" else x)
+        border_XY_3D = border_objects_XY_3D(label_image, label_channel=obj_index).rename(
+            columns=lambda x: obj + "_" + x if x != "label" else x
+        )
 
         # Merge all features
         # ----------------------
         features = reduce(
-            lambda left, right: pd.merge(left, right, on='label', how='outer'),
-            [features_3D,
-             object_mip_features,
-             object_middle_features,
-             border_3D,
-             border_XY_3D]
+            lambda left, right: pd.merge(left, right, on="label", how="outer"),
+            [features_3D, object_mip_features, object_middle_features, border_3D, border_XY_3D],
         )
 
         features_list.append(features)
