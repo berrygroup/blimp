@@ -891,11 +891,41 @@ def _quantify_single_timepoint_3D(
     texture_scales: list = [1, 3],
 ) -> pd.DataFrame:
     """Quantify all channels in an image relative to a matching label image.
-    Single time-point only. For 3D images, this is a wrapper that sits above 
-    the standard 2D feature extraction function.
+    For use with 3D data and matching label images. Single time-point only.
 
-    FIXME: this is unfinished
+    WARNING: 3D morphology features have not yet been thoroughly tested
 
+    Textures are not calculate on 3D images, but rather on object-based
+    maximum-intensity projections, and on the 2D image extracted from the 
+    "middle" (central-Z) plane of each object. 
+
+    Parameters
+    ----------
+    intensity_image
+        intensity image (possibly 5D: "TCZYX")
+    label_image
+        label image (possibly 5D: "TCZYX")
+    timepoint
+        which timepoint should be quantified
+    intensity_channels
+        channels in ``intensity_image`` to be used for intensity calculations,
+        can be provided as indices or names (see ``_get_channel_names()``)
+    intensity_objects
+        objects in ``intensity_image`` to be used for intensity calculations,
+        can be provided as indices or names (see ``_get_channel_names()``)
+    texture_channels
+        channels in ``intensity_image`` to be used for texture calculations,
+        can be provided as indices or names (see ``_get_channel_names()``)
+    texture_objects
+        objects in ``intensity_image`` to be used for texture calculations,
+        can be provided as indices or names (see ``_get_channel_names()``)
+    texture_scales
+        length scales at which to calculate textures
+
+    Returns
+    -------
+    pandas.DataFrame
+        quantified data (n_rows = # objects, n_cols = # features)
     """
 
     if (intensity_image.physical_pixel_sizes is None or
@@ -1017,7 +1047,7 @@ def _quantify_single_timepoint_3D(
         # concatenated image, and TimepointID, which we add later to avoid 
         # duplication
         object_middle_features.drop(
-            list(object_mip_features.filter(regex='centroid|border|TimepointID')),
+            list(object_middle_features.filter(regex='centroid|border|TimepointID')),
             axis=1,
             inplace=True
         )
@@ -1026,14 +1056,14 @@ def _quantify_single_timepoint_3D(
         # ---------------
         # Is an object touching the 3D border?
         border_3D = border_objects(
-            label_image.get_image_data('ZYX', C=channel_index)
-        ).rename(columns=lambda x: "Nuclei_3D_" + x if x != "label" else x)
+            label_image.get_image_data('ZYX', C=obj_index)
+        ).rename(columns=lambda x: obj + "_3D_" + x if x != "label" else x)
 
         # Is an object touching the XY border?
         border_XY_3D = border_objects_XY_3D(
             label_image,
-            label_channel=channel_index
-            ).rename(columns=lambda x: "Nuclei_" + x if x != "label" else x)
+            label_channel=obj_index
+            ).rename(columns=lambda x: obj + "_" + x if x != "label" else x)
 
         # Merge all features
         # ----------------------
