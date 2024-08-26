@@ -557,11 +557,11 @@ def concatenated_projection_image_3D(
     """
 
     # Check if dimensions of intensity_image and label_image match
-    if label_image.dims != intensity_image.dims:
+    if label_image.dims[["T", "Z", "Y", "X"]] != intensity_image.dims[["T", "Z", "Y", "X"]]:
         raise ValueError("The dimensions of label_image and intensity_image do not match.")
     
     # Check if the Z-dimension is greater than 1
-    if label_image.dims.Z <= 1 or intensity_image.dims.Z <= 1:
+    if label_image.dims.Z <= 1:
         raise ValueError("Both label_image and intensity_image must have a Z-dimension greater than 1.")
 
     # Determine the projection function and label name based on projection_type
@@ -898,6 +898,14 @@ def _quantify_single_timepoint_3D(
 
     """
 
+    if (intensity_image.physical_pixel_sizes is None or
+        intensity_image.physical_pixel_sizes.Z is None or
+        intensity_image.physical_pixel_sizes.Y is None or
+        intensity_image.physical_pixel_sizes.X is None):
+        raise ValueError(
+            "intensity_image has undetermined physical_pixel_sizes. Cannot calculate 3D morphology features."
+        )
+
     features_list = []
 
     def intensity_sd(regionmask, intensity_image):
@@ -911,7 +919,7 @@ def _quantify_single_timepoint_3D(
 
     # iterate over all object types in the segmentation
     for obj_index, obj in enumerate(label_image.channel_names):
-        label_array = label_image.get_image_data("ZYX", C=obj_index, T=timepoint, Z=0)
+        label_array = label_image.get_image_data("ZYX", C=obj_index, T=timepoint)
 
         # Morphology features
         # -----------------------
@@ -919,9 +927,9 @@ def _quantify_single_timepoint_3D(
             skimage.measure.regionprops_table(
                 label_array,
                 spacing=(
-                    intensity_image.physical_pixel_sizes.Z*1e6,
-                    intensity_image.physical_pixel_sizes.Y*1e6,
-                    intensity_image.physical_pixel_sizes.X*1e6
+                    intensity_image.physical_pixel_sizes.Z/1.0e6,
+                    intensity_image.physical_pixel_sizes.Y/1.0e6,
+                    intensity_image.physical_pixel_sizes.X/1.0e6
                 ),
                 properties=[
                     "label",
@@ -943,7 +951,7 @@ def _quantify_single_timepoint_3D(
         # iterate over selected channels
         for channel in intensity_channels_list:
             channel_index = intensity_image.channel_names.index(channel)
-            intensity_array = intensity_image.get_image_data("YX", C=channel_index, T=timepoint, Z=0)
+            intensity_array = intensity_image.get_image_data("ZYX", C=channel_index, T=timepoint)
 
             if obj in intensity_objects_list:
                 intensity_features_3D = pd.DataFrame(
@@ -960,6 +968,8 @@ def _quantify_single_timepoint_3D(
 
         # Object MIP features
         # ----------------------------
+        # Use maximum-intensity projection to isolate a 2D image from each 3D object.
+        # Areas outside the objects are masked. 
         intensity_image_object_mip, label_image_object_mip = concatenated_projection_image_3D(
             intensity_image,
             label_image,
@@ -980,7 +990,9 @@ def _quantify_single_timepoint_3D(
         # eliminate centroid and border features, which are meaningless in a
         # concatenated image, and TimepointID, which we add later to avoid 
         # duplication
-        object_mip_features.drop(list(object_mip_features.filter(regex='centroid|border|TimepointID')), axis=1, inplace=True)
+        object_mip_features.drop(
+            list(object_mip_features.filter(regex='centroid|border|TimepointID')),
+            axis=1, inplace=True)
 
         # Object middle Z-plane features
         # -----------------------
@@ -1080,25 +1092,49 @@ def quantify(
     """
 
     if timepoint is None:
-        features = pd.concat(
-            [
-                _quantify_single_timepoint(
-                    intensity_image=intensity_image,
-                    label_image=label_image,
-                    timepoint=t,
-                    intensity_channels=intensity_channels,
-                    intensity_objects=intensity_objects,
-                    calculate_textures=calculate_textures,
-                    texture_channels=texture_channels,
-                    texture_objects=texture_objects,
-                    texture_scales=texture_scales,
-                )
-                for t in range(intensity_image.dims[["T"]][0])
-            ]
-        )
+        if intensity_image.dims.Z > 1:
+            # 3D quantification
+            features = pd.concat(
+                [
+                    _quantify_single_timepoint_3D(
+                        intensity_image=intensity_image,
+                        label_image=label_image,
+                        timepoint=t,
+                        intensity_channels=intensity_channels,
+                        intensity_objects=intensity_objects,
+                        calculate_textures=calculate_textures,
+                        texture_channels=texture_channels,
+                        texture_objects=texture_objects,
+                        texture_scales=texture_scales,
+                    )
+                    for t in range(intensity_image.dims[["T"]][0])
+                ]
+            )
+        else:
+            # 2D quantification
+            features = pd.concat(
+                [
+                    _quantify_single_timepoint(
+                        intensity_image=intensity_image,
+                        label_image=label_image,
+                        timepoint=t,
+                        intensity_channels=intensity_channels,
+                        intensity_objects=intensity_objects,
+                        calculate_textures=calculate_textures,
+                        texture_channels=texture_channels,
+                        texture_objects=texture_objects,
+                        texture_scales=texture_scales,
+                    )
+                    for t in range(intensity_image.dims[["T"]][0])
+                ]
+            )
     else:
-        features = _quantify_single_timepoint(intensity_image, label_image, timepoint)
-
+        if intensity_image.dims.Z > 1:
+            # 3D quantification
+            features = _quantify_single_timepoint_3D(intensity_image, label_image, timepoint)
+        else:
+            # 2D quantification
+            features = _quantify_single_timepoint(intensity_image, label_image, timepoint)
     return features
 
 
