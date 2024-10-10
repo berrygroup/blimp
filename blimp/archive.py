@@ -205,12 +205,12 @@ def write_archiving_script_operetta(
                 # compare checksums
                 f.write("\n## Compare local and remote checksums:\n\n")
                 f.write(
-                    f"diff <(sort {str(local_checksum_path)}) <(sort {str(unsw_rds_checksum_path)}) > {str(diff_checksum_path)}\n"
+                    f"diff <(sort '{str(local_checksum_path)}') <(sort '{str(unsw_rds_checksum_path)}') > '{str(diff_checksum_path)}'\n"
                 )
 
             f.write("\n## Remove local compressed data:\n\n")
             for batch_file in archive_batch_files:
-                f.write(f"rm -v {str(Path(batch_file).with_suffix('.tar.gz'))} \n")
+                f.write(f"rm -v '{str(Path(batch_file).with_suffix('.tar.gz'))}' \n")
 
     except OSError:
         if Path(script_path).parent.exists():
