@@ -807,7 +807,7 @@ def _quantify_single_timepoint(
                     skimage.measure.regionprops_table(
                         label_array,
                         intensity_array,
-                        properties=["label", "intensity_mean"],
+                        properties=["label", "intensity_mean", "intensity_max", "intensity_min"],
                         extra_properties=(intensity_sd, intensity_median),
                         separator="_",
                     )
@@ -974,7 +974,7 @@ def _quantify_single_timepoint_3D(
                     skimage.measure.regionprops_table(
                         label_array,
                         intensity_array,
-                        properties=["label", "intensity_mean"],
+                        properties=["label", "intensity_mean", "intensity_max", "intensity_min"],
                         extra_properties=(intensity_sd, intensity_median),
                         separator="_",
                     )
