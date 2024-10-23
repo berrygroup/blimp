@@ -223,7 +223,7 @@ def check_correct_dimension_order(images: Union[AICSImage, List[AICSImage]]) -> 
 
 
 def check_uniform_dimension_sizes(
-    images: Union[AICSImage, List[AICSImage]], omit: Union[int, str, None] = None
+    images: Union[AICSImage, List[AICSImage]], omit: Union[int, str, None] = None, check_dtype: bool = True,
 ) -> bool:
     """
     Check that the dimensions of a list of AICSImages are uniform.
@@ -237,6 +237,8 @@ def check_uniform_dimension_sizes(
         Integer or string designating a single axis to be omitted
         from checking (e.g. 'T' or 0 for time axis, or 'C' or 1 for
         channel axis. Order is 'TCZYX'). Default = None
+    check_dtype
+        True if images in list must have the same dtype
 
     Returns
     -------
@@ -267,8 +269,9 @@ def check_uniform_dimension_sizes(
             if all([isinstance(el, AICSImage) for el in images]):
                 # check that dtypes are the same
                 first_dtype = images[0].dtype
-                if not all([image.dtype == first_dtype for image in images]):
-                    raise TypeError("List of AICSImages have non-matching data types")
+                if check_dtype:
+                    if not all([image.dtype == first_dtype for image in images]):
+                        raise TypeError("List of AICSImages have non-matching data types")
                 # compare sizes
                 dim_sizes = [image.dims.shape for image in images]
                 first = dim_sizes[0]
@@ -291,6 +294,35 @@ def check_uniform_dimension_sizes(
         result = False
 
     return result
+
+
+def change_image_dtype(
+    image: AICSImage,
+    dtype: np.dtype
+) -> AICSImage:
+    """
+    Change the dtype of an AICSImage object.
+
+    This function converts the data type of the image's data using the 
+    `convert_array_dtype` function. It preserves the channel 
+    names and physical pixel sizes of the original image.
+
+    Parameters
+    ----------
+    image : AICSImage
+        The input AICSImage object containing the image data.
+    dtype : np.dtype
+        The target dtype to convert the image data to.
+
+    Returns
+    -------
+    AICSImage
+        A new AICSImage object with the updated dtype, 
+        retaining the original channel names and physical pixel sizes.
+    """
+    return AICSImage(convert_array_dtype(image.data, dtype),
+                     channel_names=image.channel_names,
+                     physical_pixel_sizes=image.physical_pixel_sizes)
 
 
 def mean_std_welford(images: List[AICSImage], log_transform: bool = False) -> tuple:
@@ -485,18 +517,24 @@ def concatenate_images(
     elif not dimension_sizes_match:
         raise TypeError("Cannot concatenate images of different sizes")
 
+    channel_names = images[0].channel_names
+    physical_pixel_sizes = images[0].physical_pixel_sizes
+    dtype = images[0].dtype
+
     if order == "append":
         logger.debug(f"Concatenating by appending, on axis {axis}")
         arr = np.concatenate([image.get_image_dask_data("TCZYX") for image in images], axis=axis_int)
+        if axis_int == 1:
+            channel_names = [channel for image in images for channel in image.channel_names]
+
     elif order == "interleave":
         logger.debug(f"Concatenating by interleaving, on axis {axis}")
 
         n_times = images[0].dims.T
-        n_channels = images[0].dims.C
         n_planes = images[0].dims.Z
 
         # AICS order is 'TCZYX'
-        if axis == 0:
+        if axis_int == 0:
             # interleave time
             arr = np.concatenate(
                 [
@@ -506,17 +544,10 @@ def concatenate_images(
                 axis=0,
             )
 
-        if axis == 1:
-            # interleave channels
-            arr = np.concatenate(
-                [
-                    np.concatenate([image.get_image_dask_data("TCZYX", C=channel) for image in images], axis=1)
-                    for channel in range(n_channels)
-                ],
-                axis=1,
-            )
+        if axis_int == 1:
+            raise NotImplementedError("Interleaving of channels is not implemented. Try with ``order='append'``")
 
-        if axis == 2:
+        if axis_int == 2:
             # interleave z_planes
             arr = np.concatenate(
                 [
@@ -526,13 +557,7 @@ def concatenate_images(
                 axis=2,
             )
 
-    if images[0].dtype.kind in ["i", "u"]:
-        # round to nearest integer
-        arr = np.rint(arr).astype(images[0].dtype)
-    else:
-        arr = arr.astype(images[0].dtype)
-
-    return AICSImage(arr, channel_names=images[0].channel_names, physical_pixel_sizes=images[0].physical_pixel_sizes)
+    return AICSImage(arr, channel_names=channel_names, physical_pixel_sizes=physical_pixel_sizes)
 
 
 def translate_array(img: np.ndarray, y: int, x: int):
