@@ -87,10 +87,14 @@ class IlluminationCorrection:
                 raise ValueError("``method`` is not specified in file {self._file_path}")
             elif self._method == "pixel_z_score":
                 # FIXME: recompute mean_mean and mean_std on loading as these seem to not be stored in file
-                self._mean_mean_image = [
-                    np.mean(self._mean_image.get_image_data("YX", C=c)) for c in range(self._dims.C)
-                ]
-                self._mean_std_image = [np.mean(self._std_image.get_image_data("YX", C=c)) for c in range(self._dims.C)]
+                if isinstance(self._mean_image, AICSImage) and self._dims is not None:
+                    self._mean_mean_image = [
+                        np.mean(self._mean_image.get_image_data("YX", C=c)) for c in range(self._dims.C)
+                    ]
+                if isinstance(self._std_image, AICSImage) and self._dims is not None:
+                    self._mean_std_image = [
+                        np.mean(self._std_image.get_image_data("YX", C=c)) for c in range(self._dims.C)
+                    ]
 
         # 3. Initialise empty
         else:

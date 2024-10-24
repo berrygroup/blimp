@@ -178,16 +178,16 @@ def convert_nd2(
         if pattern.search(path_str):
             # Replace the zID in input folder name with the user's
             # zID (and append OME-TIFF)
-            input_user = pattern.search(path_str).group()
+            input_user = pattern.search(path_str).group()  # type: ignore
             out_path = path_str.replace(input_user, f"/{user}")
-            out_path = Path(out_path) / "OME-TIFF"
+            out_path = Path(out_path) / "OME-TIFF"  # type: ignore
             logger.info(f"zID in input path does not match user's zID, adjusting output path to {str(out_path)}")
             out_paths.append(out_path)
         else:
             # Or if zIDs match, just add the original path
             # to the output path list (appending OME-TIFF)
             logger.debug(f"zID in input path matches user's zID, output path is {str(out_path)}")
-            out_paths.append(path / "OME-TIFF")
+            out_paths.append(path / "OME-TIFF")  # type: ignore
 
     # read template from file
     if template_path is None:
@@ -200,7 +200,7 @@ def convert_nd2(
         jobscript = generate_pbs_script(
             template=jobscript_template,
             input_dir=str(im_par_path.resolve()),
-            output_dir=str(out_path.resolve()),
+            output_dir=str(out_path.resolve()),  # type: ignore
             log_dir=str(log_path.resolve()),
             user=user,
             email=email,

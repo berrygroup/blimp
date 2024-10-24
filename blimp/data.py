@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Optional
 from pathlib import Path
 import os
 import shutil
@@ -15,7 +15,7 @@ Path_t = Union[str, Path]
 logger = logging.getLogger(__name__)
 
 
-def load_example_data(data_dir: Path_t = None) -> Path_t:
+def load_example_data(data_dir: Optional[Path_t] = None) -> Path_t:
     """
     Download example data to ``data_dir``.
 
@@ -146,7 +146,7 @@ def getFilename_fromCd(cd):
 
 def download(
     url: str,
-    output_path: Path_t = None,
+    output_path: Optional[Path_t] = None,
     block_size: int = 1024,
     overwrite: bool = False,
 ) -> None:
