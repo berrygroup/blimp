@@ -56,7 +56,7 @@ class IlluminationCorrection:
                         "``reference images`` must be a list of ``AICSImage``s or file paths "
                         + "(``str`` or ``pathlib.Path``)"
                     )
-                if is_input_files and not all(Path(image).is_file() for image in reference_images):
+                if is_input_files and not all(Path(image).is_file() for image in reference_images):  # type: ignore
                     raise FileNotFoundError
 
                 # check timelapse defined
