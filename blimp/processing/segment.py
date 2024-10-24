@@ -42,13 +42,16 @@ def segment_nuclei_cellpose(
     from cellpose import models
 
     if timepoint is None:
+        logger.debug(f"Segmenting all timepoints")
         nuclei_images = [
             intensity_image.get_image_data("ZYX", C=nuclei_channel, T=t) for t in range(intensity_image.dims[["T"]][0])
         ]
     else:
+        logger.debug(f"Segmenting timepoint {timepoint}")
         nuclei_images = [intensity_image.get_image_data("ZYX", C=nuclei_channel, T=timepoint)]
 
     if pretrained_model is None:
+        logger.debug(f"Segmenting nuclei with default {model_type} model")
         cellpose_model = models.CellposeModel(gpu=False, model_type=model_type)
         masks, flows, styles = cellpose_model.eval(
             nuclei_images,
@@ -60,6 +63,7 @@ def segment_nuclei_cellpose(
             do_3D=False,
         )
     else:
+        logger.debug(f"Using pretrained model {str(pretrained_model)}")
         cellpose_model = models.CellposeModel(gpu=False, pretrained_model=str(pretrained_model))
         masks, flows, styles = cellpose_model.eval(nuclei_images, channels=[0, 0])
 
@@ -103,6 +107,7 @@ def expand_objects_watershed(
 
     labels = np.where(seeds_image != 0, seeds_image, background_image)
     regions = mh.cwatershed(np.invert(intensity_image), labels)
+
     # Remove background regions
     n_objects = len(np.unique(seeds_image[seeds_image > 0]))
     regions[regions > n_objects] = 0
@@ -131,7 +136,6 @@ def expand_objects_watershed(
 
     # Remove regions that don't overlap with seed objects and assign
     # correct labels to the other regions, i.e. those of the corresponding seeds.
-
     new_label_image, n_new_labels = mh.labeled.relabel(regions)
     lut = np.zeros(np.max(new_label_image) + 1, new_label_image.dtype)
     for i in range(1, n_new_labels + 1):
@@ -142,10 +146,7 @@ def expand_objects_watershed(
         if orig_unique.size == 1:
             lut[i] = orig_unique[0]
         elif orig_unique.size > 1:
-            # logger.warn(
-            #    'objects overlap after expansion: %s',
-            #    ', '.join(map(str, orig_unique))
-            # )
+            logger.warning("objects overlap after expansion: %s", ", ".join(map(str, orig_unique)))
             lut[i] = np.where(orig_count == np.max(orig_count))[0][0]
     expanded_image = lut[new_label_image]
 
@@ -213,10 +214,8 @@ def segment_secondary(
         # i.e. regions in the intensity_image that should not be covered by
         # secondary objects.
         n_objects = len(np.unique(primary_label_image))
-        # logger.info(
-        #    'primary label image has %d objects',
-        #    n_objects - 1
-        # )
+        logger.info(f"primary label image has {n_objects -1} objects")
+
         if np.max(primary_label_image) != n_objects - 1:
             raise ValueError(f"Objects are not consecutively labeled, please relabel before secondary segmentation.")
         # SB: Added a catch for images with no primary objects
@@ -224,30 +223,26 @@ def segment_secondary(
         if n_objects > 1:
             background_mask = mh.thresholding.bernsen(intensity_image, 5, contrast_threshold)
             if min_threshold is not None:
-                # logger.info(
-                #    'set lower threshold level to %d', min_threshold
-                # )
+                logger.info(f"set lower threshold level to {min_threshold}")
                 background_mask[intensity_image < min_threshold] = True
 
             if max_threshold is not None:
-                # logger.info(
-                #    'set upper threshold level to %d', max_threshold
-                # )
+                logger.info(f"set upper threshold level to {max_threshold}")
                 background_mask[intensity_image > max_threshold] = False
             background_label_image = (mh.label(background_mask)[0] > 0).astype(np.int32)
             if n_objects >= 2147483646:
                 raise ValueError(f"Number of objects ({n_objects}) exceeds 32-bit datatype.")
             background_label_image[background_mask] += n_objects
 
-            # logger.info('detect secondary objects via watershed transform')
+            logger.info("detect secondary objects via watershed transform")
             secondary_label_image = expand_objects_watershed(
                 primary_label_image, background_label_image, intensity_image
             )
         else:
-            # logger.info('skipping secondary segmentation')
+            logger.info("skipping secondary segmentation")
             secondary_label_image = np.zeros(primary_label_image.shape, dtype=np.int32)
 
     n_objects = len(np.unique(secondary_label_image)[1:])
-    # logger.info('identified %d objects', n_objects)
+    logger.info("identified {n_objects} objects")
 
     return secondary_label_image

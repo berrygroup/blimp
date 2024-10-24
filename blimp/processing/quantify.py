@@ -249,43 +249,12 @@ def _measure_parent_object_label(
     return parent_id
 
 
-def _quantify_single_timepoint(
+def quantify_single_timepoint(
     intensity_image: AICSImage,
     label_image: AICSImage,
     measure_object: Union[int, str],
     parent_object: Optional[Union[int, str]] = None,
-    timepoint: int = 0,
-    intensity_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
-    calculate_textures: Optional[bool] = False,
-    texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
-    texture_scales: list = [1, 3],
-) -> pd.DataFrame:
-    if intensity_image.dims.Z == 1:
-        logger.info("``intensity_image`` is 2D. Quantifying 2D features only.")
-        _quantify_single_timepoint_func = _quantify_single_timepoint_2D
-    elif intensity_image.dims.Z > 1:
-        logger.info(f"``intensity_image`` is 3D ({intensity_image.dims.Z} Z-planes). Quantifying 3D features.")
-        _quantify_single_timepoint_func = _quantify_single_timepoint_3D
-
-    return _quantify_single_timepoint_func(
-        intensity_image=intensity_image,
-        label_image=label_image,
-        measure_object=measure_object,
-        parent_object=parent_object,
-        timepoint=timepoint,
-        intensity_channels=intensity_channels,
-        calculate_textures=calculate_textures,
-        texture_channels=texture_channels,
-        texture_scales=texture_scales,
-    )
-
-
-def _quantify_single_timepoint_2D(
-    intensity_image: AICSImage,
-    label_image: AICSImage,
-    measure_object: Union[int, str],
-    parent_object: Optional[Union[int, str]] = None,
-    timepoint: int = 0,
+    timepoint: Optional[int] = None,
     intensity_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
     calculate_textures: Optional[bool] = False,
     texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
@@ -326,8 +295,66 @@ def _quantify_single_timepoint_2D(
     -------
     pd.DataFrame
         A DataFrame containing quantified data, with one row per object and one column per feature.
+
+    Notes
+    -----
+    - Accepts 2D or 3D data as input.
+    - For 3D data, textures are not calculate on 3D images, but rather on object-based
+    maximum-intensity projections, and on the 2D image extracted from the
+    "middle" (central-Z) plane of each object.
     """
 
+    if intensity_image.dims.Z == 1:
+        logger.info("``intensity_image`` is 2D. Quantifying 2D features only.")
+        _quantify_single_timepoint_func = _quantify_single_timepoint_2D
+    elif intensity_image.dims.Z > 1:
+        logger.info(f"``intensity_image`` is 3D ({intensity_image.dims.Z} Z-planes). Quantifying 3D features.")
+        _quantify_single_timepoint_func = _quantify_single_timepoint_3D
+
+    if timepoint is None:
+        features = pd.concat(
+            [
+                _quantify_single_timepoint_func(
+                    intensity_image=intensity_image,
+                    label_image=label_image,
+                    measure_object=measure_object,
+                    parent_object=parent_object,
+                    timepoint=t,
+                    intensity_channels=intensity_channels,
+                    calculate_textures=calculate_textures,
+                    texture_channels=texture_channels,
+                    texture_scales=texture_scales,
+                )
+                for t in range(intensity_image.dims[["T"]][0])
+            ]
+        )
+    else:
+        features = _quantify_single_timepoint_func(
+            intensity_image=intensity_image,
+            label_image=label_image,
+            measure_object=measure_object,
+            parent_object=parent_object,
+            timepoint=timepoint,
+            intensity_channels=intensity_channels,
+            calculate_textures=calculate_textures,
+            texture_channels=texture_channels,
+            texture_scales=texture_scales,
+        )
+
+    return features
+
+
+def _quantify_single_timepoint_2D(
+    intensity_image: AICSImage,
+    label_image: AICSImage,
+    measure_object: Union[int, str],
+    parent_object: Optional[Union[int, str]] = None,
+    timepoint: int = 0,
+    intensity_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    calculate_textures: Optional[bool] = False,
+    texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    texture_scales: list = [1, 3],
+) -> pd.DataFrame:
     def intensity_sd(regionmask, intensity_image):
         return np.std(intensity_image[regionmask])
 
@@ -421,7 +448,7 @@ def _quantify_single_timepoint_2D(
         parent_object_label = _measure_parent_object_label(label_image, measure_object_index, parent_object_index)
         features = features.merge(parent_object_label, on="label")
 
-    # add timepoint information (note + 1 to match metadata)
+    # add timepoint information (note + 1 to match image metadata)
     features[["TimepointID"]] = timepoint + 1
     return features
 
@@ -437,44 +464,6 @@ def _quantify_single_timepoint_3D(
     texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_scales: list = [1, 3],
 ) -> pd.DataFrame:
-    """Quantify all channels in an image relative to a matching label image.
-    For use with 3D data and matching label images. Single time-point only.
-
-    WARNING: 3D morphology features have not yet been thoroughly tested
-
-    Textures are not calculate on 3D images, but rather on object-based
-    maximum-intensity projections, and on the 2D image extracted from the
-    "middle" (central-Z) plane of each object.
-
-    Parameters
-    ----------
-    intensity_image
-        intensity image (possibly 5D: "TCZYX")
-    label_image
-        label image (possibly 5D: "TCZYX")
-    timepoint
-        which timepoint should be quantified
-    intensity_channels
-        channels in ``intensity_image`` to be used for intensity calculations,
-        can be provided as indices or names (see ``get_channel_names()``)
-    intensity_objects
-        objects in ``intensity_image`` to be used for intensity calculations,
-        can be provided as indices or names (see ``get_channel_names()``)
-    texture_channels
-        channels in ``intensity_image`` to be used for texture calculations,
-        can be provided as indices or names (see ``get_channel_names()``)
-    texture_objects
-        objects in ``intensity_image`` to be used for texture calculations,
-        can be provided as indices or names (see ``get_channel_names()``)
-    texture_scales
-        length scales at which to calculate textures
-
-    Returns
-    -------
-    pandas.DataFrame
-        quantified data (n_rows = # objects, n_cols = # features)
-    """
-
     if (
         intensity_image.physical_pixel_sizes is None
         or intensity_image.physical_pixel_sizes.Z is None
@@ -484,7 +473,6 @@ def _quantify_single_timepoint_3D(
         raise ValueError(
             "intensity_image has undetermined physical_pixel_sizes. Cannot calculate 3D morphology features."
         )
-
 
     def intensity_sd(regionmask, intensity_image):
         return np.std(intensity_image[regionmask])
@@ -622,34 +610,71 @@ def _quantify_single_timepoint_3D(
         parent_object_label = _measure_parent_object_label(label_image, measure_object_index, parent_object_index)
         features = features.merge(parent_object_label, on="label")
 
-    # add timepoint information (note + 1 to match metadata)
+    # add timepoint information (note + 1 to match image metadata)
     features[["TimepointID"]] = timepoint + 1
 
     return features
 
 
-def aggregate_and_merge_dataframes(df_list: List[pd.DataFrame], parent_index: int):
+def aggregate_and_merge_features(
+    df_list: List[pd.DataFrame], parent_index: int, object_names: List[str]
+) -> pd.DataFrame:
+    """
+    Aggregate feature data from multiple objects contained within 'parent' objects.
+    Merge aggregated features with parent features and return a single dataframe.
+
+    Parameters
+    ----------
+    df_list : List[pd.DataFrame]
+        A list of feature tables
+
+    parent_index : int
+        The index of the parent feature table in `df_list`
+
+    object_names : List[str]
+        A list matching the length of `df_list` containing the object names (in the same order)
+
+    Returns
+    -------
+    pd.DataFrame
+        A feature table that results from merging the parent features with aggregated features from the other tables.
+
+    Notes
+    -----
+    - The aggregation is performed on all numeric columns in the non-parent DataFrames, except for 'label',
+      'TimepointID', and 'parent_label'.
+    - Aggregation functions include 'mean', 'min', 'max', 'std', 'median' and 'count'
+    - After aggregation, the result is merged with the parent DataFrame using the 'label' column from the parent
+      and 'parent_label' from the aggregated data.
+    """
+
+    # check inputs
+    if len(object_names) != len(df_list):
+        raise ValueError(f"Expected {len(df_list)} object names but only {len(object_names)} were passed.")
+    if parent_index >= len(object_names):
+        raise ValueError(f"``parent_index`` = {parent_index} exceeds the length of ``df_list`` ({len(object_names)})")
+
     parent_df = df_list[parent_index]
     non_parent_dfs = [df for i, df in enumerate(df_list) if i != parent_index]
+    non_parent_object_names = [obj for i, obj in enumerate(object_names) if i != parent_index]
+
+    aggregations = ["mean", "min", "max", "std", "median"]
 
     # Initialize an empty list to store the aggregated dataframes
     aggregated_dfs = []
-    for df in non_parent_dfs:
+    for df_index, df in enumerate(non_parent_dfs):
         # Select only numeric columns for aggregation, excluding 'label', 'timepoint', and 'parent_label'
         numeric_cols = df.select_dtypes(include=[np.number]).columns.difference(
             ["label", "TimepointID", "parent_label"]
         )
-        aggregations = ["mean", "min", "max", "std", "median"]
 
-        # Perform aggregation on numeric columns
-        agg_df = (
-            df.groupby("parent_label").agg({col: aggregations for col in numeric_cols}).reset_index()
-        )  # Reset the index after grouping
-
+        # Perform aggregation on numeric columns and flatten labels
+        agg_df = df.groupby("parent_label").agg({col: aggregations for col in numeric_cols}).reset_index()
         agg_df.columns = ["_".join(col).strip() if col[0] != "parent_label" else col[0] for col in agg_df.columns]
 
-        # prepend object_name to 'count'
-        object_count = df.groupby("parent_label").size().to_frame("count").reset_index()
+        # add a count variable to quantify the number of objects aggregated
+        count_var = non_parent_object_names[df_index] + "_count"
+        object_count = df.groupby("parent_label").size().to_frame(count_var).reset_index()
         agg_df = agg_df.merge(object_count, how="left", left_on="parent_label", right_on="parent_label")
 
         aggregated_dfs.append(agg_df)
@@ -658,8 +683,8 @@ def aggregate_and_merge_dataframes(df_list: List[pd.DataFrame], parent_index: in
     for agg_df in aggregated_dfs:
         out = parent_df.merge(agg_df, how="left", left_on="label", right_on="parent_label")
 
-    # Replace NaN with 0 in columns that end with 'count'
-    out.loc[:, out.columns.str.endswith("count")] = out.loc[:, out.columns.str.endswith("count")].fillna(0).astype(int)
+    # Replace NaN with 0 in columns that end with '_count'
+    out.loc[:, out.columns.str.endswith("_count")] = out.loc[:, out.columns.str.endswith("count")].fillna(0).astype(int)
 
     return out
 
@@ -667,12 +692,11 @@ def aggregate_and_merge_dataframes(df_list: List[pd.DataFrame], parent_index: in
 def quantify(
     intensity_image: AICSImage,
     label_image: AICSImage,
-    measure_objects: Optional[Union[int, str]] = None,
+    measure_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
     parent_object: Optional[Union[int, str]] = None,
     aggregate: Optional[bool] = False,
     timepoint: Optional[int] = None,
     intensity_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
-    calculate_textures: Optional[bool] = False,
     texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_scales: list = [1, 3],
@@ -698,65 +722,59 @@ def quantify(
 
     # Check inputs
     check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False)
-    make_channel_names_unique(label_image)
-    make_channel_names_unique(intensity_image)
+    label_image = make_channel_names_unique(label_image)
+    intensity_image = make_channel_names_unique(intensity_image)
+    measure_objects = get_channel_names(image=label_image, input=measure_objects)
+    texture_objects = get_channel_names(image=label_image, input=texture_objects)
 
-    if measure_objects is None:
-        logger.info(f"``objects`` not specified. Measuring features for all objects.")
-        measure_objects = label_image.channel_names
-    else:
-        for obj in measure_objects:
-            if obj not in label_image.channel_names:
-                raise ValueError(f"object {obj} not found in label image channel names")
+    if aggregate and len(measure_objects) < 2:
+        logger.warning(
+            f"Cannot aggregate with only {len(measure_objects)} ``measure_objects``. Setting aggregate = False"
+        )
+        aggregate = False
 
     if parent_object is None:
-        logger.info(f"``parent_object`` not specified. Data will be aggregated relative to channel 0.")
-        parent_object = label_image.channel_names[0]
-    else:
-        if isinstance(parent_object, int):
-            parent_object = label_image.channel_names[parent_object]
-        elif isinstance(parent_object, str):
-            if parent_object not in label_image.channel_names:
-                raise ValueError(f"parent object {parent_object} not found in label image channel names")
-
-    # for each object to measure, do the measurement
-    features_list = []
-    for obj_index, obj in enumerate(measure_objects):
-        logger.debug(f"Quantifying object {obj}.")
-        if timepoint is None:
-            features = pd.concat(
-                [
-                    _quantify_single_timepoint(
-                        intensity_image=intensity_image,
-                        label_image=label_image,
-                        measure_object=obj,
-                        parent_object=parent_object,
-                        timepoint=t,
-                        intensity_channels=intensity_channels,
-                        calculate_textures=calculate_textures,
-                        texture_channels=texture_channels,
-                        texture_scales=texture_scales,
-                    )
-                    for t in range(intensity_image.dims[["T"]][0])
-                ]
+        if aggregate:
+            parent_object = label_image.channel_names[0]
+            logger.warning(
+                f"``parent_object`` not specified. Data will be aggregated relative to channel 0 ({parent_object})."
             )
         else:
-            features = _quantify_single_timepoint(
-                intensity_image=intensity_image,
-                label_image=label_image,
-                measure_object=obj,
-                parent_object=parent_object,
-                timepoint=timepoint,
-                intensity_channels=intensity_channels,
-                calculate_textures=calculate_textures,
-                texture_channels=texture_channels,
-                texture_scales=texture_scales,
-            )
+            logger.debug(f"``parent_object`` not specified. Data will not be aggregated.")
+    else:
+        parent_object = get_channel_names(image=label_image, input=parent_object)[0]
+
+    if aggregate and parent_object not in measure_objects:
+        logger.info(f"Adding parent object to the list of measured objects.")
+        measure_objects = measure_objects.append(parent_object)
+
+    logger.info(f"``measure_objects`` =  {measure_objects}")
+    logger.info(f"``texture_objects`` =  {texture_objects}")
+    logger.info(f"``parent_object`` =  {parent_object}")
+
+    # for each object, do the measurement
+    features_list: List[pd.DataFrame] = []
+    for obj_index, obj in enumerate(measure_objects):
+        logger.debug(f"Quantifying {obj}")
+
+        features = quantify_single_timepoint(
+            intensity_image=intensity_image,
+            label_image=label_image,
+            measure_object=obj,
+            parent_object=obj if parent_object is None else parent_object,
+            timepoint=timepoint,
+            intensity_channels=intensity_channels,
+            calculate_textures=True if obj in texture_objects else False,
+            texture_channels=texture_channels,
+            texture_scales=texture_scales,
+        )
         features_list.append(features)
 
-    if aggregate and len(measure_objects) > 1:
-        output = aggregate_and_merge_dataframes(
-            features_list, parent_index=label_image.channel_names.index(parent_object)
+    if aggregate:
+        output = aggregate_and_merge_features(
+            df_list=features_list,
+            parent_index=label_image.channel_names.index(parent_object),
+            object_names=measure_objects,
         )
     else:
         output = features_list

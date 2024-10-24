@@ -41,6 +41,8 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
 
     old_dtype = arr.dtype
     new_dtype = dtype
+    logger.debug(f"Converting array from {old_dtype} to {new_dtype}")
+
     if copy:
         new = np.copy(arr)
     else:
@@ -747,7 +749,7 @@ def get_channel_names(image: AICSImage, input: Optional[Union[int, str, List[Uni
         return image.channel_names
 
     if not isinstance(input, (int, str, list)):
-        raise ValueError("Input must be an integer, a string, a list of integers/strings, or None.")
+        raise TypeError("Input must be an integer, a string, a list of integers/strings, or None.")
 
     if isinstance(input, int):
         if input not in range(len(image.channel_names)):
