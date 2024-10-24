@@ -207,6 +207,27 @@ def confirm_array_rank(
     return None
 
 
+def make_channel_names_unique(image: AICSImage) -> AICSImage:
+    if image.channel_names == None or image.channel_names == []:
+        out = AICSImage(
+            image.data,
+            channel_names=[f"Channel_{index}" for index in range(image.dims.C)],
+            physical_pixel_sizes=image.physical_pixel_sizes,
+        )
+        logger.warning(f"Channel names missing or empty, renaming to {out.channel_names}")
+    elif len(set(image.channel_names)) != image.dims.C:
+        out = AICSImage(
+            image.data,
+            channel_names=[f"{name}_{index}" for index, name in enumerate(image.channel_names)],
+            physical_pixel_sizes=image.physical_pixel_sizes,
+        )
+        logger.warning(f"Channel names not unique, renaming to {out.channel_names}")
+    else:
+        out = image
+        logger.info(f"Channel names unique: {out.channel_names}")
+    return out
+
+
 def read_template(template_name: str) -> str:
     import importlib.resources as pkg_resources
 

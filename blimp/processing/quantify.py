@@ -1,5 +1,6 @@
 from typing import List, Union, Optional
 from functools import reduce
+import logging
 
 from aicsimageio import AICSImage
 from skimage.segmentation import clear_border
@@ -10,6 +11,8 @@ import skimage.measure
 
 from blimp.utils import (
     get_channel_names,
+    make_channel_names_unique,
+    check_uniform_dimension_sizes,
     cropped_array_containing_object,
     concatenated_projection_image_3D,
 )
@@ -29,6 +32,8 @@ HARALICK_BASE_NAMES = [
     "info-measure-corr-1",
     "info-measure-corr-2",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 def _calculate_texture_features_single_object(
@@ -121,7 +126,32 @@ def border_objects(label_array: np.ndarray) -> pd.DataFrame:
     return border_objects
 
 
-def border_objects_XY_3D(label_image, label_channel=0):
+def border_objects_XY_3D(label_image: AICSImage, label_channel: int = 0) -> pd.DataFrame:
+    """Identify border objects in the XY plane across a 3D image stack and
+    return a DataFrame indicating which objects touch the XY borders.
+
+    Parameters
+    ----------
+    label_image : AICSImage
+        3D labeled image where objects are represented by unique integer
+        labels. It should contain multiple Z planes and at least one channel.
+    label_channel : int, optional
+        The channel index to extract from the image for analysis. Defaults to 0.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame with two columns:
+        - 'label': The unique object labels found in the image.
+        - 'is_border_XY': Boolean values indicating whether each object
+          touches the border of any XY plane (True) or not (False).
+
+    Notes
+    -----
+    Objects touching the XY border in any Z-plane are classified as
+    border objects. Objects with label 0 (background) are excluded from the output.
+    """
+
     label_array = label_image.get_image_data("ZYX", C=label_channel)
     all_object_labels = [x for x in np.unique(label_array) if x != 0]
 
@@ -141,50 +171,162 @@ def border_objects_XY_3D(label_image, label_channel=0):
     return border_objects
 
 
-def _quantify_single_timepoint(
-    intensity_image: AICSImage,
-    label_image: AICSImage,
-    timepoint: int = 0,
-    intensity_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
-    intensity_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
-    calculate_textures: Optional[bool] = False,
-    texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
-    texture_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
-    texture_scales: list = [1, 3],
+def _measure_parent_object_label(
+    label_image: AICSImage, measure_object_index: int, parent_object_index: int, timepoint: int = 0
 ) -> pd.DataFrame:
-    """Quantify all channels in an image relative to a matching label image.
-    Single time-point only.
+    """
+    Measure the parent object associated with each object in a labeled image.
+    For each object in the `measure_object_index` channel, identify its corresponding
+    parent object in the `parent_object_index` channel. This is based on the spatial
+    overlap between the child and parent objects.
 
     Parameters
     ----------
-    intensity_image
-        intensity image (possibly 5D: "TCZYX")
-    label_image
-        label image (possibly 5D: "TCZYX")
-    timepoint
-        which timepoint should be quantified
-    intensity_channels
-        channels in ``intensity_image`` to be used for intensity calculations,
-        can be provided as indices or names (see ``get_channel_names()``)
-    intensity_objects
-        objects in ``intensity_image`` to be used for intensity calculations,
-        can be provided as indices or names (see ``get_channel_names()``)
-    texture_channels
-        channels in ``intensity_image`` to be used for texture calculations,
-        can be provided as indices or names (see ``get_channel_names()``)
-    texture_objects
-        objects in ``intensity_image`` to be used for texture calculations,
-        can be provided as indices or names (see ``get_channel_names()``)
-    texture_scales
-        length scales at which to calculate textures
+    label_image : AICSImage
+        The labeled image containing objects in separate channels, where each channel
+        corresponds to a different object type (possibly 5D: "TCZYX").
+    measure_object_index : int
+        Index of the channel in `label_image` corresponding to the child objects
+        that will be measured.
+    parent_object_index : int
+        Index of the channel in `label_image` corresponding to the parent objects
+        to which the child objects are associated.
+    timepoint : int, optional
+        Timepoint at which to measure the objects, by default 0.
 
     Returns
     -------
-    pandas.DataFrame
-        quantified data (n_rows = # objects, n_cols = # features)
+    pd.DataFrame
+        A DataFrame containing the following columns:
+        - 'label': The label of each child object in the `measure_object_index` channel.
+        - 'parent_label': The label of the corresponding parent object in the
+          `parent_object_index` channel.
+        - 'parent_label_name': The name of the parent object channel.
+
+    Raises
+    ------
+    ValueError
+        If any child object is associated with multiple parent objects (i.e., if the
+        object is not fully contained within a single parent).
+
+    Notes
+    -----
+    This function assumes that each child object is fully contained within a single
+    parent object. If a child object overlaps with multiple parent objects, the function
+    will raise an error.
     """
 
-    features_list = []
+    label_array = label_image.get_image_data("YX", C=measure_object_index, T=timepoint, Z=0)
+    parent_label_array = label_image.get_image_data("YX", C=parent_object_index, T=timepoint, Z=0)
+
+    # mask the parent object array using the label array
+    parent_object_array_masked = np.where(label_array > 0, parent_label_array, 0)
+
+    parent_id = pd.DataFrame(
+        skimage.measure.regionprops_table(
+            label_image=label_array,
+            intensity_image=parent_object_array_masked,
+            properties=[
+                "label",
+                "intensity_min",
+                "intensity_max",
+            ],
+            separator="_",
+        )
+    )
+
+    # check that each object has a unique parent id
+    # (i.e. the child object is fully contained within the parent object)
+    columns_match = (parent_id["intensity_min"] == parent_id["intensity_max"]).all()
+
+    if not columns_match:
+        raise ValueError
+
+    parent_id["parent_label"] = np.floor(parent_id["intensity_max"]).astype(label_image.dtype)
+    parent_id["parent_label_name"] = label_image.channel_names[parent_object_index]
+    parent_id = parent_id.drop(["intensity_min", "intensity_max"], axis=1)
+
+    return parent_id
+
+
+def _quantify_single_timepoint(
+    intensity_image: AICSImage,
+    label_image: AICSImage,
+    measure_object: Union[int, str],
+    parent_object: Optional[Union[int, str]] = None,
+    timepoint: int = 0,
+    intensity_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    calculate_textures: Optional[bool] = False,
+    texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    texture_scales: list = [1, 3],
+) -> pd.DataFrame:
+    if intensity_image.dims.Z == 1:
+        logger.info("``intensity_image`` is 2D. Quantifying 2D features only.")
+        _quantify_single_timepoint_func = _quantify_single_timepoint_2D
+    elif intensity_image.dims.Z > 1:
+        logger.info(f"``intensity_image`` is 3D ({intensity_image.dims.Z} Z-planes). Quantifying 3D features.")
+        _quantify_single_timepoint_func = _quantify_single_timepoint_3D
+
+    return _quantify_single_timepoint_func(
+        intensity_image=intensity_image,
+        label_image=label_image,
+        measure_object=measure_object,
+        parent_object=parent_object,
+        timepoint=timepoint,
+        intensity_channels=intensity_channels,
+        calculate_textures=calculate_textures,
+        texture_channels=texture_channels,
+        texture_scales=texture_scales,
+    )
+
+
+def _quantify_single_timepoint_2D(
+    intensity_image: AICSImage,
+    label_image: AICSImage,
+    measure_object: Union[int, str],
+    parent_object: Optional[Union[int, str]] = None,
+    timepoint: int = 0,
+    intensity_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    calculate_textures: Optional[bool] = False,
+    texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    texture_scales: list = [1, 3],
+) -> pd.DataFrame:
+    """Quantify all channels in an image relative to a matching label image.
+    Single time-point only. Single object only.
+
+    Parameters
+    ----------
+    intensity_image : AICSImage
+        Intensity image (possibly 5D: "TCZYX").
+    label_image : AICSImage
+        Label image where objects are represented by unique integer labels
+        (possibly 5D: "TCZYX").
+    measure_object : Union[int, str]
+        The object type (label) to be measured in the label image, either as an
+        index or a string representing the object's channel name.
+    parent_object : Optional[Union[int, str]], optional
+        If provided, an optional parent object to associate with the measure_object
+        for hierarchical measurements. Can be an index or a channel name, by default None.
+    timepoint : int, optional
+        The timepoint to quantify, by default 0.
+    intensity_channels : Optional[Union[int, str, List[Union[int, str]]]], optional
+        Channels in `intensity_image` to use for intensity calculations. Can be
+        provided as indices or names. If None, no intensity features are calculated,
+        by default None.
+    calculate_textures : Optional[bool], optional
+        Whether to calculate texture features, by default False.
+    texture_channels : Optional[Union[int, str, List[Union[int, str]]]], optional
+        Channels in `intensity_image` to use for texture calculations. Can be
+        provided as indices or names. If None, no texture features are calculated,
+        by default None.
+    texture_scales : list, optional
+        Length scales at which to calculate textures, by default [1, 3].
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing quantified data, with one row per object and one column per feature.
+    """
 
     def intensity_sd(regionmask, intensity_image):
         return np.std(intensity_image[regionmask])
@@ -192,98 +334,92 @@ def _quantify_single_timepoint(
     def intensity_median(regionmask, intensity_image):
         return np.median(intensity_image[regionmask])
 
+    # channels can be passed as names or indices, convert to names.
     intensity_channels_list = get_channel_names(intensity_image, intensity_channels)
-    intensity_objects_list = get_channel_names(label_image, intensity_objects)
+
+    measure_object = get_channel_names(label_image, measure_object)[0]
+    measure_object_index = label_image.channel_names.index(measure_object)
+    if parent_object is not None:
+        parent_object = get_channel_names(label_image, parent_object)[0]
+        parent_object_index = label_image.channel_names.index(parent_object)
+
     if calculate_textures:
         texture_channels_list = get_channel_names(intensity_image, texture_channels)
-        texture_objects_list = get_channel_names(label_image, texture_objects)
 
-    # iterate over all object types in the segmentation
-    for obj_index, obj in enumerate(label_image.channel_names):
-        label_array = label_image.get_image_data("YX", C=obj_index, T=timepoint, Z=0)
+    label_array = label_image.get_image_data("YX", C=measure_object_index, T=timepoint, Z=0)
 
-        # Morphology features
-        # -----------------------
-        features = pd.DataFrame(
+    # Morphology features
+    # -----------------------
+    features = pd.DataFrame(
+        skimage.measure.regionprops_table(
+            label_array,
+            properties=[
+                "label",
+                "centroid",
+                "area",
+                "area_convex",
+                "axis_major_length",
+                "axis_minor_length",
+                "eccentricity",
+                "extent",
+                "feret_diameter_max",
+                "solidity",
+                "perimeter",
+                "perimeter_crofton",
+                "euler_number",
+            ],
+            separator="_",
+        )
+    ).rename(columns=lambda x: measure_object + "_" + x if x != "label" else x)
+    features = features.merge(
+        border_objects(label_array).rename(columns=lambda x: measure_object + "_" + x if x != "label" else x),
+        on="label",
+    )
+    # Intensity features
+    # ----------------------
+    # iterate over selected channels
+    for channel in intensity_channels_list:
+        channel_index = intensity_image.channel_names.index(channel)
+        intensity_array = intensity_image.get_image_data("YX", C=channel_index, T=timepoint, Z=0)
+
+        intensity_features = pd.DataFrame(
             skimage.measure.regionprops_table(
                 label_array,
-                properties=[
-                    "label",
-                    "centroid",
-                    "area",
-                    "area_convex",
-                    "axis_major_length",
-                    "axis_minor_length",
-                    "eccentricity",
-                    "extent",
-                    "feret_diameter_max",
-                    "solidity",
-                    "perimeter",
-                    "perimeter_crofton",
-                    "euler_number",
-                ],
+                intensity_array,
+                properties=["label", "intensity_mean", "intensity_max", "intensity_min"],
+                extra_properties=(intensity_sd, intensity_median),
                 separator="_",
             )
-        ).rename(columns=lambda x: obj + "_" + x if x != "label" else x)
+        ).rename(columns=lambda x: measure_object + "_" + x + "_" + channel if x != "label" else x)
+        features = features.merge(intensity_features, on="label")
 
-        features = features.merge(
-            border_objects(label_array).rename(columns=lambda x: obj + "_" + x if x != "label" else x), on="label"
-        )
-
-        # Intensity features
-        # ----------------------
-        # iterate over selected channels
-        for channel in intensity_channels_list:
+    # Texture features
+    # ----------------------
+    # iterate over selected channels
+    if calculate_textures:
+        for channel in texture_channels_list:
             channel_index = intensity_image.channel_names.index(channel)
             intensity_array = intensity_image.get_image_data("YX", C=channel_index, T=timepoint, Z=0)
 
-            if obj in intensity_objects_list:
-                intensity_features = pd.DataFrame(
-                    skimage.measure.regionprops_table(
-                        label_array,
-                        intensity_array,
-                        properties=["label", "intensity_mean", "intensity_max", "intensity_min"],
-                        extra_properties=(intensity_sd, intensity_median),
-                        separator="_",
-                    )
-                ).rename(columns=lambda x: obj + "_" + x + "_" + channel if x != "label" else x)
+            bboxes = mh.labeled.bbox(label_array)
+            texture_features_list = [
+                _calculate_texture_features_single_object(
+                    intensity_array=intensity_array,
+                    channel_name=channel,
+                    object_name=measure_object,
+                    bboxes=bboxes,
+                    label=label,
+                    scales=texture_scales,
+                )
+                for label in np.unique(label_array[label_array != 0])
+            ]
+            # collect data for all objects and merge with morphology/intensity features
+            texture_features = pd.concat(texture_features_list, ignore_index=False)
+            features = features.merge(texture_features, on="label")
 
-                features = features.merge(intensity_features, on="label")
-
-        # Texture features
-        # ----------------------
-        # iterate over selected channels
-        if calculate_textures:
-            for channel in texture_channels_list:
-                channel_index = intensity_image.channel_names.index(channel)
-                intensity_array = intensity_image.get_image_data("YX", C=channel_index, T=timepoint, Z=0)
-
-                if obj in texture_objects_list:
-                    bboxes = mh.labeled.bbox(label_array)
-                    texture_features_list = [
-                        _calculate_texture_features_single_object(
-                            intensity_array=intensity_array,
-                            channel_name=channel,
-                            object_name=obj,
-                            bboxes=bboxes,
-                            label=label,
-                            scales=texture_scales,
-                        )
-                        for label in np.unique(label_array[label_array != 0])
-                    ]
-
-                    # collect data for all objects and merge with morphology/intensity features
-                    texture_features = pd.concat(texture_features_list, ignore_index=False)
-                    features = features.merge(texture_features, on="label")
-
-        features_list.append(features)
-
-    # combine results for all objects (assumes matching labels)
-    # TODO: generalise this for aggregate quantification, etc.
-    features = reduce(
-        lambda left, right: pd.merge(left, right, on=["label"], how="outer"),
-        features_list,
-    )
+    if parent_object is not None:
+        parent_object_label = _measure_parent_object_label(label_image, measure_object_index, parent_object_index)
+        features = features.merge(parent_object_label, on="label")
 
     # add timepoint information (note + 1 to match metadata)
     features[["TimepointID"]] = timepoint + 1
@@ -293,12 +429,12 @@ def _quantify_single_timepoint(
 def _quantify_single_timepoint_3D(
     intensity_image: AICSImage,
     label_image: AICSImage,
+    measure_object: Union[int, str],
+    parent_object: Optional[Union[int, str]] = None,
     timepoint: int = 0,
     intensity_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
-    intensity_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
     calculate_textures: Optional[bool] = False,
     texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
-    texture_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_scales: list = [1, 3],
 ) -> pd.DataFrame:
     """Quantify all channels in an image relative to a matching label image.
@@ -349,7 +485,6 @@ def _quantify_single_timepoint_3D(
             "intensity_image has undetermined physical_pixel_sizes. Cannot calculate 3D morphology features."
         )
 
-    features_list = []
 
     def intensity_sd(regionmask, intensity_image):
         return np.std(intensity_image[regionmask])
@@ -358,142 +493,134 @@ def _quantify_single_timepoint_3D(
         return np.median(intensity_image[regionmask])
 
     intensity_channels_list = get_channel_names(intensity_image, intensity_channels)
-    intensity_objects_list = get_channel_names(label_image, intensity_objects)
+
+    measure_object = get_channel_names(label_image, measure_object)[0]
+    measure_object_index = label_image.channel_names.index(measure_object)
+    if parent_object is not None:
+        parent_object = get_channel_names(label_image, parent_object)[0]
+        parent_object_index = label_image.channel_names.index(parent_object)
 
     if calculate_textures:
-        texture_objects_list = get_channel_names(label_image, texture_objects)
+        get_channel_names(intensity_image, texture_channels)
 
-    # iterate over all object types in the segmentation
-    for obj_index, obj in enumerate(label_image.channel_names):
-        label_array = label_image.get_image_data("ZYX", C=obj_index, T=timepoint)
+    label_array = label_image.get_image_data("ZYX", C=measure_object_index, T=timepoint)
 
-        if calculate_textures:
-            calculate_textures_for_this_object = obj in texture_objects_list
-        else:
-            calculate_textures_for_this_object = False
+    # Morphology features
+    # -----------------------
+    morphology_features_3D = pd.DataFrame(
+        skimage.measure.regionprops_table(
+            label_array,
+            spacing=(
+                intensity_image.physical_pixel_sizes.Z / 1.0e6,
+                intensity_image.physical_pixel_sizes.Y / 1.0e6,
+                intensity_image.physical_pixel_sizes.X / 1.0e6,
+            ),
+            properties=[
+                "label",
+                "centroid",
+                "area",
+                "area_convex",
+                "axis_major_length",
+                "axis_minor_length",
+                "extent",
+                "feret_diameter_max",
+                "solidity",
+            ],
+            separator="_",
+        )
+    ).rename(columns=lambda x: measure_object + "_3D_" + x if x != "label" else x)
 
-        # Morphology features
-        # -----------------------
-        morphology_features_3D = pd.DataFrame(
+    # Intensity features
+    # ----------------------
+    # iterate over selected channels
+    for channel in intensity_channels_list:
+        channel_index = intensity_image.channel_names.index(channel)
+        intensity_array = intensity_image.get_image_data("ZYX", C=channel_index, T=timepoint)
+
+        intensity_features_3D = pd.DataFrame(
             skimage.measure.regionprops_table(
                 label_array,
-                spacing=(
-                    intensity_image.physical_pixel_sizes.Z / 1.0e6,
-                    intensity_image.physical_pixel_sizes.Y / 1.0e6,
-                    intensity_image.physical_pixel_sizes.X / 1.0e6,
-                ),
-                properties=[
-                    "label",
-                    "centroid",
-                    "area",
-                    "area_convex",
-                    "axis_major_length",
-                    "axis_minor_length",
-                    "extent",
-                    "feret_diameter_max",
-                    "solidity",
-                ],
+                intensity_array,
+                properties=["label", "intensity_mean", "intensity_max", "intensity_min"],
+                extra_properties=(intensity_sd, intensity_median),
                 separator="_",
             )
-        ).rename(columns=lambda x: obj + "_3D_" + x if x != "label" else x)
+        ).rename(columns=lambda x: measure_object + "_3D_" + x + "_" + channel if x != "label" else x)
 
-        # Intensity features
-        # ----------------------
-        # iterate over selected channels
-        for channel in intensity_channels_list:
-            channel_index = intensity_image.channel_names.index(channel)
-            intensity_array = intensity_image.get_image_data("ZYX", C=channel_index, T=timepoint)
+        features_3D = morphology_features_3D.merge(intensity_features_3D, on="label")
 
-            if obj in intensity_objects_list:
-                intensity_features_3D = pd.DataFrame(
-                    skimage.measure.regionprops_table(
-                        label_array,
-                        intensity_array,
-                        properties=["label", "intensity_mean", "intensity_max", "intensity_min"],
-                        extra_properties=(intensity_sd, intensity_median),
-                        separator="_",
-                    )
-                ).rename(columns=lambda x: obj + "_3D_" + x + "_" + channel if x != "label" else x)
-
-                features_3D = morphology_features_3D.merge(intensity_features_3D, on="label")
-
-        # Object MIP features
-        # ----------------------------
-        # Use maximum-intensity projection to isolate a 2D image from each 3D object.
-        # Areas outside the objects are masked.
-        intensity_image_object_mip, label_image_object_mip = concatenated_projection_image_3D(
-            intensity_image, label_image, label_name=obj + "-3D-MIP", projection_type="MIP"
-        )
-
-        object_mip_features = _quantify_single_timepoint(
-            intensity_image=intensity_image_object_mip,
-            label_image=label_image_object_mip,
-            timepoint=timepoint,
-            intensity_channels=intensity_channels,
-            intensity_objects=obj + "-3D-MIP",
-            calculate_textures=calculate_textures_for_this_object,
-            texture_channels=texture_channels,
-            texture_objects=obj + "-3D-MIP",
-            texture_scales=texture_scales,
-        )
-        # eliminate centroid and border features, which are meaningless in a
-        # concatenated image, and TimepointID, which we add later to avoid
-        # duplication
-        object_mip_features.drop(
-            list(object_mip_features.filter(regex="centroid|border|TimepointID")), axis=1, inplace=True
-        )
-
-        # Object middle Z-plane features
-        # -----------------------
-        intensity_image_object_middle, label_image_object_middle = concatenated_projection_image_3D(
-            intensity_image, label_image, label_name=obj + "-3D-Middle", projection_type="middle"
-        )
-
-        object_middle_features = _quantify_single_timepoint(
-            intensity_image=intensity_image_object_middle,
-            label_image=label_image_object_middle,
-            timepoint=timepoint,
-            intensity_channels=intensity_channels,
-            intensity_objects=obj + "-3D-Middle",
-            calculate_textures=calculate_textures_for_this_object,
-            texture_channels=texture_channels,
-            texture_objects=obj + "-3D-Middle",
-            texture_scales=texture_scales,
-        )
-        # eliminate centroid and border features, which are meaningless in a
-        # concatenated image, and TimepointID, which we add later to avoid
-        # duplication
-        object_middle_features.drop(
-            list(object_middle_features.filter(regex="centroid|border|TimepointID")), axis=1, inplace=True
-        )
-
-        # Border features
-        # ---------------
-        # Is an object touching the 3D border?
-        border_3D = border_objects(label_image.get_image_data("ZYX", C=obj_index)).rename(
-            columns=lambda x: obj + "_3D_" + x if x != "label" else x
-        )
-
-        # Is an object touching the XY border?
-        border_XY_3D = border_objects_XY_3D(label_image, label_channel=obj_index).rename(
-            columns=lambda x: obj + "_" + x if x != "label" else x
-        )
-
-        # Merge all features
-        # ----------------------
-        features = reduce(
-            lambda left, right: pd.merge(left, right, on="label", how="outer"),
-            [features_3D, object_mip_features, object_middle_features, border_3D, border_XY_3D],
-        )
-
-        features_list.append(features)
-
-    # combine results for all objects (assumes matching labels)
-    # TODO: generalise this for aggregate quantification, etc.
-    features = reduce(
-        lambda left, right: pd.merge(left, right, on=["label"], how="outer"),
-        features_list,
+    # Object MIP features
+    # ----------------------------
+    # Use maximum-intensity projection to isolate a 2D image from each 3D object.
+    # Areas outside the objects are masked.
+    intensity_image_object_mip, label_image_object_mip = concatenated_projection_image_3D(
+        intensity_image, label_image, label_name=measure_object + "-3D-MIP", projection_type="MIP"
     )
+
+    object_mip_features = _quantify_single_timepoint_2D(
+        intensity_image=intensity_image_object_mip,
+        label_image=label_image_object_mip,
+        measure_object=measure_object + "-3D-Middle",
+        parent_object=parent_object,
+        timepoint=timepoint,
+        intensity_channels=intensity_channels,
+        calculate_textures=calculate_textures,
+        texture_channels=texture_channels,
+        texture_scales=texture_scales,
+    )
+    # eliminate centroid and border features, which are meaningless in a
+    # concatenated image, and TimepointID, which we add later to avoid
+    # duplication
+    object_mip_features.drop(
+        list(object_mip_features.filter(regex="centroid|border|TimepointID")), axis=1, inplace=True
+    )
+
+    # Object middle Z-plane features
+    # -----------------------
+    intensity_image_object_middle, label_image_object_middle = concatenated_projection_image_3D(
+        intensity_image, label_image, label_name=measure_object + "-3D-Middle", projection_type="middle"
+    )
+
+    object_middle_features = _quantify_single_timepoint_2D(
+        intensity_image=intensity_image_object_middle,
+        label_image=label_image_object_middle,
+        measure_object=measure_object + "-3D-Middle",
+        parent_object=parent_object,
+        timepoint=timepoint,
+        intensity_channels=intensity_channels,
+        calculate_textures=calculate_textures,
+        texture_channels=texture_channels,
+        texture_scales=texture_scales,
+    )
+    # eliminate centroid and border features, which are meaningless in a
+    # concatenated image, and TimepointID, which we add later to avoid
+    # duplication
+    object_middle_features.drop(
+        list(object_middle_features.filter(regex="centroid|border|TimepointID")), axis=1, inplace=True
+    )
+
+    # Border features
+    # ---------------
+    # Is an object touching the 3D border?
+    border_3D = border_objects(label_image.get_image_data("ZYX", C=measure_object_index)).rename(
+        columns=lambda x: measure_object + "_3D_" + x if x != "label" else x
+    )
+
+    # Is an object touching the XY border?
+    border_XY_3D = border_objects_XY_3D(label_image, label_channel=measure_object_index).rename(
+        columns=lambda x: measure_object + "_" + x if x != "label" else x
+    )
+
+    # Merge all features
+    # ----------------------
+    features = reduce(
+        lambda left, right: pd.merge(left, right, on="label", how="outer"),
+        [features_3D, object_mip_features, object_middle_features, border_3D, border_XY_3D],
+    )
+
+    if parent_object is not None:
+        parent_object_label = _measure_parent_object_label(label_image, measure_object_index, parent_object_index)
+        features = features.merge(parent_object_label, on="label")
 
     # add timepoint information (note + 1 to match metadata)
     features[["TimepointID"]] = timepoint + 1
@@ -501,17 +628,55 @@ def _quantify_single_timepoint_3D(
     return features
 
 
+def aggregate_and_merge_dataframes(df_list: List[pd.DataFrame], parent_index: int):
+    parent_df = df_list[parent_index]
+    non_parent_dfs = [df for i, df in enumerate(df_list) if i != parent_index]
+
+    # Initialize an empty list to store the aggregated dataframes
+    aggregated_dfs = []
+    for df in non_parent_dfs:
+        # Select only numeric columns for aggregation, excluding 'label', 'timepoint', and 'parent_label'
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.difference(
+            ["label", "TimepointID", "parent_label"]
+        )
+        aggregations = ["mean", "min", "max", "std", "median"]
+
+        # Perform aggregation on numeric columns
+        agg_df = (
+            df.groupby("parent_label").agg({col: aggregations for col in numeric_cols}).reset_index()
+        )  # Reset the index after grouping
+
+        agg_df.columns = ["_".join(col).strip() if col[0] != "parent_label" else col[0] for col in agg_df.columns]
+
+        # prepend object_name to 'count'
+        object_count = df.groupby("parent_label").size().to_frame("count").reset_index()
+        agg_df = agg_df.merge(object_count, how="left", left_on="parent_label", right_on="parent_label")
+
+        aggregated_dfs.append(agg_df)
+
+    # Merge all aggregated dataframes with the parent dataframe on parent_label -> label
+    for agg_df in aggregated_dfs:
+        out = parent_df.merge(agg_df, how="left", left_on="label", right_on="parent_label")
+
+    # Replace NaN with 0 in columns that end with 'count'
+    out.loc[:, out.columns.str.endswith("count")] = out.loc[:, out.columns.str.endswith("count")].fillna(0).astype(int)
+
+    return out
+
+
 def quantify(
     intensity_image: AICSImage,
     label_image: AICSImage,
-    timepoint: Union[int, None] = None,
+    measure_objects: Optional[Union[int, str]] = None,
+    parent_object: Optional[Union[int, str]] = None,
+    aggregate: Optional[bool] = False,
+    timepoint: Optional[int] = None,
     intensity_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
-    intensity_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
     calculate_textures: Optional[bool] = False,
     texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_scales: list = [1, 3],
-):
+) -> Union[pd.DataFrame, List[pd.DataFrame]]:
     """Quantify all channels in an image relative to a matching segmentation
     label image.
 
@@ -531,48 +696,69 @@ def quantify(
         quantified data (n_rows = # objects x # timepoints, n_cols = # features)
     """
 
-    if timepoint is None:
-        if intensity_image.dims.Z > 1:
-            # 3D quantification
-            features = pd.concat(
-                [
-                    _quantify_single_timepoint_3D(
-                        intensity_image=intensity_image,
-                        label_image=label_image,
-                        timepoint=t,
-                        intensity_channels=intensity_channels,
-                        intensity_objects=intensity_objects,
-                        calculate_textures=calculate_textures,
-                        texture_channels=texture_channels,
-                        texture_objects=texture_objects,
-                        texture_scales=texture_scales,
-                    )
-                    for t in range(intensity_image.dims[["T"]][0])
-                ]
-            )
-        else:
-            # 2D quantification
+    # Check inputs
+    check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False)
+    make_channel_names_unique(label_image)
+    make_channel_names_unique(intensity_image)
+
+    if measure_objects is None:
+        logger.info(f"``objects`` not specified. Measuring features for all objects.")
+        measure_objects = label_image.channel_names
+    else:
+        for obj in measure_objects:
+            if obj not in label_image.channel_names:
+                raise ValueError(f"object {obj} not found in label image channel names")
+
+    if parent_object is None:
+        logger.info(f"``parent_object`` not specified. Data will be aggregated relative to channel 0.")
+        parent_object = label_image.channel_names[0]
+    else:
+        if isinstance(parent_object, int):
+            parent_object = label_image.channel_names[parent_object]
+        elif isinstance(parent_object, str):
+            if parent_object not in label_image.channel_names:
+                raise ValueError(f"parent object {parent_object} not found in label image channel names")
+
+    # for each object to measure, do the measurement
+    features_list = []
+    for obj_index, obj in enumerate(measure_objects):
+        logger.debug(f"Quantifying object {obj}.")
+        if timepoint is None:
             features = pd.concat(
                 [
                     _quantify_single_timepoint(
                         intensity_image=intensity_image,
                         label_image=label_image,
+                        measure_object=obj,
+                        parent_object=parent_object,
                         timepoint=t,
                         intensity_channels=intensity_channels,
-                        intensity_objects=intensity_objects,
                         calculate_textures=calculate_textures,
                         texture_channels=texture_channels,
-                        texture_objects=texture_objects,
                         texture_scales=texture_scales,
                     )
                     for t in range(intensity_image.dims[["T"]][0])
                 ]
             )
-    else:
-        if intensity_image.dims.Z > 1:
-            # 3D quantification
-            features = _quantify_single_timepoint_3D(intensity_image, label_image, timepoint)
         else:
-            # 2D quantification
-            features = _quantify_single_timepoint(intensity_image, label_image, timepoint)
-    return features
+            features = _quantify_single_timepoint(
+                intensity_image=intensity_image,
+                label_image=label_image,
+                measure_object=obj,
+                parent_object=parent_object,
+                timepoint=timepoint,
+                intensity_channels=intensity_channels,
+                calculate_textures=calculate_textures,
+                texture_channels=texture_channels,
+                texture_scales=texture_scales,
+            )
+        features_list.append(features)
+
+    if aggregate and len(measure_objects) > 1:
+        output = aggregate_and_merge_dataframes(
+            features_list, parent_index=label_image.channel_names.index(parent_object)
+        )
+    else:
+        output = features_list
+
+    return output

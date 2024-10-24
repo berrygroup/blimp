@@ -1,9 +1,12 @@
 from typing import Union, Optional
 from pathlib import Path
+import logging
 
 from aicsimageio import AICSImage
 import numpy as np
 import mahotas as mh
+
+logger = logging.getLogger(__name__)
 
 
 def segment_nuclei_cellpose(
