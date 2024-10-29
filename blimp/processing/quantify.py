@@ -216,8 +216,14 @@ def _measure_parent_object_label(
     will raise an error.
     """
 
-    label_array = label_image.get_image_data("YX", C=measure_object_index, T=timepoint, Z=0)
-    parent_label_array = label_image.get_image_data("YX", C=parent_object_index, T=timepoint, Z=0)
+    if label_image.dims.Z == 1:
+        logger.info("``label_image`` is 2D. Quantifying 2D features only.")
+        label_array = label_image.get_image_data("YX", C=measure_object_index, T=timepoint, Z=0)
+        parent_label_array = label_image.get_image_data("YX", C=parent_object_index, T=timepoint, Z=0)
+    elif label_image.dims.Z > 1:
+        logger.info(f"``label_image`` is 3D ({label_image.dims.Z} Z-planes). Measuring parent in 3D.")
+        label_array = label_image.get_image_data("ZYX", C=measure_object_index, T=timepoint)
+        parent_label_array = label_image.get_image_data("ZYX", C=parent_object_index, T=timepoint)
 
     # mask the parent object array using the label array
     parent_object_array_masked = np.where(label_array > 0, parent_label_array, 0)
@@ -240,7 +246,8 @@ def _measure_parent_object_label(
     columns_match = (parent_id["intensity_min"] == parent_id["intensity_max"]).all()
 
     if not columns_match:
-        raise ValueError
+        raise ValueError(
+            f"Measure objects ({label_image.channel_names[measure_object_index]}), not fully contained within parent objects ({label_image.channel_names[parent_object_index]})")
 
     parent_id["parent_label"] = np.floor(parent_id["intensity_max"]).astype(label_image.dtype)
     parent_id["parent_label_name"] = label_image.channel_names[parent_object_index]
@@ -484,9 +491,13 @@ def _quantify_single_timepoint_3D(
 
     measure_object = get_channel_names(label_image, measure_object)[0]
     measure_object_index = label_image.channel_names.index(measure_object)
+    calculate_2D_derived = True
     if parent_object is not None:
         parent_object = get_channel_names(label_image, parent_object)[0]
         parent_object_index = label_image.channel_names.index(parent_object)
+        logger.warning('Detecting parent objects in 3D leads to ambiguity for object relationships in derived 2D features.')
+        logger.warning('Derived 2D features (3D-MIP and 3D-Middle) are omitted for clarity.')
+        calculate_2D_derived = False
 
     if calculate_textures:
         get_channel_names(intensity_image, texture_channels)
@@ -499,9 +510,9 @@ def _quantify_single_timepoint_3D(
         skimage.measure.regionprops_table(
             label_array,
             spacing=(
-                intensity_image.physical_pixel_sizes.Z / 1.0e6,
-                intensity_image.physical_pixel_sizes.Y / 1.0e6,
-                intensity_image.physical_pixel_sizes.X / 1.0e6,
+                intensity_image.physical_pixel_sizes.Z,
+                intensity_image.physical_pixel_sizes.Y,
+                intensity_image.physical_pixel_sizes.X,
             ),
             properties=[
                 "label",
@@ -541,51 +552,50 @@ def _quantify_single_timepoint_3D(
     # ----------------------------
     # Use maximum-intensity projection to isolate a 2D image from each 3D object.
     # Areas outside the objects are masked.
-    intensity_image_object_mip, label_image_object_mip = concatenated_projection_image_3D(
-        intensity_image, label_image, label_name=measure_object + "-3D-MIP", projection_type="MIP"
-    )
+    if calculate_2D_derived:
+        intensity_image_object_mip, label_image_object_mip = concatenated_projection_image_3D(
+            intensity_image, label_image, label_name=measure_object + "-3D-MIP", projection_type="MIP"
+        )
 
-    object_mip_features = _quantify_single_timepoint_2D(
-        intensity_image=intensity_image_object_mip,
-        label_image=label_image_object_mip,
-        measure_object=measure_object + "-3D-Middle",
-        parent_object=parent_object,
-        timepoint=timepoint,
-        intensity_channels=intensity_channels,
-        calculate_textures=calculate_textures,
-        texture_channels=texture_channels,
-        texture_scales=texture_scales,
-    )
-    # eliminate centroid and border features, which are meaningless in a
-    # concatenated image, and TimepointID, which we add later to avoid
-    # duplication
-    object_mip_features.drop(
-        list(object_mip_features.filter(regex="centroid|border|TimepointID")), axis=1, inplace=True
-    )
+        object_mip_features = _quantify_single_timepoint_2D(
+            intensity_image=intensity_image_object_mip,
+            label_image=label_image_object_mip,
+            measure_object=measure_object + "-3D-MIP",
+            timepoint=timepoint,
+            intensity_channels=intensity_channels,
+            calculate_textures=calculate_textures,
+            texture_channels=texture_channels,
+            texture_scales=texture_scales,
+        )
+        # eliminate centroid and border features, which are meaningless in a
+        # concatenated image, and TimepointID, which we add later to avoid
+        # duplication
+        object_mip_features.drop(
+            list(object_mip_features.filter(regex="centroid|border|TimepointID")), axis=1, inplace=True
+        )
 
-    # Object middle Z-plane features
-    # -----------------------
-    intensity_image_object_middle, label_image_object_middle = concatenated_projection_image_3D(
-        intensity_image, label_image, label_name=measure_object + "-3D-Middle", projection_type="middle"
-    )
+        # Object middle Z-plane features
+        # -----------------------
+        intensity_image_object_middle, label_image_object_middle = concatenated_projection_image_3D(
+            intensity_image, label_image, label_name=measure_object + "-3D-Middle", projection_type="middle"
+        )
 
-    object_middle_features = _quantify_single_timepoint_2D(
-        intensity_image=intensity_image_object_middle,
-        label_image=label_image_object_middle,
-        measure_object=measure_object + "-3D-Middle",
-        parent_object=parent_object,
-        timepoint=timepoint,
-        intensity_channels=intensity_channels,
-        calculate_textures=calculate_textures,
-        texture_channels=texture_channels,
-        texture_scales=texture_scales,
-    )
-    # eliminate centroid and border features, which are meaningless in a
-    # concatenated image, and TimepointID, which we add later to avoid
-    # duplication
-    object_middle_features.drop(
-        list(object_middle_features.filter(regex="centroid|border|TimepointID")), axis=1, inplace=True
-    )
+        object_middle_features = _quantify_single_timepoint_2D(
+            intensity_image=intensity_image_object_middle,
+            label_image=label_image_object_middle,
+            measure_object=measure_object + "-3D-Middle",
+            timepoint=timepoint,
+            intensity_channels=intensity_channels,
+            calculate_textures=calculate_textures,
+            texture_channels=texture_channels,
+            texture_scales=texture_scales,
+        )
+        # eliminate centroid and border features, which are meaningless in a
+        # concatenated image, and TimepointID, which we add later to avoid
+        # duplication
+        object_middle_features.drop(
+            list(object_middle_features.filter(regex="centroid|border|TimepointID")), axis=1, inplace=True
+        )
 
     # Border features
     # ---------------
@@ -601,10 +611,16 @@ def _quantify_single_timepoint_3D(
 
     # Merge all features
     # ----------------------
-    features = reduce(
-        lambda left, right: pd.merge(left, right, on="label", how="outer"),
-        [features_3D, object_mip_features, object_middle_features, border_3D, border_XY_3D],
-    )
+    if calculate_2D_derived:
+        features = reduce(
+            lambda left, right: pd.merge(left, right, on="label", how="outer"),
+            [features_3D, object_mip_features, object_middle_features, border_3D, border_XY_3D],
+        )
+    else:
+        features = reduce(
+            lambda left, right: pd.merge(left, right, on="label", how="outer"),
+            [features_3D, border_3D, border_XY_3D],
+        )
 
     if parent_object is not None:
         parent_object_label = _measure_parent_object_label(label_image, measure_object_index, parent_object_index)
