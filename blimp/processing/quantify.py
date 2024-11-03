@@ -412,8 +412,8 @@ def _quantify_single_timepoint_2D(
     # Intensity features
     # ----------------------
     # iterate over selected channels
-    for channel in intensity_channels_list:
-        channel_index = intensity_image.channel_names.index(channel)
+    for intensity_channel in intensity_channels_list:
+        channel_index = intensity_image.channel_names.index(intensity_channel)
         intensity_array = intensity_image.get_image_data("YX", C=channel_index, T=timepoint, Z=0)
 
         intensity_features = pd.DataFrame(
@@ -424,7 +424,7 @@ def _quantify_single_timepoint_2D(
                 extra_properties=(intensity_sd, intensity_median),
                 separator="_",
             )
-        ).rename(columns=lambda x: measure_object + "_" + x + "_" + channel if x != "label" else x)
+        ).rename(columns=lambda x: measure_object + "_" + x + "_" + intensity_channel if x != "label" else x)
         features = features.merge(intensity_features, on="label")
 
     # Texture features
@@ -532,8 +532,9 @@ def _quantify_single_timepoint_3D(
     # Intensity features
     # ----------------------
     # iterate over selected channels
-    for channel in intensity_channels_list:
-        channel_index = intensity_image.channel_names.index(channel)
+    features_3D_list = [morphology_features_3D]
+    for intensity_channel in intensity_channels_list:
+        channel_index = intensity_image.channel_names.index(intensity_channel)
         intensity_array = intensity_image.get_image_data("ZYX", C=channel_index, T=timepoint)
 
         intensity_features_3D = pd.DataFrame(
@@ -544,9 +545,11 @@ def _quantify_single_timepoint_3D(
                 extra_properties=(intensity_sd, intensity_median),
                 separator="_",
             )
-        ).rename(columns=lambda x: measure_object + "_3D_" + x + "_" + channel if x != "label" else x)
+        ).rename(columns=lambda x: measure_object + "_3D_" + x + "_" + intensity_channel if x != "label" else x)
 
-        features_3D = morphology_features_3D.merge(intensity_features_3D, on="label")
+        features_3D_list.append(intensity_features_3D)
+
+    features_3D = reduce(lambda left, right: pd.merge(left, right, on="label"), features_3D_list)
 
     # Object MIP features
     # ----------------------------
