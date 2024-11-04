@@ -247,7 +247,8 @@ def _measure_parent_object_label(
 
     if not columns_match:
         raise ValueError(
-            f"Measure objects ({label_image.channel_names[measure_object_index]}), not fully contained within parent objects ({label_image.channel_names[parent_object_index]})")
+            f"Measure objects ({label_image.channel_names[measure_object_index]}), not fully contained within parent objects ({label_image.channel_names[parent_object_index]})"
+        )
 
     parent_id["parent_label"] = np.floor(parent_id["intensity_max"]).astype(label_image.dtype)
     parent_id["parent_label_name"] = label_image.channel_names[parent_object_index]
@@ -495,8 +496,10 @@ def _quantify_single_timepoint_3D(
     if parent_object is not None:
         parent_object = get_channel_names(label_image, parent_object)[0]
         parent_object_index = label_image.channel_names.index(parent_object)
-        logger.warning('Detecting parent objects in 3D leads to ambiguity for object relationships in derived 2D features.')
-        logger.warning('Derived 2D features (3D-MIP and 3D-Middle) are omitted for clarity.')
+        logger.warning(
+            "Detecting parent objects in 3D leads to ambiguity for object relationships in derived 2D features."
+        )
+        logger.warning("Derived 2D features (3D-MIP and 3D-Middle) are omitted for clarity.")
         calculate_2D_derived = False
 
     if calculate_textures:
