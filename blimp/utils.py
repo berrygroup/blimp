@@ -776,7 +776,14 @@ def get_channel_names(image: AICSImage, input: Optional[Union[int, str, List[Uni
                 channel_names.append(item)
             else:
                 raise ValueError("List elements must be integers or strings.")
-        return list(set(channel_names))  # Remove duplicates
+        # remove duplicates but keep the original order
+        seen = set()
+        unique_channel_names = []
+        for name in channel_names:
+            if name not in seen:
+                unique_channel_names.append(name)
+                seen.add(name)
+        return unique_channel_names
 
 
 def cropped_array_containing_object(array: np.ndarray, bboxes: list, label: int, pad: int = 1) -> np.ndarray:

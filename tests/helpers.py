@@ -50,13 +50,13 @@ def _load_test_data(dataset: str) -> Union[List[AICSImage], None]:
         return [bf01, bf02]
     elif dataset == "synthetic_2D":
         dataset_path = Path(testdata_config.DATASET_DIR) / "synthetic_images"
-        logger.info(f"Loading registration test images from {dataset_path}")
+        logger.info(f"Loading quantify (2D) test images from {dataset_path}")
         syn_intensity01 = AICSImage(dataset_path / "synthetic_intensity_image_TYX.tiff")
         syn_label02 = AICSImage(dataset_path / "synthetic_label_image_TYX.tiff")
         return [syn_intensity01, syn_label02]
     elif dataset == "synthetic_3D":
         dataset_path = Path(testdata_config.DATASET_DIR) / "synthetic_images"
-        logger.info(f"Loading registration test images from {dataset_path}")
+        logger.info(f"Loading quantify (3D) test images from {dataset_path}")
         syn_intensity01 = AICSImage(dataset_path / "synthetic_intensity_image_TZYX.tiff")
         syn_label02 = AICSImage(dataset_path / "synthetic_label_image_TZYX.tiff")
         return [syn_intensity01, syn_label02]

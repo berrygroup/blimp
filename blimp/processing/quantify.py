@@ -363,6 +363,8 @@ def _quantify_single_timepoint_2D(
     texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_scales: list = [1, 3],
 ) -> pd.DataFrame:
+    check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False)
+
     def intensity_sd(regionmask, intensity_image):
         return np.std(intensity_image[regionmask])
 
@@ -482,6 +484,8 @@ def _quantify_single_timepoint_3D(
             "intensity_image has undetermined physical_pixel_sizes. Cannot calculate 3D morphology features."
         )
 
+    check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False)
+
     def intensity_sd(regionmask, intensity_image):
         return np.std(intensity_image[regionmask])
 
@@ -530,7 +534,7 @@ def _quantify_single_timepoint_3D(
             ],
             separator="_",
         )
-    ).rename(columns=lambda x: measure_object + "_3D_" + x if x != "label" else x)
+    ).rename(columns=lambda x: measure_object + "-3D_" + x if x != "label" else x)
 
     # Intensity features
     # ----------------------
@@ -548,7 +552,7 @@ def _quantify_single_timepoint_3D(
                 extra_properties=(intensity_sd, intensity_median),
                 separator="_",
             )
-        ).rename(columns=lambda x: measure_object + "_3D_" + x + "_" + intensity_channel if x != "label" else x)
+        ).rename(columns=lambda x: measure_object + "-3D_" + x + "_" + intensity_channel if x != "label" else x)
 
         features_3D_list.append(intensity_features_3D)
 
@@ -607,12 +611,12 @@ def _quantify_single_timepoint_3D(
     # ---------------
     # Is an object touching the 3D border?
     border_3D = border_objects(label_image.get_image_data("ZYX", C=measure_object_index)).rename(
-        columns=lambda x: measure_object + "_3D_" + x if x != "label" else x
+        columns=lambda x: measure_object + "-3D_" + x if x != "label" else x
     )
 
     # Is an object touching the XY border?
     border_XY_3D = border_objects_XY_3D(label_image, label_channel=measure_object_index).rename(
-        columns=lambda x: measure_object + "_" + x if x != "label" else x
+        columns=lambda x: measure_object + "-3D_" + x if x != "label" else x
     )
 
     # Merge all features
@@ -746,47 +750,45 @@ def quantify(
     check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False)
     label_image = make_channel_names_unique(label_image)
     intensity_image = make_channel_names_unique(intensity_image)
-    measure_objects = get_channel_names(image=label_image, input=measure_objects)
-    texture_objects = get_channel_names(image=label_image, input=texture_objects)
+    measure_objects_list: List[str] = get_channel_names(image=label_image, input=measure_objects)
+    texture_objects_list: List[str] = get_channel_names(image=label_image, input=texture_objects)
+    parent_object_str: Optional[str] = (
+        get_channel_names(image=label_image, input=parent_object)[0] if parent_object is not None else None
+    )
 
-    if aggregate and len(measure_objects) < 2:
-        logger.warning(
-            f"Cannot aggregate with only {len(measure_objects)} ``measure_objects``. Setting aggregate = False"
-        )
-        aggregate = False
-
-    if parent_object is None:
-        if aggregate:
-            parent_object = label_image.channel_names[0]
+    if aggregate:
+        if len(measure_objects_list) < 2:
             logger.warning(
-                f"``parent_object`` not specified. Data will be aggregated relative to channel 0 ({parent_object})."
+                f"Cannot aggregate with only {len(measure_objects_list)} ``measure_objects``. Setting aggregate = False"
             )
-        else:
-            logger.debug(f"``parent_object`` not specified. Data will not be aggregated.")
+            aggregate = False
+        elif parent_object_str is None:
+            raise ValueError("``parent_object`` must be specified to aggregate data.")
+        elif parent_object_str not in measure_objects_list:
+            logger.info(f"Adding ``parent_object`` to the list of measured objects.")
+            measure_objects_list.append(parent_object_str)
     else:
-        parent_object = get_channel_names(image=label_image, input=parent_object)[0]
+        if parent_object is not None:
+            logger.warning("``parent_object`` specified but ``aggregate`` is False. Ignoring ``parent_object``.")
+        parent_object = None
 
-    if aggregate and parent_object not in measure_objects:
-        logger.info(f"Adding parent object to the list of measured objects.")
-        measure_objects = measure_objects.append(parent_object)
-
-    logger.info(f"``measure_objects`` =  {measure_objects}")
-    logger.info(f"``texture_objects`` =  {texture_objects}")
-    logger.info(f"``parent_object`` =  {parent_object}")
+    logger.info(f"``measure_objects`` =  {measure_objects_list}")
+    logger.info(f"``texture_objects`` =  {texture_objects_list}")
+    logger.info(f"``parent_object`` =  {parent_object_str}")
 
     # for each object, do the measurement
     features_list: List[pd.DataFrame] = []
-    for obj_index, obj in enumerate(measure_objects):
+    for obj_index, obj in enumerate(measure_objects_list):
         logger.debug(f"Quantifying {obj}")
 
         features = quantify_single_timepoint(
             intensity_image=intensity_image,
             label_image=label_image,
             measure_object=obj,
-            parent_object=obj if parent_object is None else parent_object,
+            parent_object=parent_object_str,
             timepoint=timepoint,
             intensity_channels=intensity_channels,
-            calculate_textures=True if obj in texture_objects else False,
+            calculate_textures=True if obj in texture_objects_list else False,
             texture_channels=texture_channels,
             texture_scales=texture_scales,
         )
@@ -795,8 +797,8 @@ def quantify(
     if aggregate:
         output = aggregate_and_merge_features(
             df_list=features_list,
-            parent_index=label_image.channel_names.index(parent_object),
-            object_names=measure_objects,
+            parent_index=label_image.channel_names.index(parent_object_str),
+            object_names=measure_objects_list,
         )
     else:
         output = features_list
