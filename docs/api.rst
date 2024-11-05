@@ -29,6 +29,5 @@ Processing
 .. autosummary::
     :toctree: api
 
-    processing.segment_and_quantify.quantify
-    processing.segment_and_quantify.segment_and_quantify
-    processing.segment_and_quantify.segment_nuclei_cellpose
+    processing.segment.segment_nuclei_cellpose
+    processing.quantify.quantify
