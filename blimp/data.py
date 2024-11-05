@@ -47,7 +47,7 @@ def load_test_data():
     """
     Download test data to ``SCRIPTS_DIR/tests``.
     """
-    url = "https://figshare.com/ndownloader/files/50219463"
+    url = "https://figshare.com/ndownloader/files/50220564"
     base_dir = os.path.join(SCRIPTS_DIR, "tests")
     print(f"base_dir = {base_dir}")
     archive_path = os.path.join(base_dir, "_data.zip")
