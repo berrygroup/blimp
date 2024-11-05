@@ -22,7 +22,7 @@ def _ensure_test_data():
         os.path.join(SCRIPTS_DIR, "tests/_data")
     ):
         return
-    with zipfile.ZipFile(os.path.join(SCRIPTS_DIR, "tests/_test_data.zip"), "r") as zip_ref:
+    with zipfile.ZipFile(os.path.join(SCRIPTS_DIR, "tests/_data.zip"), "r") as zip_ref:
         zip_ref.extractall(os.path.join(SCRIPTS_DIR, "tests/."))
 
 
