@@ -115,6 +115,22 @@ def _calculate_texture_features_single_object(
 
 
 def border_objects(label_array: np.ndarray) -> pd.DataFrame:
+    """
+    Identify objects that touch the border of the image.
+
+    Parameters
+    ----------
+    label_array
+        A labeled array where each object is represented by a unique integer label.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame with two columns:
+        - 'label': The unique object labels found in the image.
+        - 'is_border': Boolean values indicating whether each object
+          touches the border (True) or not (False).
+    """
     all_object_labels = [x for x in np.unique(label_array) if x != 0]
 
     label_array_non_border = clear_border(label_array)
@@ -132,10 +148,10 @@ def border_objects_XY_3D(label_image: AICSImage, label_channel: int = 0) -> pd.D
 
     Parameters
     ----------
-    label_image : AICSImage
+    label_image
         3D labeled image where objects are represented by unique integer
         labels. It should contain multiple Z planes and at least one channel.
-    label_channel : int, optional
+    label_channel
         The channel index to extract from the image for analysis. Defaults to 0.
 
     Returns
@@ -182,16 +198,16 @@ def _measure_parent_object_label(
 
     Parameters
     ----------
-    label_image : AICSImage
+    label_image
         The labeled image containing objects in separate channels, where each channel
         corresponds to a different object type (possibly 5D: "TCZYX").
-    measure_object_index : int
+    measure_object_index
         Index of the channel in `label_image` corresponding to the child objects
         that will be measured.
-    parent_object_index : int
+    parent_object_index
         Index of the channel in `label_image` corresponding to the parent objects
         to which the child objects are associated.
-    timepoint : int, optional
+    timepoint
         Timepoint at which to measure the objects, by default 0.
 
     Returns
@@ -257,7 +273,7 @@ def _measure_parent_object_label(
     return parent_id
 
 
-def quantify_single_timepoint(
+def _quantify_single_object(
     intensity_image: AICSImage,
     label_image: AICSImage,
     measure_object: Union[int, str],
@@ -269,34 +285,34 @@ def quantify_single_timepoint(
     texture_scales: list = [1, 3],
 ) -> pd.DataFrame:
     """Quantify all channels in an image relative to a matching label image.
-    Single time-point only. Single object only.
+    Single object only.
 
     Parameters
     ----------
-    intensity_image : AICSImage
+    intensity_image
         Intensity image (possibly 5D: "TCZYX").
-    label_image : AICSImage
+    label_image
         Label image where objects are represented by unique integer labels
         (possibly 5D: "TCZYX").
-    measure_object : Union[int, str]
+    measure_object
         The object type (label) to be measured in the label image, either as an
         index or a string representing the object's channel name.
-    parent_object : Optional[Union[int, str]], optional
+    parent_object
         If provided, an optional parent object to associate with the measure_object
         for hierarchical measurements. Can be an index or a channel name, by default None.
-    timepoint : int, optional
-        The timepoint to quantify, by default 0.
-    intensity_channels : Optional[Union[int, str, List[Union[int, str]]]], optional
+    timepoint
+        The timepoint to quantify, by default None (all timepoints measured).
+    intensity_channels
         Channels in `intensity_image` to use for intensity calculations. Can be
         provided as indices or names. If None, no intensity features are calculated,
         by default None.
-    calculate_textures : Optional[bool], optional
+    calculate_textures
         Whether to calculate texture features, by default False.
-    texture_channels : Optional[Union[int, str, List[Union[int, str]]]], optional
+    texture_channels
         Channels in `intensity_image` to use for texture calculations. Can be
         provided as indices or names. If None, no texture features are calculated,
         by default None.
-    texture_scales : list, optional
+    texture_scales
         Length scales at which to calculate textures, by default [1, 3].
 
     Returns
@@ -307,7 +323,7 @@ def quantify_single_timepoint(
     Notes
     -----
     - Accepts 2D or 3D data as input.
-    - For 3D data, textures are not calculate on 3D images, but rather on object-based
+    - For 3D data, textures are not calculated on 3D images, but rather on object-based
     maximum-intensity projections, and on the 2D image extracted from the
     "middle" (central-Z) plane of each object.
     """
@@ -363,6 +379,35 @@ def _quantify_single_timepoint_2D(
     texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_scales: list = [1, 3],
 ) -> pd.DataFrame:
+    """
+    Quantify features for a single timepoint in a 2D image.
+
+    Parameters
+    ----------
+    intensity_image
+        The intensity image containing the data.
+    label_image
+        The labeled image where objects are represented by unique integer labels.
+    measure_object
+        The object to be measured.
+    parent_object
+        The parent object to which the measured object is associated, by default None.
+    timepoint
+        The timepoint at which to measure the objects, by default 0.
+    intensity_channels
+        The channels to be used for intensity measurements, by default None.
+    calculate_textures
+        Whether to calculate texture features, by default False.
+    texture_channels
+        The channels to be used for texture calculations, by default None.
+    texture_scales
+        The scales to be used for texture calculations, by default [1, 3].
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the quantified features.
+    """
     check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False)
 
     def intensity_sd(regionmask, intensity_image):
@@ -474,6 +519,35 @@ def _quantify_single_timepoint_3D(
     texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_scales: list = [1, 3],
 ) -> pd.DataFrame:
+    """
+    Quantify features for a single timepoint in a 3D image.
+
+    Parameters
+    ----------
+    intensity_image
+        The intensity image containing the data.
+    label_image
+        The labeled image where objects are represented by unique integer labels.
+    measure_object
+        The object to be measured.
+    parent_object
+        The parent object to which the measured object is associated, by default None.
+    timepoint
+        The timepoint at which to measure the objects, by default 0.
+    intensity_channels
+        The channels to be used for intensity measurements, by default None.
+    calculate_textures
+        Whether to calculate texture features, by default False.
+    texture_channels
+        The channels to be used for texture calculations, by default None.
+    texture_scales
+        The scales to be used for texture calculations, by default [1, 3].
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the quantified features.
+    """
     if (
         intensity_image.physical_pixel_sizes is None
         or intensity_image.physical_pixel_sizes.Z is None
@@ -651,13 +725,13 @@ def aggregate_and_merge_features(
 
     Parameters
     ----------
-    df_list : List[pd.DataFrame]
+    df_list
         A list of feature tables
 
-    parent_index : int
+    parent_index
         The index of the parent feature table in `df_list`
 
-    object_names : List[str]
+    object_names
         A list matching the length of `df_list` containing the object names (in the same order)
 
     Returns
@@ -727,23 +801,48 @@ def quantify(
     texture_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_scales: list = [1, 3],
 ) -> Union[pd.DataFrame, List[pd.DataFrame]]:
-    """Quantify all channels in an image relative to a matching segmentation
-    label image.
+    """
+    Quantify features for objects in an image.
 
     Parameters
     ----------
     intensity_image
-        intensity image (possibly 5D: "TCZYX")
+        The intensity image containing the data.
     label_image
-        label image (possibly 5D: "TCZYX")
+        The labeled image where objects are represented by unique integer labels.
+    measure_objects
+        The objects to be measured, by default None.
+    parent_object
+        The parent object to which the measured objects are associated, by default None.
+    aggregate
+        Whether to aggregate the features, by default False.
     timepoint
-        which timepoint should be segmented (optional,
-        default None will segment all time-points)
+        The timepoint at which to measure the objects, by default None.
+    intensity_channels
+        The channels to be used for intensity measurements, by default None.
+    texture_channels
+        The channels to be used for texture calculations, by default None.
+    texture_objects
+        The objects to be used for texture calculations, by default None.
+    texture_scales
+        The scales to be used for texture calculations, by default [1, 3].
 
     Returns
     -------
-    pandas.DataFrame
-        quantified data (n_rows = # objects x # timepoints, n_cols = # features)
+    Union[pd.DataFrame, List[pd.DataFrame]]
+        A DataFrame or a list of DataFrames containing the quantified features.
+
+    Notes
+    -----
+    - If `aggregate` is True, the function will attempt to aggregate features across
+      multiple objects. In this case, the `parent_object` must be specified to provide
+      context for the aggregation. If `parent_object` is not specified, a ValueError
+      will be raised.
+    - If `aggregate` is False, the function will quantify features for individual objects
+      without aggregation and return a list if there are multiple objects in `measure_objects`.
+      In this case, specifying a `parent_object` is optional and will be ignored if provided.
+    - If `measure_objects` contains fewer than two objects, aggregation cannot proceed,
+      and a warning will be logged. The `aggregate` flag will be set to False.
     """
 
     # Check inputs
@@ -781,7 +880,7 @@ def quantify(
     for obj_index, obj in enumerate(measure_objects_list):
         logger.debug(f"Quantifying {obj}")
 
-        features = quantify_single_timepoint(
+        features = _quantify_single_object(
             intensity_image=intensity_image,
             label_image=label_image,
             measure_object=obj,

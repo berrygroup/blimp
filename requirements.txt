@@ -3,6 +3,7 @@ basicpy>=1.1.0
 cellpose>=2.2.3
 importlib_metadata>=5.1.0
 itk-elastix>=0.18.0
+jax>=0.4.23
 mahotas>=1.4.13
 matplotlib>=3.6.3
 nd2reader>=3.3.0
@@ -14,4 +15,3 @@ scikit_image>=0.21.0
 tomli>=2.0.1
 typing_extensions>=4.4.0
 welford
-jax>=0.4.23
