@@ -72,7 +72,7 @@ class IlluminationCorrection:
                     self.fit(reference_images, **kwargs)  # type: ignore
                 elif is_input_files:
                     images = [
-                        AICSImage(image, reader=readers.ome_tiff_reader.OmeTiffReader) for image in reference_images
+                        AICSImage(image) for image in reference_images
                     ]
                     self.fit(images, **kwargs)
 

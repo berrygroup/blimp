@@ -42,7 +42,7 @@ def test_IlluminationCorrection_init_from_reference_images(_ensure_test_data):
     assert illumination_correction.file_path is None
     assert illumination_correction.file_name is None
     assert equal_dims(illumination_correction, images[0])
-    assert illumination_correction.correctors is not None
+    assert illumination_correction.method == "pixel_z_score"
 
 
 def test_IlluminationCorrection_init_from_reference_image_files(_ensure_test_data):
@@ -74,7 +74,7 @@ def test_IlluminationCorrection_init_from_reference_image_files(_ensure_test_dat
     assert illumination_correction.file_path is None
     assert illumination_correction.file_name is None
     assert equal_dims(illumination_correction, AICSImage(image_paths[0]))
-    assert illumination_correction.correctors is not None
+    assert illumination_correction.method == "pixel_z_score"
     # valid: str
     illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
         reference_images=[str(p) for p in image_paths], timelapse=False
@@ -83,7 +83,7 @@ def test_IlluminationCorrection_init_from_reference_image_files(_ensure_test_dat
     assert illumination_correction.file_path is None
     assert illumination_correction.file_name is None
     assert equal_dims(illumination_correction, AICSImage(image_paths[0]))
-    assert illumination_correction.correctors is not None
+    assert illumination_correction.method == "pixel_z_score"
 
 
 def test_IlluminationCorrection_init_from_file(_ensure_test_data):
