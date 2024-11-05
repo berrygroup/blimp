@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - aggregate_features
   pull_request:
     branches:
       - main
