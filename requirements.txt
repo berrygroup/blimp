@@ -3,6 +3,7 @@ basicpy>=1.1.0
 cellpose>=2.2.3
 importlib_metadata>=5.1.0
 itk-elastix>=0.18.0
+jax>=0.4.23
 mahotas>=1.4.13
 matplotlib>=3.6.3
 nd2reader>=3.3.0
