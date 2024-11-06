@@ -6,6 +6,8 @@
    :target: /tests/coverage/coverage.svg
 .. image:: https://zenodo.org/badge/508656801.svg
    :target: https://zenodo.org/doi/10.5281/zenodo.12559364
+|License|
+|Code style: black|
 
 blimp
 =====
