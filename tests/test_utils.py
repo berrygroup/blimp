@@ -445,4 +445,3 @@ def test_smooth_image_invalid_input():
     # Check that an invalid input type raises a TypeError
     with pytest.raises(TypeError):
         blimp.utils.smooth_image(image_data, sigma=1, method="gaussian")
-

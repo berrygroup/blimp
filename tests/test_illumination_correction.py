@@ -37,9 +37,7 @@ def test_IlluminationCorrection_invalid_method():
 def test_IlluminationCorrection_invalid_timelapse():
     images = _load_test_data("illumination_correction")
     with pytest.raises(ValueError):
-        blimp.preprocessing.illumination_correction.IlluminationCorrection(
-            reference_images=images, timelapse=None
-        )
+        blimp.preprocessing.illumination_correction.IlluminationCorrection(reference_images=images, timelapse=None)
 
 
 def test_IlluminationCorrection_fit_invalid_images():
@@ -54,7 +52,7 @@ def test_IlluminationCorrection_fit_invalid_images():
 
 def test_IlluminationCorrection_fit_non_uniform_images():
     images = _load_test_data("illumination_correction")
-    images[0] = AICSImage(images[0].data[:,:,:,:100,:100])  # Non-uniform dimensions
+    images[0] = AICSImage(images[0].data[:, :, :, :100, :100])  # Non-uniform dimensions
     illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
         method="pixel_z_score", timelapse=False
     )
@@ -213,7 +211,7 @@ def test_IlluminationCorrection_init_from_reference_images(_ensure_test_data):
     assert equal_dims(illumination_correction, images[0])
     assert illumination_correction.method == "pixel_z_score"
     # invalid: one of the AICSImages has a different size
-    images[0] = AICSImage(images[0].data[:,:,:,:100,:100])
+    images[0] = AICSImage(images[0].data[:, :, :, :100, :100])
     with pytest.raises(ValueError):
         illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
             reference_images=images
@@ -263,7 +261,7 @@ def test_IlluminationCorrection_init_from_reference_image_files(_ensure_test_dat
 
 def test_IlluminationCorrection_load(_ensure_test_data):
     testdata_config = blimp_config.get_data_config("testdata")
-    file_path = Path(testdata_config.RESOURCES_DIR) / "illumination_correction.pkl"
+    Path(testdata_config.RESOURCES_DIR) / "illumination_correction.pkl"
     invalid_file_path = Path(testdata_config.RESOURCES_DIR) / "illumination_correction.txt"
     # invalid
     illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection()
@@ -298,8 +296,8 @@ def test_IlluminationCorrection_file_path_setter(_ensure_test_data):
     # test loading from file after defining using the setter
     assert illumination_correction.correctors is None
     # TODO: Fix this test by adding a valid file to the testdata
-    #illumination_correction.load()
-    #assert illumination_correction.correctors is not None
+    # illumination_correction.load()
+    # assert illumination_correction.correctors is not None
 
 
 def test_correct_illumination(_ensure_test_data):
@@ -354,4 +352,3 @@ def test_IlluminationCorrection_copy(_ensure_test_data):
     assert illumination_correction_copy.is_smoothed == illumination_correction.is_smoothed
     assert illumination_correction_copy.file_path == None
     assert illumination_correction_copy.file_name == None
-
