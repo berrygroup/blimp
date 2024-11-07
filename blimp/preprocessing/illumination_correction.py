@@ -13,7 +13,7 @@ import dask.array as da
 from blimp.utils import (
     equal_dims,
     average_images,
-    smooth_images,
+    smooth_image,
     mean_std_welford,
     concatenate_images,
     convert_array_dtype,
@@ -229,10 +229,10 @@ class IlluminationCorrection:
     def smooth(self, sigma: int = 5):
         if self._method == "pixel_z_score":
             logger.info(f"Smoothing correction matrices with kernel size of {sigma} (pixels)")
-            self._mean_image = smooth_images(image=self._mean_image, sigma=sigma)
-            self._std_image = smooth_images(image=self._std_image, sigma=sigma)
-            self._mean_mean_image = np.mean(self._mean_image)
-            self._mean_std_image = np.mean(self._std_image)
+            self._mean_image = smooth_image(image=self._mean_image, sigma=sigma)
+            self._std_image = smooth_image(image=self._std_image, sigma=sigma)
+            self._mean_mean_image = [np.mean(self._mean_image.get_image_data("YX", C=c)) for c in range(self._dims.C)]
+            self._mean_std_image = [np.mean(self._std_image.get_image_data("YX", C=c)) for c in range(self._dims.C)]
             self._is_smoothed = True
         else:
             raise NotImplementedError("``smooth`` method not implemented for BaSiC correction")

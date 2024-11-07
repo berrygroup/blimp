@@ -7,7 +7,7 @@ from aicsimageio import AICSImage
 import numpy as np
 import dask.array as da
 import skimage.measure
-from skimage.filters import gaussian
+import mahotas as mh
 
 logger = logging.getLogger(__name__)
 
@@ -495,7 +495,7 @@ def std_images(images: List[AICSImage], keep_same_type: bool = True) -> AICSImag
     return AICSImage(arr, channel_names=images[0].channel_names, physical_pixel_sizes=images[0].physical_pixel_sizes)
 
 
-def smooth_images(image: AICSImage, sigma: int = 1, keep_same_type: bool = True, filter_3d: bool = False) -> AICSImage:
+def smooth_image(image: AICSImage, sigma: int = 1, method: str = 'gaussian', keep_same_type: bool = True, filter_3d: bool = False) -> AICSImage:
     """
     Smooth an image using a Gaussian filter.
 
@@ -523,6 +523,8 @@ def smooth_images(image: AICSImage, sigma: int = 1, keep_same_type: bool = True,
     """
     if not isinstance(image, AICSImage):
         raise TypeError("Input must be an AICSImage")
+    if method not in ['gaussian', 'median']:
+        raise ValueError("Method must be either 'gaussian' or 'median'")
 
     smoothed_data = np.zeros_like(image.data)
 
@@ -530,13 +532,22 @@ def smooth_images(image: AICSImage, sigma: int = 1, keep_same_type: bool = True,
         for c in range(image.dims.C):
             if filter_3d:
                 arr = image.get_image_data("ZYX", T=t, C=c)
-                smoothed = gaussian(image=arr, sigma=sigma, preserve_range=True)
-                smoothed_data[t, c] = smoothed
+                if method == 'gaussian':
+                    smoothed = mh.gaussian_filter(array=arr, sigma=sigma)
+                    smoothed_data[t, c] = smoothed
+                elif method == 'median':
+                    smoothed = mh.median_filter(array=arr, Bc=mh.disk(sigma))
+                    smoothed_data[t, c] = smoothed
             else:
                 for z in range(image.dims.Z):
-                    arr = image.get_image_data("YX", T=t, C=c, Z=z)
-                    smoothed = gaussian(image=arr, sigma=sigma, preserve_range=True)
-                    smoothed_data[t, c, z] = smoothed
+                    if method == 'gaussian':
+                        arr = image.get_image_data("YX", T=t, C=c, Z=z)
+                        smoothed = mh.gaussian_filter(array=arr, sigma=sigma)
+                        smoothed_data[t, c, z] = smoothed
+                    elif method == 'median':
+                        arr = image.get_image_data("YX", T=t, C=c, Z=z)
+                        smoothed = mh.median_filter(array=arr, Bc=mh.disk(sigma))
+                        smoothed_data[t, c, z] = smoothed
 
     if keep_same_type:
         smoothed_data = convert_array_dtype(smoothed_data, image.dtype)
