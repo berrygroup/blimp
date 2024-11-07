@@ -4,6 +4,8 @@
 ![Tests](tests/coverage/tests.svg)
 ![Coverage](tests/coverage/coverage.svg)
 ![DOI](https://zenodo.org/badge/508656801.svg)
+![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)
+![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)
 
 **B**erry **L**ab **IM**age **P**rocessing
 
@@ -116,7 +118,4 @@ We have implemented style guide checks using `tox`,
 tox -e lint
 ```
 
-For further info on formatting and contributing, see the [contributing guide](CONTRIBUTING.rst).
-
-![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)
-![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)
+For further info on formatting and contributing, see the [contributing guide](CONTRIBUTING.md).
