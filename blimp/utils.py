@@ -7,6 +7,7 @@ from aicsimageio import AICSImage
 import numpy as np
 import dask.array as da
 import skimage.measure
+from skimage.filters import gaussian
 
 logger = logging.getLogger(__name__)
 
@@ -492,6 +493,55 @@ def std_images(images: List[AICSImage], keep_same_type: bool = True) -> AICSImag
             arr = arr.astype(images[0].dtype)
 
     return AICSImage(arr, channel_names=images[0].channel_names, physical_pixel_sizes=images[0].physical_pixel_sizes)
+
+
+def smooth_images(image: AICSImage, sigma: int = 1, keep_same_type: bool = True, filter_3d: bool = False) -> AICSImage:
+    """
+    Smooth an image using a Gaussian filter.
+
+    Parameters
+    ----------
+    image
+        An `AICSImage` object to be smoothed.
+    sigma
+        The standard deviation of the Gaussian filter. Default = 1.
+    keep_same_type
+        If True, the dtype of the smoothed image will be the same as the input image.
+        If False, the dtype will be float64.
+    filter_3d
+        If True, the filter will be applied in 3D. Otherwise each Z-slice will be 
+        filtered separately. Default = False.
+    Returns
+    -------
+    AICSImage
+        The smoothed image.
+
+    Raise
+    ------
+    TypeError
+        If input is not an AICSImage.
+    """
+    if not isinstance(image, AICSImage):
+        raise TypeError("Input must be an AICSImage")
+
+    smoothed_data = np.zeros_like(image.data)
+
+    for t in range(image.dims.T):
+        for c in range(image.dims.C):
+            if filter_3d:
+                arr = image.get_image_data("ZYX", T=t, C=c)
+                smoothed = gaussian(image=arr, sigma=sigma, preserve_range=True)
+                smoothed_data[t, c] = smoothed
+            else:
+                for z in range(image.dims.Z):
+                    arr = image.get_image_data("YX", T=t, C=c, Z=z)
+                    smoothed = gaussian(image=arr, sigma=sigma, preserve_range=True)
+                    smoothed_data[t, c, z] = smoothed
+
+    if keep_same_type:
+        smoothed_data = convert_array_dtype(smoothed_data, image.dtype)
+
+    return AICSImage(smoothed_data, channel_names=image.channel_names, physical_pixel_sizes=image.physical_pixel_sizes)
 
 
 def concatenate_images(

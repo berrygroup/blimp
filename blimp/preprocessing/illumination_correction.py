@@ -5,7 +5,6 @@ import logging
 
 from matplotlib import pyplot as plt
 from aicsimageio import AICSImage
-from skimage.filters import gaussian
 from aicsimageio.transforms import reshape_data
 import numpy as np
 import basicpy
@@ -14,6 +13,7 @@ import dask.array as da
 from blimp.utils import (
     equal_dims,
     average_images,
+    smooth_images,
     mean_std_welford,
     concatenate_images,
     convert_array_dtype,
@@ -229,8 +229,8 @@ class IlluminationCorrection:
     def smooth(self, sigma: int = 5):
         if self._method == "pixel_z_score":
             logger.info(f"Smoothing correction matrices with kernel size of {sigma} (pixels)")
-            self._mean_image = gaussian(image=self._mean_image, sigma=sigma, preserve_range=True)
-            self._std_image = gaussian(image=self._std_image, sigma=sigma, preserve_range=True)
+            self._mean_image = smooth_images(image=self._mean_image, sigma=sigma)
+            self._std_image = smooth_images(image=self._std_image, sigma=sigma)
             self._mean_mean_image = np.mean(self._mean_image)
             self._mean_std_image = np.mean(self._std_image)
             self._is_smoothed = True
