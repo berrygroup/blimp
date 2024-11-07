@@ -4,7 +4,7 @@ import pickle
 import logging
 
 from matplotlib import pyplot as plt
-from aicsimageio import readers, AICSImage
+from aicsimageio import AICSImage
 from aicsimageio.transforms import reshape_data
 import numpy as np
 import basicpy
@@ -12,6 +12,7 @@ import dask.array as da
 
 from blimp.utils import (
     equal_dims,
+    smooth_image,
     average_images,
     mean_std_welford,
     concatenate_images,
@@ -41,6 +42,11 @@ class IlluminationCorrection:
         self._std_image = None
         self._mean_mean_image = None
         self._mean_std_image = None
+        self._is_smoothed = False
+
+        # Check if the provided method is valid
+        if self._method not in ["pixel_z_score", "basic"]:
+            raise ValueError(f"Unrecognized method: {self._method}. Supported methods are 'pixel_z_score' and 'basic'.")
 
         # 1. Initialise using reference images and set correctors using fit()
         if reference_images is not None:
@@ -71,9 +77,7 @@ class IlluminationCorrection:
                 if is_input_AICSImage:
                     self.fit(reference_images, **kwargs)  # type: ignore
                 elif is_input_files:
-                    images = [
-                        AICSImage(image) for image in reference_images
-                    ]
+                    images = [AICSImage(image) for image in reference_images]
                     self.fit(images, **kwargs)
 
         # 2. Read from a file using load()
@@ -132,6 +136,10 @@ class IlluminationCorrection:
     def correctors(self):
         return self._correctors
 
+    @property
+    def is_smoothed(self):
+        return self._is_smoothed
+
     def fit(self, reference_images: List[AICSImage], timelapse: bool = False, **kwargs):
         try:
             if not check_uniform_dimension_sizes(reference_images):
@@ -147,7 +155,7 @@ class IlluminationCorrection:
             # Use the Welford method, which computes mean and std using data
             # loaded in series (to reduce the memory requirement)
             if not self._timelapse:
-                self._mean_image, self._std_image = mean_std_welford(reference_images)
+                self._mean_image, self._std_image = mean_std_welford(reference_images, log_transform=True)
                 self._mean_mean_image = [
                     np.mean(self._mean_image.get_image_data("YX", C=c)) for c in range(self._dims.C)
                 ]
@@ -208,6 +216,36 @@ class IlluminationCorrection:
             else:
                 raise RuntimeError("``mean_image`` not defined, cannot plot ``IlluminationCorrection``")
 
+    def copy(self):
+        new_copy = IlluminationCorrection(
+            method=self._method,
+            timelapse=self._timelapse,
+        )
+        new_copy._dims = self._dims
+        new_copy._correctors = self._correctors
+        new_copy._mean_image = self._mean_image
+        new_copy._std_image = self._std_image
+        new_copy._mean_mean_image = self._mean_mean_image
+        new_copy._mean_std_image = self._mean_std_image
+        new_copy._is_smoothed = self._is_smoothed
+        return new_copy
+
+    def smooth(self, sigma: int = 5):
+        if self._method == "pixel_z_score":
+            logger.info(f"Smoothing correction matrices with kernel size of {sigma} (pixels)")
+            self._mean_image = smooth_image(image=self._mean_image, sigma=sigma)
+            self._std_image = smooth_image(image=self._std_image, sigma=sigma)
+            if isinstance(self._mean_image, AICSImage) and isinstance(self._std_image, AICSImage):
+                self._mean_mean_image = [
+                    np.mean(self._mean_image.get_image_data("YX", C=c)) for c in range(self._mean_image.dims.C)
+                ]
+                self._mean_std_image = [
+                    np.mean(self._std_image.get_image_data("YX", C=c)) for c in range(self._mean_image.dims.C)
+                ]
+            self._is_smoothed = True
+        else:
+            raise NotImplementedError("``smooth`` method not implemented for BaSiC correction")
+
     @property
     def file_name(self):
         return self._file_name
@@ -223,7 +261,7 @@ class IlluminationCorrection:
 
         p = Path(file_path)
         if p.suffix == "":
-            raise ValueError("``path`` must be a file, not a directory.")
+            raise RuntimeError("``path`` must be a file, not a directory.")
         if not p.parent.exists():
             logger.debug("Creating folder for illumination correction files")
             p.parent.mkdir()
@@ -277,7 +315,7 @@ class IlluminationCorrection:
 
         # 3. Check attributes of loaded object
         if str(illumination_correction._file_path) != str(path):
-            logger.warn(
+            logger.warning(
                 f"``file_path =`` {str(illumination_correction._file_path)} in object "
                 + f"stored at {str(path)} does not match. Overwriting ``file_path`` attribute"
             )
@@ -315,21 +353,40 @@ class IlluminationCorrection:
             self._std_image = illumination_correction.std_image
 
     def correct(
-        self, image: Union[AICSImage, np.ndarray, da.core.Array, List[AICSImage], List[np.ndarray], List[da.core.Array]]
+        self,
+        image: Union[AICSImage, np.ndarray, da.core.Array, List[AICSImage], List[np.ndarray], List[da.core.Array]],
+        smooth: Optional[int] = None,
     ):
-        return correct_illumination(image, self)
+        return correct_illumination(image, self, smooth)
 
 
 def pixel_z_score(
-    original: np.ndarray, mean_image: np.ndarray, std_image: np.ndarray, mean_mean_image: float, mean_std_image: float
+    original: np.ndarray,
+    mean_image: np.ndarray,
+    std_image: np.ndarray,
+    mean_mean_image: float,
+    mean_std_image: float,
+    log_transform: bool = True,
 ) -> np.ndarray:
-    z = (original.astype(float) - mean_image) / std_image
+    original_dtype = original.dtype
+    original = original.astype(np.float64)
+
+    if log_transform:
+        logger.debug("Log-transforming input image for pixel-wise z-score correction")
+        original[original == 0] = 1e-10
+        original = np.log10(original)
+        original[original == 0] = 0
+
+    z = (original - mean_image) / std_image
     corrected = mean_mean_image + (mean_std_image * z)
 
+    if log_transform:
+        corrected = 10**corrected
+
     if original.dtype.kind in ["i", "u"]:
-        corrected = np.rint(corrected).astype(original.dtype)
+        corrected = np.rint(corrected).astype(original_dtype)
     else:
-        corrected = corrected.astype(original.dtype)
+        corrected = corrected.astype(original_dtype)
 
     return corrected
 
@@ -337,6 +394,7 @@ def pixel_z_score(
 def _correct_illumination(
     image: Union[AICSImage, np.ndarray, da.core.Array],
     illumination_correction: IlluminationCorrection,
+    smooth: Optional[int] = None,
     dimension_order_in: Optional[str] = None,
 ) -> Union[AICSImage, np.ndarray]:
     # 1. check input types and convert to AICSImage
@@ -388,6 +446,12 @@ def _correct_illumination(
                 axis=0,
             )
         elif illumination_correction.method == "pixel_z_score":
+            # smooth correction object before applying if required
+            if smooth is None:
+                corr_obj = illumination_correction
+            else:
+                corr_obj = illumination_correction.copy()
+                corr_obj.smooth(sigma=smooth)
             corr = np.stack(
                 [
                     np.stack(
@@ -396,12 +460,10 @@ def _correct_illumination(
                                 [
                                     pixel_z_score(
                                         original=im.get_image_data("YX", C=c, Z=z, T=t),
-                                        mean_image=illumination_correction.mean_image.get_image_data(
-                                            "YX", C=c, Z=0, T=0
-                                        ),
-                                        std_image=illumination_correction.std_image.get_image_data("YX", C=c, Z=0, T=0),
-                                        mean_mean_image=illumination_correction.mean_mean_image[c],
-                                        mean_std_image=illumination_correction.mean_std_image[c],
+                                        mean_image=corr_obj.mean_image.get_image_data("YX", C=c, Z=0, T=0),
+                                        std_image=corr_obj.std_image.get_image_data("YX", C=c, Z=0, T=0),
+                                        mean_mean_image=corr_obj.mean_mean_image[c],
+                                        mean_std_image=corr_obj.mean_std_image[c],
                                     )
                                     for z in range(im.dims.Z)
                                 ],
@@ -459,19 +521,32 @@ def _correct_illumination(
 def correct_illumination(
     images: Union[AICSImage, np.ndarray, da.core.Array, List[AICSImage], List[np.ndarray], List[da.core.Array]],
     illumination_correction: IlluminationCorrection,
+    smooth: Optional[int] = None,
     dimension_order_in: str = "TCZYX",
 ) -> Union[AICSImage, np.ndarray, List[AICSImage], List[np.ndarray]]:
     # individual input -> individual output
     if isinstance(images, (AICSImage, np.ndarray, da.core.Array)):
-        res = _correct_illumination(images, illumination_correction, dimension_order_in)
+        res = _correct_illumination(
+            images, illumination_correction, smooth=smooth, dimension_order_in=dimension_order_in
+        )
     # list input -> list output
     elif isinstance(images, list):
         if all(isinstance(image, AICSImage) for image in images):
-            res = [_correct_illumination(image, illumination_correction) for image in images]
+            res = [_correct_illumination(image, illumination_correction, smooth=smooth) for image in images]
         elif all(isinstance(image, np.ndarray) for image in images):
-            res = [_correct_illumination(image, illumination_correction, dimension_order_in) for image in images]
+            res = [
+                _correct_illumination(
+                    image, illumination_correction, smooth=smooth, dimension_order_in=dimension_order_in
+                )
+                for image in images
+            ]
         elif all(isinstance(image, da.core.Array) for image in images):
-            res = [_correct_illumination(image, illumination_correction, dimension_order_in) for image in images]
+            res = [
+                _correct_illumination(
+                    image, illumination_correction, smooth=smooth, dimension_order_in=dimension_order_in
+                )
+                for image in images
+            ]
     else:
         raise TypeError("``images`` is a non-uniform list")
 
