@@ -355,7 +355,6 @@ def mean_std_welford(images: List[AICSImage], log_transform: bool = False) -> tu
     w = [Welford() for i in range(n_c)]
     for image in images:
         for c in range(n_c):
-            # use lazy loading to see if this fixes the memory leak
             array_lazy = image.get_image_dask_data("YX", C=c, T=0, Z=0)
             array = array_lazy.compute()
             if log_transform:
