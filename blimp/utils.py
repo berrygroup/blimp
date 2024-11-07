@@ -538,7 +538,7 @@ def smooth_image(
                     smoothed = mh.gaussian_filter(array=arr, sigma=sigma)
                     smoothed_data[t, c] = smoothed
                 elif method == "median":
-                    smoothed = mh.median_filter(array=arr, Bc=mh.disk(sigma))
+                    smoothed = mh.median_filter(f=arr, Bc=mh.disk(sigma, dim=3))
                     smoothed_data[t, c] = smoothed
             else:
                 for z in range(image.dims.Z):
@@ -548,7 +548,7 @@ def smooth_image(
                         smoothed_data[t, c, z] = smoothed
                     elif method == "median":
                         arr = image.get_image_data("YX", T=t, C=c, Z=z)
-                        smoothed = mh.median_filter(array=arr, Bc=mh.disk(sigma))
+                        smoothed = mh.median_filter(f=arr, Bc=mh.disk(sigma, dim=2))
                         smoothed_data[t, c, z] = smoothed
 
     if keep_same_type:

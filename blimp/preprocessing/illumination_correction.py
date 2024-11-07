@@ -373,7 +373,7 @@ def pixel_z_score(
 
     if log_transform:
         logger.debug("Log-transforming input image for pixel-wise z-score correction")
-        original[original == 0] = 10**-10
+        original[original == 0] = 1e-10
         original = np.log10(original)
         original[original == 0] = 0
 

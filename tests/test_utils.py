@@ -372,3 +372,77 @@ def test_translate_array():
     result = blimp.utils.translate_array(img, y=0, x=-1)
     expected_result = np.pad(img, ((0, 0), (0, 1)), mode="constant")[:, 1:]
     assert np.array_equal(result, expected_result)
+
+
+def test_smooth_image_gaussian_2d():
+    # Create a sample 2D image
+    image_data = np.random.rand(1, 1, 1, 10, 10)
+    image = AICSImage(image_data)
+
+    smoothed_image = blimp.utils.smooth_image(image, sigma=1, method="gaussian", filter_3d=False)
+    assert isinstance(smoothed_image, AICSImage)
+    assert smoothed_image.data.shape == image.data.shape
+    assert smoothed_image.dtype == image.dtype
+
+
+def test_smooth_image_gaussian_3d():
+    # Create a sample 3D image
+    image_data = np.random.rand(1, 1, 10, 10, 10)
+    image = AICSImage(image_data)
+    # 3D filtering
+    smoothed_image = blimp.utils.smooth_image(image, sigma=1, method="gaussian", filter_3d=True)
+    assert isinstance(smoothed_image, AICSImage)
+    assert smoothed_image.data.shape == image.data.shape
+    assert smoothed_image.dtype == image.dtype
+    # 2D filtering
+    smoothed_image = blimp.utils.smooth_image(image, sigma=1, method="gaussian", filter_3d=False)
+    assert isinstance(smoothed_image, AICSImage)
+    assert smoothed_image.data.shape == image.data.shape
+    assert smoothed_image.dtype == image.dtype
+
+
+def test_smooth_image_median_2d():
+    # Create a sample 2D image
+    image_data = np.random.rand(1, 1, 1, 10, 10)
+    image = AICSImage(image_data)
+
+    smoothed_image = blimp.utils.smooth_image(image, sigma=1, method="median", filter_3d=False)
+    assert isinstance(smoothed_image, AICSImage)
+    assert smoothed_image.data.shape == image.data.shape
+    assert smoothed_image.dtype == image.dtype
+
+
+def test_smooth_image_median_3d():
+    # Create a sample 3D image
+    image_data = np.random.rand(1, 1, 10, 10, 10)
+    image = AICSImage(image_data)
+    # 3D filtering
+    smoothed_image = blimp.utils.smooth_image(image, sigma=1, method="median", filter_3d=True)
+    assert isinstance(smoothed_image, AICSImage)
+    assert smoothed_image.data.shape == image.data.shape
+    assert smoothed_image.dtype == image.dtype
+    # 2D filtering
+    smoothed_image = blimp.utils.smooth_image(image, sigma=1, method="median", filter_3d=False)
+    assert isinstance(smoothed_image, AICSImage)
+    assert smoothed_image.data.shape == image.data.shape
+    assert smoothed_image.dtype == image.dtype
+
+
+def test_smooth_image_invalid_method():
+    # Create a sample image
+    image_data = np.random.rand(1, 1, 1, 10, 10)
+    image = AICSImage(image_data)
+
+    # Check that an invalid method raises a ValueError
+    with pytest.raises(ValueError):
+        blimp.utils.smooth_image(image, sigma=1, method="invalid_method")
+
+
+def test_smooth_image_invalid_input():
+    # Create a sample image
+    image_data = np.random.rand(1, 1, 1, 10, 10)
+
+    # Check that an invalid input type raises a TypeError
+    with pytest.raises(TypeError):
+        blimp.utils.smooth_image(image_data, sigma=1, method="gaussian")
+
