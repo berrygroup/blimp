@@ -44,6 +44,10 @@ class IlluminationCorrection:
         self._mean_std_image = None
         self._is_smoothed = False
 
+        # Check if the provided method is valid
+        if self._method not in ["pixel_z_score", "basic"]:
+            raise ValueError(f"Unrecognized method: {self._method}. Supported methods are 'pixel_z_score' and 'basic'.")
+
         # 1. Initialise using reference images and set correctors using fit()
         if reference_images is not None:
             logger.debug("Initialising ``IlluminationCorrection`` using ``reference_images``.")
@@ -257,7 +261,7 @@ class IlluminationCorrection:
 
         p = Path(file_path)
         if p.suffix == "":
-            raise ValueError("``path`` must be a file, not a directory.")
+            raise RuntimeError("``path`` must be a file, not a directory.")
         if not p.parent.exists():
             logger.debug("Creating folder for illumination correction files")
             p.parent.mkdir()
@@ -364,6 +368,7 @@ def pixel_z_score(
     mean_std_image: float,
     log_transform: bool = True,
 ) -> np.ndarray:
+    original_dtype = original.dtype
     original = original.astype(np.float64)
 
     if log_transform:
@@ -379,9 +384,9 @@ def pixel_z_score(
         corrected = 10**corrected
 
     if original.dtype.kind in ["i", "u"]:
-        corrected = np.rint(corrected).astype(original.dtype)
+        corrected = np.rint(corrected).astype(original_dtype)
     else:
-        corrected = corrected.astype(original.dtype)
+        corrected = corrected.astype(original_dtype)
 
     return corrected
 
