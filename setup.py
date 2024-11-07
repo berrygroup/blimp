@@ -20,8 +20,8 @@ setup(
     maintainer=__author__,
     maintainer_email=__email__,
     description="Berry lab image processing utilities",
-    long_description=Path("README.rst").read_text("utf-8"),
-    long_description_content_type="text/x-rst; charset=UTF-8",
+    long_description=Path("README.md").read_text("utf-8"),
+    long_description_content_type="text/markdown; charset=UTF-8",
     url="https://github.com/berrygroup/blimp",
     #    download_url="https://pypi.org/project/blimp/",
     project_urls={
