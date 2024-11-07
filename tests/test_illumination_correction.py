@@ -88,7 +88,6 @@ def test_IlluminationCorrection_save_load(_ensure_test_data, tmp_path):
     assert equal_dims(loaded_illumination_correction, illumination_correction)
 
 
-
 def test_IlluminationCorrection_init_from_reference_images(_ensure_test_data):
     images = _load_test_data("illumination_correction")
     # invalid: string passed
