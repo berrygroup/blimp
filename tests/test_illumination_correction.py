@@ -15,6 +15,80 @@ from .helpers import _load_test_data
 logger = logging.getLogger(__name__)
 
 
+def test_pixel_z_score():
+    original = np.random.rand(10, 10)
+    mean_image = np.mean(original, axis=0)
+    std_image = np.std(original, axis=0)
+    mean_mean_image = np.mean(mean_image)
+    mean_std_image = np.mean(std_image)
+
+    corrected = blimp.preprocessing.illumination_correction.pixel_z_score(
+        original, mean_image, std_image, mean_mean_image, mean_std_image
+    )
+    assert corrected.shape == original.shape
+    assert corrected.dtype == original.dtype
+
+
+def test_correct_illumination_list_input(_ensure_test_data):
+    images = _load_test_data("illumination_correction")
+    illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
+        reference_images=images, timelapse=False
+    )
+    numpy_inputs = [image.get_image_data("CZYX") for image in images]
+    numpy_outputs = blimp.preprocessing.illumination_correction.correct_illumination(
+        images=numpy_inputs, illumination_correction=illumination_correction, dimension_order_in="CZYX"
+    )
+    assert isinstance(numpy_outputs, list)
+    assert all(isinstance(output, np.ndarray) for output in numpy_outputs)
+    assert all(input.shape == output.shape for input, output in zip(numpy_inputs, numpy_outputs))
+    assert all(input.dtype == output.dtype for input, output in zip(numpy_inputs, numpy_outputs))
+
+
+def test_IlluminationCorrection_fit(_ensure_test_data):
+    images = _load_test_data("illumination_correction")
+    illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
+        method="pixel_z_score", timelapse=False
+    )
+    illumination_correction.fit(images)
+    assert illumination_correction.mean_image is not None
+    assert illumination_correction.std_image is not None
+    assert illumination_correction.mean_mean_image is not None
+    assert illumination_correction.mean_std_image is not None
+
+    illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
+        method="basic", timelapse=False
+    )
+    illumination_correction.fit(images)
+    assert illumination_correction.correctors is not None
+
+
+def test_IlluminationCorrection_smooth(_ensure_test_data):
+    images = _load_test_data("illumination_correction")
+    illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
+        reference_images=images, timelapse=False
+    )
+    illumination_correction.smooth(sigma=3)
+    assert illumination_correction.is_smoothed is True
+
+
+def test_IlluminationCorrection_save_load(_ensure_test_data, tmp_path):
+    images = _load_test_data("illumination_correction")
+    illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
+        reference_images=images, timelapse=False
+    )
+    save_path = tmp_path / "illumination_correction.pkl"
+    illumination_correction.save(save_path)
+    assert save_path.is_file()
+
+    loaded_illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
+        from_file=save_path
+    )
+    assert loaded_illumination_correction.timelapse == illumination_correction.timelapse
+    assert loaded_illumination_correction.method == illumination_correction.method
+    assert equal_dims(loaded_illumination_correction, illumination_correction)
+
+
+
 def test_IlluminationCorrection_init_from_reference_images(_ensure_test_data):
     images = _load_test_data("illumination_correction")
     # invalid: string passed
