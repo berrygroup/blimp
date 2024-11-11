@@ -416,6 +416,9 @@ def _quantify_single_timepoint_2D(
     def intensity_median(regionmask, intensity_image):
         return np.median(intensity_image[regionmask])
 
+    def intensity_sum(regionmask, intensity_image):
+        return np.sum(intensity_image[regionmask])
+
     # channels can be passed as names or indices, convert to names.
     intensity_channels_list = get_channel_names(intensity_image, intensity_channels)
 
@@ -469,7 +472,7 @@ def _quantify_single_timepoint_2D(
                 label_array,
                 intensity_array,
                 properties=["label", "intensity_mean", "intensity_max", "intensity_min"],
-                extra_properties=(intensity_sd, intensity_median),
+                extra_properties=(intensity_sd, intensity_median, intensity_sum),
                 separator="_",
             )
         ).rename(columns=lambda x: measure_object + "_" + x + "_" + intensity_channel if x != "label" else x)
@@ -566,6 +569,9 @@ def _quantify_single_timepoint_3D(
     def intensity_median(regionmask, intensity_image):
         return np.median(intensity_image[regionmask])
 
+    def intensity_sum(regionmask, intensity_image):
+        return np.sum(intensity_image[regionmask])
+
     intensity_channels_list = get_channel_names(intensity_image, intensity_channels)
 
     measure_object = get_channel_names(label_image, measure_object)[0]
@@ -623,7 +629,7 @@ def _quantify_single_timepoint_3D(
                 label_array,
                 intensity_array,
                 properties=["label", "intensity_mean", "intensity_max", "intensity_min"],
-                extra_properties=(intensity_sd, intensity_median),
+                extra_properties=(intensity_sd, intensity_median, intensity_sum),
                 separator="_",
             )
         ).rename(columns=lambda x: measure_object + "-3D_" + x + "_" + intensity_channel if x != "label" else x)
@@ -743,7 +749,7 @@ def aggregate_and_merge_features(
     -----
     - The aggregation is performed on all numeric columns in the non-parent DataFrames, except for 'label',
       'TimepointID', and 'parent_label'.
-    - Aggregation functions include 'mean', 'min', 'max', 'std', 'median' and 'count'
+    - Aggregation functions include 'sum', 'mean', 'min', 'max', 'std', 'median' and 'count'
     - After aggregation, the result is merged with the parent DataFrame using the 'label' column from the parent
       and 'parent_label' from the aggregated data.
     """
