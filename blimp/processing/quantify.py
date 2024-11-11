@@ -758,7 +758,7 @@ def aggregate_and_merge_features(
     non_parent_dfs = [df for i, df in enumerate(df_list) if i != parent_index]
     non_parent_object_names = [obj for i, obj in enumerate(object_names) if i != parent_index]
 
-    aggregations = ["mean", "min", "max", "std", "median"]
+    aggregations = ["sum", "mean", "min", "max", "std", "median"]
 
     # Initialize an empty list to store the aggregated dataframes
     aggregated_dfs = []
@@ -868,8 +868,7 @@ def quantify(
             measure_objects_list.append(parent_object_str)
     else:
         if parent_object is not None:
-            logger.warning("``parent_object`` specified but ``aggregate`` is False. Ignoring ``parent_object``.")
-        parent_object = None
+            logger.warning("``parent_object`` specified but ``aggregate`` is False. Data will not be aggregated.")
 
     logger.info(f"``measure_objects`` =  {measure_objects_list}")
     logger.info(f"``texture_objects`` =  {texture_objects_list}")
