@@ -3,6 +3,7 @@
 ![CI](https://github.com/berrygroup/blimp/actions/workflows/ci.yml/badge.svg)
 ![Tests](tests/coverage/tests.svg)
 ![Coverage](tests/coverage/coverage.svg)
+![Read the docs](https://readthedocs.org/projects/blimp/badge/?version=latest)
 ![DOI](https://zenodo.org/badge/508656801.svg)
 ![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)
 ![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)
@@ -14,6 +15,8 @@ Main code repository for image pre-processing, processing, and analysis tools an
 ## General notes
 
 Modules are written in Python 3, and can be executed within the conda environment for image processing `berrylab-default`, or any other compatible conda env or virtualenv.
+
+Documentation on [Read The Docs](https://blimp.readthedocs.io/en/latest/index.html)
 
 ## Installation
 
