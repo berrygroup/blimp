@@ -43,11 +43,74 @@ def load_example_data(data_dir: Optional[Path_t] = None) -> Path_t:
     return folder_dir
 
 
+def download_figshare_file(repository_id: str, output_filename: str) -> str:
+    """
+    Download a file from Figshare using the repository ID.
+
+    Parameters
+    ----------
+    repository_id : str
+        The repository ID for the file on Figshare.
+    output_filename : str
+        The name of the output file.
+
+    Returns
+    -------
+    str
+        The path to the downloaded file.
+    """
+    logger.info(f"Starting download from Figshare repository ID: {repository_id}")
+
+    # Step 1: Get metadata of the repository
+    metadata_url = f"https://api.figshare.com/v2/articles/{repository_id}"
+    logger.debug(f"Fetching metadata from URL: {metadata_url}")
+    response = requests.get(metadata_url)
+    response.raise_for_status()  # Raise an error for bad requests
+    metadata = response.json()
+    logger.info("Metadata fetched successfully")
+
+    # Step 2: Get the download URL of the first file
+    files = metadata.get("files", [])
+    if not files:
+        logger.error("No files found in the repository.")
+        raise Exception("No files found in the repository.")
+
+    download_url = files[0].get("download_url")
+    if not download_url:
+        logger.error("No download URL found for the file.")
+        raise Exception("No download URL found for the file.")
+
+    logger.debug(f"Download URL: {download_url}")
+
+    # Step 3: Download the file
+    logger.info(f"Starting file download from: {download_url}")
+    file_response = requests.get(download_url, stream=True)
+    file_response.raise_for_status()
+    logger.info("File downloaded successfully")
+
+    # Step 4: Save the file
+    file_name = files[0].get("name", "")
+    file_extension = Path(file_name).suffix
+    output_path = Path(output_filename)
+    if output_path.suffix != file_extension:
+        output_path = output_path.with_suffix(file_extension)
+
+    CHUNK_SIZE = 65536  # 64KB
+    BUFFER_SIZE = 1048576  # 1MB
+    logger.info(f"Saving file to: {output_path}")
+    with output_path.open("wb", buffering=BUFFER_SIZE) as f:
+        for chunk in file_response.iter_content(chunk_size=CHUNK_SIZE):
+            f.write(chunk)
+
+    logger.info(f"File saved successfully as {output_path}")
+    return str(output_path)
+
+
 def load_test_data():
     """
     Download test data to ``SCRIPTS_DIR/tests``.
     """
-    url = "https://figshare.com/ndownloader/files/50220564"
+    repository_id = "23972244"
     base_dir = os.path.join(SCRIPTS_DIR, "tests")
     print(f"base_dir = {base_dir}")
     archive_path = os.path.join(base_dir, "_data.zip")
@@ -64,8 +127,8 @@ def load_test_data():
         logger.info(f"Extracting test data. Delete {archive_path} directory to force re-download.")
         shutil.unpack_archive(archive_path, base_dir)
     else:
-        logger.info(f"{archive_path} or dataset does not yet exist. Attempting to download from figshare...")
-        download(url, output_path=archive_path)
+        logger.info(f"{archive_path} or dataset does not yet exist. Attempting to download from Figshare...")
+        archive_path = download_figshare_file(repository_id, output_filename=archive_path)
         shutil.unpack_archive(archive_path, base_dir)
     return
 
