@@ -178,7 +178,7 @@ class IlluminationCorrection:
             for c in range(images.dims.C):
                 self._correctors[c].fit(images.get_image_data("TYX", C=c))
 
-    def plot(self):
+    def plot(self, log_transform: bool = True):
         if self._method == "basic":
             if isinstance(self._correctors, list):
                 fig, axes = plt.subplots(self.dims.C, 3, figsize=(9, 3 * self.dims.C), squeeze=False)
@@ -201,13 +201,17 @@ class IlluminationCorrection:
                 fig, axes = plt.subplots(self.dims.C, 2, figsize=(9, 3 * self.dims.C), squeeze=False)
                 for i in range(self.dims.C):
                     im_dat = self.mean_image.get_image_data("YX", C=i)
-                    upp = np.quantile(im_dat, 0.95)
+                    if log_transform:
+                        im_dat = 10**im_dat
+                    upp = np.quantile(im_dat, 0.99)
                     im = axes[i, 0].imshow(im_dat, vmin=0, vmax=upp)
                     fig.colorbar(im, ax=axes[i, 0])
                     axes[i, 0].set_title("Mean image")
 
                     im_dat = self.std_image.get_image_data("YX", C=i)
-                    upp = np.quantile(im_dat, 0.95)
+                    if log_transform:
+                        im_dat = 10**im_dat
+                    upp = np.quantile(im_dat, 0.99)
                     im = axes[i, 1].imshow(im_dat, vmin=0, vmax=upp)
                     fig.colorbar(im, ax=axes[i, 1])
                     axes[i, 1].set_title("Std. image")
