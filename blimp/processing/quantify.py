@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import mahotas as mh
 import skimage.measure
+import SimpleITK as sitk
 
 from blimp.utils import (
     get_channel_names,
@@ -521,6 +522,7 @@ def _quantify_single_timepoint_3D(
     calculate_textures: Optional[bool] = False,
     texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_scales: list = [1, 3],
+    physical_pixel_size_units: str = "micron",
 ) -> pd.DataFrame:
     """
     Quantify features for a single timepoint in a 3D image.
@@ -560,22 +562,15 @@ def _quantify_single_timepoint_3D(
         raise ValueError(
             "intensity_image has undetermined physical_pixel_sizes. Cannot calculate 3D morphology features."
         )
+    if physical_pixel_size_units != "micron":
+        raise ValueError(f"Expected physical_pixel_size_units to be 'micron', but got '{physical_pixel_size_units}'")
 
     check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False)
 
-    def intensity_sd(regionmask, intensity_image):
-        return np.std(intensity_image[regionmask])
-
-    def intensity_median(regionmask, intensity_image):
-        return np.median(intensity_image[regionmask])
-
-    def intensity_sum(regionmask, intensity_image):
-        return np.sum(intensity_image[regionmask])
-
     intensity_channels_list = get_channel_names(intensity_image, intensity_channels)
-
     measure_object = get_channel_names(label_image, measure_object)[0]
     measure_object_index = label_image.channel_names.index(measure_object)
+
     calculate_2D_derived = True
     if parent_object is not None:
         parent_object = get_channel_names(label_image, parent_object)[0]
@@ -589,32 +584,47 @@ def _quantify_single_timepoint_3D(
     if calculate_textures:
         get_channel_names(intensity_image, texture_channels)
 
+    # Convert label array to SimpleITK
     label_array = label_image.get_image_data("ZYX", C=measure_object_index, T=timepoint)
+    sitk_labels = sitk.GetImageFromArray(label_array)
+    sitk_labels.SetSpacing((
+        intensity_image.physical_pixel_sizes.X,
+        intensity_image.physical_pixel_sizes.Y,
+        intensity_image.physical_pixel_sizes.Z
+    ))
 
     # Morphology features
     # -----------------------
-    morphology_features_3D = pd.DataFrame(
-        skimage.measure.regionprops_table(
-            label_array,
-            spacing=(
-                intensity_image.physical_pixel_sizes.Z,
-                intensity_image.physical_pixel_sizes.Y,
-                intensity_image.physical_pixel_sizes.X,
-            ),
-            properties=[
-                "label",
-                "centroid",
-                "area",
-                "area_convex",
-                "axis_major_length",
-                "axis_minor_length",
-                "extent",
-                "feret_diameter_max",
-                "solidity",
-            ],
-            separator="_",
-        )
-    ).rename(columns=lambda x: measure_object + "_3D_" + x if x != "label" else x)
+    # Initialize shape statistics filter
+    shape_filter = sitk.LabelShapeStatisticsImageFilter()
+    shape_filter.SetComputeFeretDiameter(True)
+    shape_filter.Execute(sitk_labels)
+    labels = shape_filter.GetLabels()
+
+    features_list = []
+    for label in labels:
+        if label == 0:  # Skip background
+            continue
+
+        features = {
+            'label': int(label),
+            # For consistency with 2D features, we use the ZYX order
+            # and divide by the physical pixel sizes to get back to coordinates in pixels
+            f'{measure_object}_3D_centroid_0': int(shape_filter.GetCentroid(label)[2] / intensity_image.physical_pixel_sizes.Z),  # Z
+            f'{measure_object}_3D_centroid_1': int(shape_filter.GetCentroid(label)[1] / intensity_image.physical_pixel_sizes.Y),  # Y
+            f'{measure_object}_3D_centroid_2': int(shape_filter.GetCentroid(label)[0] / intensity_image.physical_pixel_sizes.X),  # X
+            # For remaining features, we use the physical lengths / areas / volumes as computed by SimpleITK
+            # Divide by 1000 to get from cubic microns to picolitres
+            f'{measure_object}_3D_physical_volume_pL': shape_filter.GetPhysicalSize(label) / 1000.0,
+            f'{measure_object}_3D_number_of_voxels': shape_filter.GetNumberOfPixels(label),
+            f'{measure_object}_3D_perimeter': shape_filter.GetPerimeter(label),
+            f'{measure_object}_3D_elongation': shape_filter.GetElongation(label),
+            f'{measure_object}_3D_feret_diameter_max_um': shape_filter.GetFeretDiameter(label),
+            f'{measure_object}_3D_roundness': shape_filter.GetRoundness(label)
+        }
+        features_list.append(features)
+
+    morphology_features_3D = pd.DataFrame(features_list)
 
     # Intensity features
     # ----------------------
@@ -623,19 +633,37 @@ def _quantify_single_timepoint_3D(
     for intensity_channel in intensity_channels_list:
         channel_index = intensity_image.channel_names.index(intensity_channel)
         intensity_array = intensity_image.get_image_data("ZYX", C=channel_index, T=timepoint)
+        sitk_intensity = sitk.GetImageFromArray(intensity_array)
+        sitk_intensity.SetSpacing((
+            intensity_image.physical_pixel_sizes.X,
+            intensity_image.physical_pixel_sizes.Y,
+            intensity_image.physical_pixel_sizes.Z
+        ))
 
-        intensity_features_3D = pd.DataFrame(
-            skimage.measure.regionprops_table(
-                label_array,
-                intensity_array,
-                properties=["label", "intensity_mean", "intensity_max", "intensity_min"],
-                extra_properties=(intensity_sd, intensity_median, intensity_sum),
-                separator="_",
-            )
-        ).rename(columns=lambda x: measure_object + "_3D_" + x + "_" + intensity_channel if x != "label" else x)
+        # Initialize intensity statistics filter
+        stats_filter = sitk.LabelIntensityStatisticsImageFilter()
+        stats_filter.Execute(sitk_labels, sitk_intensity)
+        labels = stats_filter.GetLabels()
 
-        features_3D_list.append(intensity_features_3D)
+        intensity_features = []
+        for label in labels:
+            if label == 0:
+                continue
+                
+            features = {
+                'label': int(label),
+                f'{measure_object}_3D_intensity_mean_{intensity_channel}': stats_filter.GetMean(label),
+                f'{measure_object}_3D_intensity_max_{intensity_channel}': stats_filter.GetMaximum(label),
+                f'{measure_object}_3D_intensity_min_{intensity_channel}': stats_filter.GetMinimum(label),
+                f'{measure_object}_3D_intensity_sd_{intensity_channel}': stats_filter.GetStandardDeviation(label),
+                f'{measure_object}_3D_intensity_median_{intensity_channel}': stats_filter.GetMedian(label),
+                f'{measure_object}_3D_intensity_sum_{intensity_channel}': stats_filter.GetSum(label)
+            }
+            intensity_features.append(features)
+        
+        features_3D_list.append(pd.DataFrame(intensity_features))
 
+    # Merge all 3D features
     features_3D = reduce(lambda left, right: pd.merge(left, right, on="label"), features_3D_list)
 
     # Object MIP features
