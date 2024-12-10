@@ -319,16 +319,16 @@ def test_quantify_single_timepoint_3D_no_parent(_ensure_test_data):
         intensity_image=intensity_image_3D, label_image=label_image_3D, measure_object=0, timepoint=0
     )
 
-    assert res_obj1["Object1-3D-MIP_area"].to_list() == [10.0**2, 9.0**2, 30.0**2, 46.0**2]
-    assert res_obj1["Object1-3D_area"].to_list() == [10.0**3, 9.0**3, 30.0**3, 46.0**3]
-    assert res_obj1["Object1-3D-Middle_perimeter"].to_list() == [10.0 * 4 - 4, 9.0 * 4 - 4, 30.0 * 4 - 4, 46.0 * 4 - 4]
+    assert res_obj1["Object1_3D_MIP_area"].to_list() == [10.0**2, 9.0**2, 30.0**2, 46.0**2]
+    assert res_obj1["Object1_3D_area"].to_list() == [10.0**3, 9.0**3, 30.0**3, 46.0**3]
+    assert res_obj1["Object1_3D_Middle_perimeter"].to_list() == [10.0 * 4 - 4, 9.0 * 4 - 4, 30.0 * 4 - 4, 46.0 * 4 - 4]
 
     res_obj2 = blimp.processing.quantify._quantify_single_timepoint_3D(
         intensity_image=intensity_image_3D, label_image=label_image_3D, measure_object=1, timepoint=0
     )
 
     assert res_obj2.count().label == 100
-    assert list(np.unique(res_obj2["Object2-3D_area"].to_list())) == [2.0**3]
+    assert list(np.unique(res_obj2["Object2_3D_area"].to_list())) == [2.0**3]
 
     with pytest.raises(AttributeError):
         # check no parent label when parent_label is none
@@ -379,7 +379,7 @@ def test_quantify_single_timepoint_3D_intensity_channels_str_input(_ensure_test_
     with pytest.raises(AttributeError):
         res_obj2_intensity1_str_input.Object2_intensity_min_Channel2
 
-    assert list(np.unique(res_obj2_intensity1_str_input["Object2-3D_intensity_min_Channel1"].to_list())) == [
+    assert list(np.unique(res_obj2_intensity1_str_input["Object2_3D_intensity_min_Channel1"].to_list())) == [
         0,
         1000.0,
         2000.0,
@@ -402,7 +402,7 @@ def test_quantify_single_timepoint_3D_intensity_channels_list1_str_input(_ensure
     with pytest.raises(AttributeError):
         res_obj2_intensity1_list1_str_input.Object2_intensity_min_Channel2
 
-    assert list(np.unique(res_obj2_intensity1_list1_str_input["Object2-3D_intensity_min_Channel1"].to_list())) == [
+    assert list(np.unique(res_obj2_intensity1_list1_str_input["Object2_3D_intensity_min_Channel1"].to_list())) == [
         0,
         1000.0,
         2000.0,
@@ -423,9 +423,9 @@ def test_quantify_single_timepoint_3D_intensity_channels_list2_str_input(_ensure
     )
 
     with pytest.raises(KeyError):
-        res_obj2_intensity1_list2_str_input["Object2-3D_intensity_min_Channel3"].to_list()
+        res_obj2_intensity1_list2_str_input["Object2_3D_intensity_min_Channel3"].to_list()
 
-    assert list(np.unique(res_obj2_intensity1_list2_str_input["Object2-3D_intensity_min_Channel2"].to_list())) == [
+    assert list(np.unique(res_obj2_intensity1_list2_str_input["Object2_3D_intensity_min_Channel2"].to_list())) == [
         5000.0,
         6000.0,
     ]
@@ -443,16 +443,16 @@ def test_quantify_single_timepoint_3D_intensity_channels_list_int_input(_ensure_
     )
 
     with pytest.raises(KeyError):
-        res_obj2_intensity1_list_int_input["Object2-3D_intensity_min_Channel3"].to_list()
+        res_obj2_intensity1_list_int_input["Object2_3D_intensity_min_Channel3"].to_list()
 
-    assert list(np.unique(res_obj2_intensity1_list_int_input["Object2-3D_intensity_min_Channel1"].to_list())) == [
+    assert list(np.unique(res_obj2_intensity1_list_int_input["Object2_3D_intensity_min_Channel1"].to_list())) == [
         0,
         1000.0,
         2000.0,
         3000.0,
         4000.0,
     ]
-    assert list(np.unique(res_obj2_intensity1_list_int_input["Object2-3D_intensity_min_Channel2"].to_list())) == [
+    assert list(np.unique(res_obj2_intensity1_list_int_input["Object2_3D_intensity_min_Channel2"].to_list())) == [
         5000.0,
         6000.0,
     ]
@@ -470,14 +470,14 @@ def test_quantify_single_timepoint_3D_texture_channels_str_input(_ensure_test_da
         texture_channels="Channel1",
     )
 
-    assert res_obj1_texture1_str_input["Object1-3D-MIP_Channel1_Haralick-angular-second-moment-1"].to_list() == [
+    assert res_obj1_texture1_str_input["Object1_3D_MIP_Channel1_Haralick-angular-second-moment-1"].to_list() == [
         1.0,
         1.0,
         1.0,
         1.0,
     ]
     with pytest.raises(KeyError):
-        res_obj1_texture1_str_input["Object1-3D-MIP_Channel3_Haralick-angular-second-moment-1"]
+        res_obj1_texture1_str_input["Object1_3D_MIP_Channel3_Haralick-angular-second-moment-1"]
 
 
 def test_quantify_single_timepoint_3D_texture_channels_list1_str_input(_ensure_test_data):
@@ -492,14 +492,14 @@ def test_quantify_single_timepoint_3D_texture_channels_list1_str_input(_ensure_t
         texture_channels=["Channel1"],
     )
 
-    assert res_obj1_texture1_list1_str_input["Object1-3D-MIP_Channel1_Haralick-angular-second-moment-1"].to_list() == [
+    assert res_obj1_texture1_list1_str_input["Object1_3D_MIP_Channel1_Haralick-angular-second-moment-1"].to_list() == [
         1.0,
         1.0,
         1.0,
         1.0,
     ]
     with pytest.raises(KeyError):
-        res_obj1_texture1_list1_str_input["Object1-3D-MIP_Channel3_Haralick-angular-second-moment-1"]
+        res_obj1_texture1_list1_str_input["Object1_3D_MIP_Channel3_Haralick-angular-second-moment-1"]
 
 
 def test_quantify_single_timepoint_3D_texture_channels_list2_str_input(_ensure_test_data):
@@ -514,14 +514,14 @@ def test_quantify_single_timepoint_3D_texture_channels_list2_str_input(_ensure_t
         texture_channels=["Channel1", "Channel2"],
     )
 
-    assert res_obj1_texture1_list2_str_input["Object1-3D-MIP_Channel1_Haralick-angular-second-moment-1"].to_list() == [
+    assert res_obj1_texture1_list2_str_input["Object1_3D_MIP_Channel1_Haralick-angular-second-moment-1"].to_list() == [
         1.0,
         1.0,
         1.0,
         1.0,
     ]
     # assert res_obj1_texture1_list2_str_input[
-    #     "Object1-3D-Middle_Channel2_Haralick-angular-second-moment-1"
+    #     "Object1_3D_Middle_Channel2_Haralick-angular-second-moment-1"
     # ].to_list() == [
     #     1.0,
     #     1.0,
@@ -529,7 +529,7 @@ def test_quantify_single_timepoint_3D_texture_channels_list2_str_input(_ensure_t
     #     1.0,
     # ]
     with pytest.raises(KeyError):
-        res_obj1_texture1_list2_str_input["Object1-3D-Middle_Channel3_Haralick-angular-second-moment-1"]
+        res_obj1_texture1_list2_str_input["Object1_3D_Middle_Channel3_Haralick-angular-second-moment-1"]
 
 
 def test_quantify_single_timepoint_3D_texture_channels_list_int_input(_ensure_test_data):
@@ -544,14 +544,14 @@ def test_quantify_single_timepoint_3D_texture_channels_list_int_input(_ensure_te
         texture_channels=[0, 1],
     )
 
-    assert res_obj1_texture1_list_int_input["Object1-3D-MIP_Channel1_Haralick-angular-second-moment-1"].to_list() == [
+    assert res_obj1_texture1_list_int_input["Object1_3D_MIP_Channel1_Haralick-angular-second-moment-1"].to_list() == [
         1.0,
         1.0,
         1.0,
         1.0,
     ]
     # assert res_obj1_texture1_list_int_input[
-    #     "Object1-3D-Middle_Channel2_Haralick-angular-second-moment-1"
+    #     "Object1_3D_Middle_Channel2_Haralick-angular-second-moment-1"
     # ].to_list() == [
     #     1.0,
     #     1.0,
@@ -559,7 +559,7 @@ def test_quantify_single_timepoint_3D_texture_channels_list_int_input(_ensure_te
     #     1.0,
     # ]
     with pytest.raises(KeyError):
-        res_obj1_texture1_list_int_input["Object1-3D-Middle_Channel3_Haralick-angular-second-moment-1"]
+        res_obj1_texture1_list_int_input["Object1_3D_Middle_Channel3_Haralick-angular-second-moment-1"]
 
 
 def test_quantify_single_timepoint_3D_no_border_objects(_ensure_test_data):
@@ -573,7 +573,7 @@ def test_quantify_single_timepoint_3D_no_border_objects(_ensure_test_data):
         intensity_channels="Channel1",
     )
 
-    assert not any(res_no_border["Object1-3D_is_border"].to_list())
+    assert not any(res_no_border["Object1_3D_is_border"].to_list())
 
 
 def test_quantify_single_timepoint_3D_one_border_object(_ensure_test_data):
@@ -596,8 +596,8 @@ def test_quantify_single_timepoint_3D_one_border_object(_ensure_test_data):
         intensity_channels=0,
     )
 
-    assert res_border_all.query("label==1")["Object1-3D_is_border"].any()
-    assert res_border_all.query("label==1")["Object1-3D_is_border_XY"].any()
+    assert res_border_all.query("label==1")["Object1_3D_is_border"].any()
+    assert res_border_all.query("label==1")["Object1_3D_is_border_XY"].any()
 
     res_border_Z_only = blimp.processing.quantify._quantify_single_timepoint_3D(
         intensity_image=AICSImage(
@@ -615,8 +615,8 @@ def test_quantify_single_timepoint_3D_one_border_object(_ensure_test_data):
         intensity_channels=0,
     )
 
-    assert res_border_Z_only.query("label==1")["Object1-3D_is_border"].any()
-    assert not res_border_Z_only.query("label==1")["Object1-3D_is_border_XY"].any()
+    assert res_border_Z_only.query("label==1")["Object1_3D_is_border"].any()
+    assert not res_border_Z_only.query("label==1")["Object1_3D_is_border_XY"].any()
 
 
 def test_quantify_no_parent(_ensure_test_data):
@@ -738,8 +738,8 @@ def test_quantify_3D_no_parent(_ensure_test_data):
         intensity_channels="Channel1",
     )
 
-    assert res[0]["Object1-3D-MIP_area"].to_list() == [10.0**2, 9.0**2, 30.0**2, 46.0**2]
-    assert res[0]["Object1-3D_area"].to_list() == [10.0**3, 9.0**3, 30.0**3, 46.0**3]
+    assert res[0]["Object1_3D_MIP_area"].to_list() == [10.0**2, 9.0**2, 30.0**2, 46.0**2]
+    assert res[0]["Object1_3D_area"].to_list() == [10.0**3, 9.0**3, 30.0**3, 46.0**3]
 
 
 def test_quantify_3D_with_parent(_ensure_test_data):
