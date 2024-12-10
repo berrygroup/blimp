@@ -320,7 +320,7 @@ def test_quantify_single_timepoint_3D_no_parent(_ensure_test_data):
     )
 
     assert res_obj1["Object1_3D_MIP_area"].to_list() == [10.0**2, 9.0**2, 30.0**2, 46.0**2]
-    assert res_obj1["Object1_3D_area"].to_list() == [10.0**3, 9.0**3, 30.0**3, 46.0**3]
+    assert res_obj1["Object1_3D_number_of_voxels"].to_list() == [10.0**3, 9.0**3, 30.0**3, 46.0**3]
     assert res_obj1["Object1_3D_Middle_perimeter"].to_list() == [10.0 * 4 - 4, 9.0 * 4 - 4, 30.0 * 4 - 4, 46.0 * 4 - 4]
 
     res_obj2 = blimp.processing.quantify._quantify_single_timepoint_3D(
@@ -328,7 +328,7 @@ def test_quantify_single_timepoint_3D_no_parent(_ensure_test_data):
     )
 
     assert res_obj2.count().label == 100
-    assert list(np.unique(res_obj2["Object2_3D_area"].to_list())) == [2.0**3]
+    assert list(np.unique(res_obj2["Object2_3D_number_of_voxels"].to_list())) == [2.0**3]
 
     with pytest.raises(AttributeError):
         # check no parent label when parent_label is none
@@ -739,7 +739,7 @@ def test_quantify_3D_no_parent(_ensure_test_data):
     )
 
     assert res[0]["Object1_3D_MIP_area"].to_list() == [10.0**2, 9.0**2, 30.0**2, 46.0**2]
-    assert res[0]["Object1_3D_area"].to_list() == [10.0**3, 9.0**3, 30.0**3, 46.0**3]
+    assert res[0]["Object1_3D_number_of_voxels"].to_list() == [10.0**3, 9.0**3, 30.0**3, 46.0**3]
 
 
 def test_quantify_3D_with_parent(_ensure_test_data):
