@@ -614,7 +614,7 @@ def _quantify_single_timepoint_3D(
             ],
             separator="_",
         )
-    ).rename(columns=lambda x: measure_object + "-3D_" + x if x != "label" else x)
+    ).rename(columns=lambda x: measure_object + "_3D_" + x if x != "label" else x)
 
     # Intensity features
     # ----------------------
@@ -632,7 +632,7 @@ def _quantify_single_timepoint_3D(
                 extra_properties=(intensity_sd, intensity_median, intensity_sum),
                 separator="_",
             )
-        ).rename(columns=lambda x: measure_object + "-3D_" + x + "_" + intensity_channel if x != "label" else x)
+        ).rename(columns=lambda x: measure_object + "_3D_" + x + "_" + intensity_channel if x != "label" else x)
 
         features_3D_list.append(intensity_features_3D)
 
@@ -644,13 +644,13 @@ def _quantify_single_timepoint_3D(
     # Areas outside the objects are masked.
     if calculate_2D_derived:
         intensity_image_object_mip, label_image_object_mip = concatenated_projection_image_3D(
-            intensity_image, label_image, label_name=measure_object + "-3D-MIP", projection_type="MIP"
+            intensity_image, label_image, label_name=measure_object + "_3D_MIP", projection_type="MIP"
         )
 
         object_mip_features = _quantify_single_timepoint_2D(
             intensity_image=intensity_image_object_mip,
             label_image=label_image_object_mip,
-            measure_object=measure_object + "-3D-MIP",
+            measure_object=measure_object + "_3D_MIP",
             timepoint=timepoint,
             intensity_channels=intensity_channels,
             calculate_textures=calculate_textures,
@@ -667,13 +667,13 @@ def _quantify_single_timepoint_3D(
         # Object middle Z-plane features
         # -----------------------
         intensity_image_object_middle, label_image_object_middle = concatenated_projection_image_3D(
-            intensity_image, label_image, label_name=measure_object + "-3D-Middle", projection_type="middle"
+            intensity_image, label_image, label_name=measure_object + "_3D_Middle", projection_type="middle"
         )
 
         object_middle_features = _quantify_single_timepoint_2D(
             intensity_image=intensity_image_object_middle,
             label_image=label_image_object_middle,
-            measure_object=measure_object + "-3D-Middle",
+            measure_object=measure_object + "_3D_Middle",
             timepoint=timepoint,
             intensity_channels=intensity_channels,
             calculate_textures=calculate_textures,
@@ -691,12 +691,12 @@ def _quantify_single_timepoint_3D(
     # ---------------
     # Is an object touching the 3D border?
     border_3D = border_objects(label_image.get_image_data("ZYX", C=measure_object_index)).rename(
-        columns=lambda x: measure_object + "-3D_" + x if x != "label" else x
+        columns=lambda x: measure_object + "_3D_" + x if x != "label" else x
     )
 
     # Is an object touching the XY border?
     border_XY_3D = border_objects_XY_3D(label_image, label_channel=measure_object_index).rename(
-        columns=lambda x: measure_object + "-3D_" + x if x != "label" else x
+        columns=lambda x: measure_object + "_3D_" + x if x != "label" else x
     )
 
     # Merge all features
