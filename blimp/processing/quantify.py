@@ -7,8 +7,8 @@ from skimage.segmentation import clear_border
 import numpy as np
 import pandas as pd
 import mahotas as mh
-import skimage.measure
 import SimpleITK as sitk
+import skimage.measure
 
 from blimp.utils import (
     get_channel_names,
@@ -587,11 +587,13 @@ def _quantify_single_timepoint_3D(
     # Convert label array to SimpleITK
     label_array = label_image.get_image_data("ZYX", C=measure_object_index, T=timepoint)
     sitk_labels = sitk.GetImageFromArray(label_array)
-    sitk_labels.SetSpacing((
-        intensity_image.physical_pixel_sizes.X,
-        intensity_image.physical_pixel_sizes.Y,
-        intensity_image.physical_pixel_sizes.Z
-    ))
+    sitk_labels.SetSpacing(
+        (
+            intensity_image.physical_pixel_sizes.X,
+            intensity_image.physical_pixel_sizes.Y,
+            intensity_image.physical_pixel_sizes.Z,
+        )
+    )
 
     # Morphology features
     # -----------------------
@@ -607,20 +609,26 @@ def _quantify_single_timepoint_3D(
             continue
 
         features = {
-            'label': int(label),
+            "label": int(label),
             # For consistency with 2D features, we use the ZYX order
             # and divide by the physical pixel sizes to get back to coordinates in pixels
-            f'{measure_object}_3D_centroid_0': int(shape_filter.GetCentroid(label)[2] / intensity_image.physical_pixel_sizes.Z),  # Z
-            f'{measure_object}_3D_centroid_1': int(shape_filter.GetCentroid(label)[1] / intensity_image.physical_pixel_sizes.Y),  # Y
-            f'{measure_object}_3D_centroid_2': int(shape_filter.GetCentroid(label)[0] / intensity_image.physical_pixel_sizes.X),  # X
+            f"{measure_object}_3D_centroid_0": int(
+                shape_filter.GetCentroid(label)[2] / intensity_image.physical_pixel_sizes.Z
+            ),  # Z
+            f"{measure_object}_3D_centroid_1": int(
+                shape_filter.GetCentroid(label)[1] / intensity_image.physical_pixel_sizes.Y
+            ),  # Y
+            f"{measure_object}_3D_centroid_2": int(
+                shape_filter.GetCentroid(label)[0] / intensity_image.physical_pixel_sizes.X
+            ),  # X
             # For remaining features, we use the physical lengths / areas / volumes as computed by SimpleITK
             # Divide by 1000 to get from cubic microns to picolitres
-            f'{measure_object}_3D_physical_volume_pL': shape_filter.GetPhysicalSize(label) / 1000.0,
-            f'{measure_object}_3D_number_of_voxels': shape_filter.GetNumberOfPixels(label),
-            f'{measure_object}_3D_perimeter': shape_filter.GetPerimeter(label),
-            f'{measure_object}_3D_elongation': shape_filter.GetElongation(label),
-            f'{measure_object}_3D_feret_diameter_max_um': shape_filter.GetFeretDiameter(label),
-            f'{measure_object}_3D_roundness': shape_filter.GetRoundness(label)
+            f"{measure_object}_3D_physical_volume_pL": shape_filter.GetPhysicalSize(label) / 1000.0,
+            f"{measure_object}_3D_number_of_voxels": shape_filter.GetNumberOfPixels(label),
+            f"{measure_object}_3D_perimeter": shape_filter.GetPerimeter(label),
+            f"{measure_object}_3D_elongation": shape_filter.GetElongation(label),
+            f"{measure_object}_3D_feret_diameter_max_um": shape_filter.GetFeretDiameter(label),
+            f"{measure_object}_3D_roundness": shape_filter.GetRoundness(label),
         }
         features_list.append(features)
 
@@ -634,11 +642,13 @@ def _quantify_single_timepoint_3D(
         channel_index = intensity_image.channel_names.index(intensity_channel)
         intensity_array = intensity_image.get_image_data("ZYX", C=channel_index, T=timepoint)
         sitk_intensity = sitk.GetImageFromArray(intensity_array)
-        sitk_intensity.SetSpacing((
-            intensity_image.physical_pixel_sizes.X,
-            intensity_image.physical_pixel_sizes.Y,
-            intensity_image.physical_pixel_sizes.Z
-        ))
+        sitk_intensity.SetSpacing(
+            (
+                intensity_image.physical_pixel_sizes.X,
+                intensity_image.physical_pixel_sizes.Y,
+                intensity_image.physical_pixel_sizes.Z,
+            )
+        )
 
         # Initialize intensity statistics filter
         stats_filter = sitk.LabelIntensityStatisticsImageFilter()
@@ -649,18 +659,18 @@ def _quantify_single_timepoint_3D(
         for label in labels:
             if label == 0:
                 continue
-                
+
             features = {
-                'label': int(label),
-                f'{measure_object}_3D_intensity_mean_{intensity_channel}': stats_filter.GetMean(label),
-                f'{measure_object}_3D_intensity_max_{intensity_channel}': stats_filter.GetMaximum(label),
-                f'{measure_object}_3D_intensity_min_{intensity_channel}': stats_filter.GetMinimum(label),
-                f'{measure_object}_3D_intensity_sd_{intensity_channel}': stats_filter.GetStandardDeviation(label),
-                f'{measure_object}_3D_intensity_median_{intensity_channel}': stats_filter.GetMedian(label),
-                f'{measure_object}_3D_intensity_sum_{intensity_channel}': stats_filter.GetSum(label)
+                "label": int(label),
+                f"{measure_object}_3D_intensity_mean_{intensity_channel}": stats_filter.GetMean(label),
+                f"{measure_object}_3D_intensity_max_{intensity_channel}": stats_filter.GetMaximum(label),
+                f"{measure_object}_3D_intensity_min_{intensity_channel}": stats_filter.GetMinimum(label),
+                f"{measure_object}_3D_intensity_sd_{intensity_channel}": stats_filter.GetStandardDeviation(label),
+                f"{measure_object}_3D_intensity_median_{intensity_channel}": stats_filter.GetMedian(label),
+                f"{measure_object}_3D_intensity_sum_{intensity_channel}": stats_filter.GetSum(label),
             }
             intensity_features.append(features)
-        
+
         features_3D_list.append(pd.DataFrame(intensity_features))
 
     # Merge all 3D features
@@ -672,7 +682,11 @@ def _quantify_single_timepoint_3D(
     # Areas outside the objects are masked.
     if calculate_2D_derived:
         intensity_image_object_mip, label_image_object_mip = concatenated_projection_image_3D(
-            intensity_image, label_image, label_name=measure_object + "_3D_MIP", projection_type="MIP"
+            intensity_image,
+            label_image,
+            label_channel=measure_object_index,
+            label_name=measure_object + "_3D_MIP",
+            projection_type="MIP",
         )
 
         object_mip_features = _quantify_single_timepoint_2D(
@@ -695,7 +709,11 @@ def _quantify_single_timepoint_3D(
         # Object middle Z-plane features
         # -----------------------
         intensity_image_object_middle, label_image_object_middle = concatenated_projection_image_3D(
-            intensity_image, label_image, label_name=measure_object + "_3D_Middle", projection_type="middle"
+            intensity_image,
+            label_image,
+            label_channel=measure_object_index,
+            label_name=measure_object + "_3D_Middle",
+            projection_type="middle",
         )
 
         object_middle_features = _quantify_single_timepoint_2D(
@@ -730,24 +748,24 @@ def _quantify_single_timepoint_3D(
     # Merge all features
     # ----------------------
     if calculate_2D_derived:
-        features = reduce(
+        all_features = reduce(
             lambda left, right: pd.merge(left, right, on="label", how="outer"),
             [features_3D, object_mip_features, object_middle_features, border_3D, border_XY_3D],
         )
     else:
-        features = reduce(
+        all_features = reduce(
             lambda left, right: pd.merge(left, right, on="label", how="outer"),
             [features_3D, border_3D, border_XY_3D],
         )
 
     if parent_object is not None:
         parent_object_label = _measure_parent_object_label(label_image, measure_object_index, parent_object_index)
-        features = features.merge(parent_object_label, on="label")
+        all_features = all_features.merge(parent_object_label, on="label")
 
     # add timepoint information (note + 1 to match image metadata)
-    features[["TimepointID"]] = timepoint + 1
+    all_features[["TimepointID"]] = timepoint + 1
 
-    return features
+    return all_features
 
 
 def aggregate_and_merge_features(
