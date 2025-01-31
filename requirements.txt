@@ -12,7 +12,7 @@ packaging>=23.0
 pandas>=1.5.2
 pystackreg>=0.2.7
 scikit_image>=0.21.0
+SimpleITK>=2.1.0
 tomli>=2.0.1
 typing_extensions>=4.4.0
 welford
-SimpleITK>=2.1.0
