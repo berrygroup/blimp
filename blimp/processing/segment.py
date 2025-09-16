@@ -1,10 +1,12 @@
-from typing import Union, Optional
+from typing import Union, Optional, List
 from pathlib import Path
 import logging
 
 from aicsimageio import AICSImage
 import numpy as np
 import mahotas as mh
+
+from blimp.utils import get_channel_names
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +252,11 @@ def segment_secondary(
 
 
 def resolve_multi_parent_objects(
-    label_image: AICSImage, measure_object_index: Optional[int] = None, parent_object_index: int = 0, timepoint: int = 0, in_place: bool = True
+    label_image: AICSImage, 
+    measure_object: Optional[Union[int, str, List[Union[int, str]]]] = None, 
+    parent_object: Union[int, str] = 0, 
+    timepoint: int = 0, 
+    in_place: bool = True
 ) -> AICSImage | None:
     """
     Resolve child objects that span multiple parent objects by removing pixels
@@ -263,11 +269,11 @@ def resolve_multi_parent_objects(
     ----------
     label_image
         The labeled image containing objects in separate channels.
-    measure_object_index
-        Index of the channel containing child objects to be resolved.
-        If None (default), resolve conflicts for all channels except parent_object_index.
-    parent_object_index
-        Index of the channel containing parent objects, by default 0.
+    measure_object
+        The child object(s) to be resolved. Can be channel index, channel name, or list of indices/names.
+        If None (default), resolve conflicts for all channels except parent_object.
+    parent_object
+        The parent object channel, can be index or channel name, by default 0.
     timepoint
         Timepoint at which to resolve objects, by default 0.
     in_place
@@ -281,16 +287,30 @@ def resolve_multi_parent_objects(
         If in_place=True, returns None and modifies the input label_image.
     """
 
+    # Convert parent_object to channel name and index
+    parent_object_name = get_channel_names(label_image, parent_object)[0]
+    parent_object_index = label_image.channel_names.index(parent_object_name)
+
     # Determine which channels to process
-    if measure_object_index is None:
+    if measure_object is None:
         # Process all channels except parent_object_index
         measure_indices = [i for i in range(label_image.dims.C) if i != parent_object_index]
-        logger.info(f"Resolving multi-parent conflicts for all channels except parent channel {parent_object_index}: {measure_indices}")
+        measure_names = [label_image.channel_names[i] for i in measure_indices]
+        logger.info(f"Resolving multi-parent conflicts for all objects except parent object {parent_object_name} (index {parent_object_index}): {measure_names}")
     else:
-        if measure_object_index == parent_object_index:
-            logger.warning("``measure_object_index`` and ``parent_object_index`` are the same.")
+        # Convert measure_object to list of names and indices
+        measure_names = get_channel_names(label_image, measure_object)
+        measure_indices = [label_image.channel_names.index(name) for name in measure_names]
+        
+        # Check if any measure object is the same as parent object
+        if parent_object_index in measure_indices:
+            logger.warning(f"Parent object '{parent_object_name}' is also in measure_objects. Skipping it.")
+            measure_indices = [i for i in measure_indices if i != parent_object_index]
+            measure_names = [label_image.channel_names[i] for i in measure_indices]
+        
+        if not measure_indices:
+            logger.warning("No valid measure objects to process after removing parent object.")
             return None
-        measure_indices = [measure_object_index]
     
     # If not in_place, create a copy of the data
     if not in_place:
@@ -352,7 +372,12 @@ def _resolve_single_measure_object(
     child_labels = np.unique(label_array[label_array > 0])
     conflicts_resolved = 0
     
-    for child_label in child_labels:
+    # Skip child objects that are only a single pixel
+    child_sizes = np.bincount(label_array.ravel())[child_labels]
+    valid_child_labels = child_labels[child_sizes > 1]
+
+    # Process each valid child object
+    for child_label in valid_child_labels:
         # Get mask for current child object
         child_mask = label_array == child_label
         
@@ -365,16 +390,18 @@ def _resolve_single_measure_object(
             conflicts_resolved += 1
             logger.debug(f"Resolving child object {child_label} spanning {len(overlapping_parents)} parents: {overlapping_parents}")
             
-            # Calculate overlap with each parent
-            overlap_counts = {}
-            for parent_label in overlapping_parents:
-                # Count pixels where both child and parent are present
-                overlap_mask = child_mask & (parent_label_array == parent_label)
-                overlap_counts[parent_label] = np.sum(overlap_mask)
+            # Calculate overlap counts
+            overlap_counts = np.zeros(len(overlapping_parents), dtype=np.int64)
+            for i, parent_label in enumerate(overlapping_parents):
+                overlap_counts[i] = np.sum(child_mask & (parent_label_array == parent_label))
             
             # Find parent with largest overlap
-            best_parent = max(overlap_counts, key=lambda k: overlap_counts[k])
-            logger.debug(f"Assigning to parent {best_parent} (overlap: {overlap_counts[best_parent]} pixels)")
+            best_parent_idx = np.argmax(overlap_counts)
+            best_parent = overlapping_parents[best_parent_idx]
+            overlap_count = overlap_counts[best_parent_idx]
+            
+            logger.debug(f"Assigning to parent {best_parent} (overlap: {overlap_count} pixels)")
+            
             # Remove child pixels that don't belong to the best parent
             remove_mask = child_mask & (parent_label_array != best_parent)
             label_array[remove_mask] = 0
@@ -396,48 +423,84 @@ def _resolve_single_measure_object(
             new_label_stack[timepoint, measure_object_index, :, :, :] = label_array
 
 
-def constrain_objects_to_parent(
-    label_image: AICSImage, measure_object_index: Optional[int] = None, parent_object_index: int = 0, timepoint: int = 0, in_place: bool = True
+def mask_child_objects_by_parent(
+    label_image: AICSImage, 
+    measure_object: Optional[Union[int, str, List[Union[int, str]]]] = None, 
+    parent_object: Union[int, str] = 0, 
+    timepoint: int = 0, 
+    in_place: bool = True
 ) -> AICSImage | None:
     """
-    Constrain child objects to be fully contained within parent objects by setting
-    pixels outside parent objects to zero.
+    Mask child objects by parent objects, removing any pixels that extend 
+    beyond parent boundaries.
     
-    This function removes any parts of child objects that extend beyond the boundaries
-    of parent objects, ensuring all child objects are fully contained within parents.
+    This function masks (sets to zero) any parts of child objects that extend 
+    outside their parent objects, ensuring all child objects are fully contained 
+    within parent boundaries. This is useful for enforcing parent-child 
+    relationships in multi-channel segmentation data.
     
     Parameters
     ----------
     label_image
         The labeled image containing objects in separate channels.
-    measure_object_index
-        Index of the channel containing child objects to be constrained.
-        If None (default), constrain all channels except parent_object_index.
-    parent_object_index
-        Index of the channel containing parent objects, by default 0.
+    measure_object
+        The child object(s) to be masked. Can be channel index, channel name, 
+        or list of indices/names. If None (default), mask all channels except parent_object.
+    parent_object
+        The parent object channel used as a mask, can be index or channel name, by default 0.
     timepoint
-        Timepoint at which to constrain objects, by default 0.
+        Timepoint at which to mask objects, by default 0.
     in_place
         If True, modify the input label_image in place. If False, return a new
-        AICSImage with constrained objects, by default True.
+        AICSImage with masked objects, by default True.
         
     Returns
     -------
     AICSImage | None
-        If in_place=False, returns a new AICSImage with constrained child objects.
+        If in_place=False, returns a new AICSImage with masked child objects.
         If in_place=True, returns None and modifies the input label_image.
+        
+    Examples
+    --------
+    >>> # Mask all objects except nuclei to be within cell boundaries
+    >>> masked_labels = mask_child_objects_by_parent(
+    ...     label_image, 
+    ...     parent_object='Cell',
+    ...     in_place=False
+    ... )
+    
+    >>> # Mask specific organelles to be within nuclei
+    >>> mask_child_objects_by_parent(
+    ...     label_image,
+    ...     measure_object=['Organelle1', 'Organelle2'], 
+    ...     parent_object='Nucleus'
+    ... )
     """
 
+    # Convert parent_object to channel name and index
+    parent_object_name = get_channel_names(label_image, parent_object)[0]
+    parent_object_index = label_image.channel_names.index(parent_object_name)
+
     # Determine which channels to process
-    if measure_object_index is None:
+    if measure_object is None:
         # Process all channels except parent_object_index
         measure_indices = [i for i in range(label_image.dims.C) if i != parent_object_index]
-        logger.info(f"Constraining objects to parent for all channels except parent channel {parent_object_index}: {measure_indices}")
+        measure_names = [label_image.channel_names[i] for i in measure_indices]
+        logger.info(f"Masking child objects by parent for all objects except parent object {parent_object_name} (index {parent_object_index}): {measure_names}")
     else:
-        if measure_object_index == parent_object_index:
-            logger.warning("``measure_object_index`` and ``parent_object_index`` are the same.")
+        # Convert measure_object to list of names and indices
+        measure_names = get_channel_names(label_image, measure_object)
+        measure_indices = [label_image.channel_names.index(name) for name in measure_names]
+        
+        # Check if any measure object is the same as parent object
+        if parent_object_index in measure_indices:
+            logger.warning(f"Parent object '{parent_object_name}' is also in measure_objects. Skipping it.")
+            measure_indices = [i for i in measure_indices if i != parent_object_index]
+            measure_names = [label_image.channel_names[i] for i in measure_indices]
+        
+        if not measure_indices:
+            logger.warning("No valid measure objects to process after removing parent object.")
             return None
-        measure_indices = [measure_object_index]
     
     # If not in_place, create a copy of the data
     if not in_place:
@@ -445,38 +508,41 @@ def constrain_objects_to_parent(
     
     # Process each measure channel
     for current_measure_index in measure_indices:
-        _constrain_single_measure_object(
+        _mask_single_measure_object_by_parent(
             label_image, current_measure_index, parent_object_index, timepoint, in_place, new_label_stack if not in_place else None
         )
     
     # Return new AICSImage if not in_place, otherwise return None
     if not in_place:
-        constrained_label_image = AICSImage(
+        masked_label_image = AICSImage(
             new_label_stack,
             channel_names=label_image.channel_names,
             physical_pixel_sizes=label_image.physical_pixel_sizes
         )
-        return constrained_label_image
+        return masked_label_image
     
     return None
 
 
-def _constrain_single_measure_object(
+def _mask_single_measure_object_by_parent(
     label_image: AICSImage, measure_object_index: int, parent_object_index: int, timepoint: int, in_place: bool, new_label_stack: Optional[np.ndarray] = None
 ) -> None:
     """
-    Helper function to constrain objects to parent for a single measure object channel.
+    Helper function to mask a single child object channel by parent objects.
+    
+    Removes pixels from child objects that extend outside their parent boundaries,
+    ensuring child objects are fully contained within parent objects.
     
     Parameters
     ----------
     label_image
         The labeled image containing objects in separate channels.
     measure_object_index
-        Index of the channel containing child objects to be constrained.
+        Index of the channel containing child objects to be masked.
     parent_object_index
-        Index of the channel containing parent objects.
+        Index of the channel containing parent objects used as masks.
     timepoint
-        Timepoint at which to constrain objects.
+        Timepoint at which to mask objects.
     in_place
         If True, modify the input label_image in place.
     new_label_stack
@@ -485,30 +551,30 @@ def _constrain_single_measure_object(
 
     # Get the appropriate arrays based on dimensionality
     if label_image.dims.Z == 1:
-        logger.debug(f"Constraining channel {measure_object_index} ({label_image.channel_names[measure_object_index]}) to parent in 2D.")
+        logger.debug(f"Masking object channel {measure_object_index} ({label_image.channel_names[measure_object_index]}) by parent in 2D.")
         label_array = label_image.get_image_data("YX", C=measure_object_index, T=timepoint, Z=0).copy()
         parent_label_array = label_image.get_image_data("YX", C=parent_object_index, T=timepoint, Z=0)
         is_2d = True
     elif label_image.dims.Z > 1:
-        logger.debug(f"Constraining channel {measure_object_index} ({label_image.channel_names[measure_object_index]}) to parent in 3D ({label_image.dims.Z} Z-planes).")
+        logger.debug(f"Masking object channel {measure_object_index} ({label_image.channel_names[measure_object_index]}) by parent in 3D ({label_image.dims.Z} Z-planes).")
         label_array = label_image.get_image_data("ZYX", C=measure_object_index, T=timepoint).copy()
         parent_label_array = label_image.get_image_data("ZYX", C=parent_object_index, T=timepoint)
         is_2d = False
     
-    # Count objects before constraining
+    # Count objects before masking
     initial_objects = len(np.unique(label_array[label_array > 0]))
     initial_pixels = np.sum(label_array > 0)
     
-    # Set all child object pixels outside parent objects to zero
+    # Set all child object pixels outside parent objects to zero (mask them)
     outside_parent_mask = (label_array > 0) & (parent_label_array == 0)
     label_array[outside_parent_mask] = 0
     
-    # Count objects and pixels after constraining
+    # Count objects and pixels after masking
     final_objects = len(np.unique(label_array[label_array > 0]))
     final_pixels = np.sum(label_array > 0)
     removed_pixels = initial_pixels - final_pixels
     
-    logger.info(f"Constrained {label_image.channel_names[measure_object_index]} objects to parent: "
+    logger.info(f"Masked {label_image.channel_names[measure_object_index]} objects by parent: "
                 f"{initial_objects} -> {final_objects} objects, removed {removed_pixels} pixels outside parent")
     
     # Update the label image data
