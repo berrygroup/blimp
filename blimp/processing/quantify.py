@@ -582,7 +582,9 @@ def _quantify_single_timepoint_3D(
         calculate_2D_derived = False
 
     if calculate_textures:
-        get_channel_names(intensity_image, texture_channels)
+        texture_channels_list = get_channel_names(intensity_image, texture_channels)
+    else:
+        texture_channels_list = []
 
     # Convert label array to SimpleITK
     label_array = label_image.get_image_data("ZYX", C=measure_object_index, T=timepoint)
@@ -595,11 +597,14 @@ def _quantify_single_timepoint_3D(
         )
     )
 
+    logger.info(f"``calculate_textures`` {calculate_textures}")
+    logger.info(f"``texture_channels`` {texture_channels_list}")
+
     # Morphology features
     # -----------------------
     # Initialize shape statistics filter
     shape_filter = sitk.LabelShapeStatisticsImageFilter()
-    shape_filter.SetComputeFeretDiameter(True)
+    #shape_filter.SetComputeFeretDiameter(True)
     shape_filter.Execute(sitk_labels)
     labels = shape_filter.GetLabels()
 
@@ -625,10 +630,10 @@ def _quantify_single_timepoint_3D(
             # Divide by 1000 to get from cubic microns to picolitres
             f"{measure_object}_3D_physical_volume_pL": shape_filter.GetPhysicalSize(label) / 1000.0,
             f"{measure_object}_3D_number_of_voxels": shape_filter.GetNumberOfPixels(label),
-            f"{measure_object}_3D_perimeter": shape_filter.GetPerimeter(label),
-            f"{measure_object}_3D_elongation": shape_filter.GetElongation(label),
-            f"{measure_object}_3D_feret_diameter_max_um": shape_filter.GetFeretDiameter(label),
-            f"{measure_object}_3D_roundness": shape_filter.GetRoundness(label),
+            #f"{measure_object}_3D_perimeter": shape_filter.GetPerimeter(label),
+            #f"{measure_object}_3D_elongation": shape_filter.GetElongation(label),
+            #f"{measure_object}_3D_feret_diameter_max_um": shape_filter.GetFeretDiameter(label),
+            #f"{measure_object}_3D_roundness": shape_filter.GetRoundness(label),
         }
         features_list.append(features)
 
@@ -832,8 +837,12 @@ def aggregate_and_merge_features(
         aggregated_dfs.append(agg_df)
 
     # Merge all aggregated dataframes with the parent dataframe on parent_label -> label
+    out = parent_df
     for agg_df in aggregated_dfs:
-        out = parent_df.merge(agg_df, how="left", left_on="label", right_on="parent_label")
+        out = out.merge(agg_df, how="left", left_on="label", right_on="parent_label")
+        # Drop the parent_label column after merge to avoid duplicates (only if it exists)
+        if "parent_label" in out.columns:
+            out = out.drop(columns=["parent_label"])
 
     # Replace NaN with 0 in columns that end with '_count'
     out.loc[:, out.columns.str.endswith("_count")] = out.loc[:, out.columns.str.endswith("count")].fillna(0).astype(int)
@@ -863,7 +872,7 @@ def quantify(
     label_image
         The labeled image where objects are represented by unique integer labels.
     measure_objects
-        The objects to be measured, by default None.
+        The objects to be measured, by default all channels.
     parent_object
         The parent object to which the measured objects are associated, by default None.
     aggregate
@@ -902,7 +911,7 @@ def quantify(
     label_image = make_channel_names_unique(label_image)
     intensity_image = make_channel_names_unique(intensity_image)
     measure_objects_list: List[str] = get_channel_names(image=label_image, input=measure_objects)
-    texture_objects_list: List[str] = get_channel_names(image=label_image, input=texture_objects)
+    texture_objects_list: List[str] = get_channel_names(image=label_image, input=texture_objects) if texture_objects is not None else []
     parent_object_str: Optional[str] = (
         get_channel_names(image=label_image, input=parent_object)[0] if parent_object is not None else None
     )
@@ -947,7 +956,7 @@ def quantify(
     if aggregate:
         output = aggregate_and_merge_features(
             df_list=features_list,
-            parent_index=label_image.channel_names.index(parent_object_str),
+            parent_index=measure_objects_list.index(parent_object_str),
             object_names=measure_objects_list,
         )
     else:
