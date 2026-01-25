@@ -9,6 +9,7 @@ import pandas as pd
 import mahotas as mh
 import SimpleITK as sitk
 import skimage.measure
+import scipy.ndimage
 
 from blimp.utils import (
     get_channel_names,
@@ -35,6 +36,58 @@ HARALICK_BASE_NAMES = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+def _relabel_point_object_array(label_array: np.ndarray) -> np.ndarray:
+    """
+    Relabel a point object array so that each pixel/voxel gets a unique label.
+    
+    This ensures that even adjacent pixels with the same original label are treated
+    as separate objects. Useful for point objects where individual pixels should be
+    counted independently.
+    
+    Parameters
+    ----------
+    label_array
+        2D or 3D labeled array where point objects may have multiple connected pixels
+        with the same label value.
+    
+    Returns
+    -------
+    np.ndarray
+        Relabeled array (int32) where each non-zero pixel/voxel has a unique label.
+        
+    Raises
+    ------
+    ValueError
+        If the number of non-zero pixels exceeds int32 maximum (2,147,483,647).
+    """
+    # Create a binary mask of all non-zero pixels
+    binary_mask = label_array > 0
+    
+    # Check if we'll overflow int32
+    num_pixels = np.sum(binary_mask)
+    if num_pixels > np.iinfo(np.int32).max:
+        raise ValueError(
+            f"Point object has {num_pixels} pixels, which exceeds int32 maximum "
+            f"({np.iinfo(np.int32).max}). Cannot relabel each pixel uniquely."
+        )
+    
+    # Relabel so each pixel/voxel gets a unique label
+    # Use a structure that only connects to itself (no connectivity)
+    if label_array.ndim == 2:
+        structure = np.zeros((3, 3), dtype=int)
+        structure[1, 1] = 1
+    elif label_array.ndim == 3:
+        structure = np.zeros((3, 3, 3), dtype=int)
+        structure[1, 1, 1] = 1
+    else:
+        raise ValueError(f"Expected 2D or 3D array, got {label_array.ndim}D")
+    
+    relabeled_array, _ = scipy.ndimage.label(binary_mask, structure=structure)
+    
+    # Convert to int32 to ensure sufficient label range
+    return relabeled_array.astype(np.int32)
 
 
 def _calculate_texture_features_single_object(
@@ -284,6 +337,7 @@ def _quantify_single_object(
     calculate_textures: Optional[bool] = False,
     texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_scales: list = [1, 3],
+    is_point_object: bool = False,
 ) -> pd.DataFrame:
     """Quantify all channels in an image relative to a matching label image.
     Single object only.
@@ -315,6 +369,10 @@ def _quantify_single_object(
         by default None.
     texture_scales
         Length scales at which to calculate textures, by default [1, 3].
+    is_point_object
+        Whether this is a point object. If True, morphology and texture features are
+        skipped, and each pixel/voxel is treated as a separate object for counting,
+        by default False.
 
     Returns
     -------
@@ -349,6 +407,7 @@ def _quantify_single_object(
                     calculate_textures=calculate_textures,
                     texture_channels=texture_channels,
                     texture_scales=texture_scales,
+                    is_point_object=is_point_object,
                 )
                 for t in range(intensity_image.dims[["T"]][0])
             ]
@@ -364,6 +423,7 @@ def _quantify_single_object(
             calculate_textures=calculate_textures,
             texture_channels=texture_channels,
             texture_scales=texture_scales,
+            is_point_object=is_point_object,
         )
 
     return features
@@ -379,6 +439,7 @@ def _quantify_single_timepoint_2D(
     calculate_textures: Optional[bool] = False,
     texture_channels: Optional[Union[int, str, List[Union[int, str]]]] = None,
     texture_scales: list = [1, 3],
+    is_point_object: bool = False,
 ) -> pd.DataFrame:
     """
     Quantify features for a single timepoint in a 2D image.
@@ -403,6 +464,9 @@ def _quantify_single_timepoint_2D(
         The channels to be used for texture calculations, by default None.
     texture_scales
         The scales to be used for texture calculations, by default [1, 3].
+    is_point_object
+        Whether this is a point object. If True, morphology and texture features are
+        skipped, and each pixel is treated as a separate object, by default False.
 
     Returns
     -------
@@ -433,34 +497,49 @@ def _quantify_single_timepoint_2D(
         texture_channels_list = get_channel_names(intensity_image, texture_channels)
 
     label_array = label_image.get_image_data("YX", C=measure_object_index, T=timepoint, Z=0)
+    
+    # For point objects, relabel so each pixel gets a unique label
+    if is_point_object:
+        label_array = _relabel_point_object_array(label_array)
 
     # Morphology features
     # -----------------------
-    features = pd.DataFrame(
-        skimage.measure.regionprops_table(
-            label_array,
-            properties=[
-                "label",
-                "centroid",
-                "area",
-                "area_convex",
-                "axis_major_length",
-                "axis_minor_length",
-                "eccentricity",
-                "extent",
-                "feret_diameter_max",
-                "solidity",
-                "perimeter",
-                "perimeter_crofton",
-                "euler_number",
-            ],
-            separator="_",
+    if is_point_object:
+        # For point objects, only measure pixel count (area)
+        features = pd.DataFrame(
+            skimage.measure.regionprops_table(
+                label_array,
+                properties=["label", "area"],
+                separator="_",
+            )
+        ).rename(columns=lambda x: measure_object + "_" + x if x != "label" else x)
+    else:
+        # For regular objects, measure full morphology
+        features = pd.DataFrame(
+            skimage.measure.regionprops_table(
+                label_array,
+                properties=[
+                    "label",
+                    "centroid",
+                    "area",
+                    "area_convex",
+                    "axis_major_length",
+                    "axis_minor_length",
+                    "eccentricity",
+                    "extent",
+                    "feret_diameter_max",
+                    "solidity",
+                    "perimeter",
+                    "perimeter_crofton",
+                    "euler_number",
+                ],
+                separator="_",
+            )
+        ).rename(columns=lambda x: measure_object + "_" + x if x != "label" else x)
+        features = features.merge(
+            border_objects(label_array).rename(columns=lambda x: measure_object + "_" + x if x != "label" else x),
+            on="label",
         )
-    ).rename(columns=lambda x: measure_object + "_" + x if x != "label" else x)
-    features = features.merge(
-        border_objects(label_array).rename(columns=lambda x: measure_object + "_" + x if x != "label" else x),
-        on="label",
-    )
     # Intensity features
     # ----------------------
     # iterate over selected channels
@@ -481,8 +560,8 @@ def _quantify_single_timepoint_2D(
 
     # Texture features
     # ----------------------
-    # iterate over selected channels
-    if calculate_textures:
+    # iterate over selected channels (skip for point objects)
+    if calculate_textures and not is_point_object:
         for channel in texture_channels_list:
             channel_index = intensity_image.channel_names.index(channel)
             intensity_array = intensity_image.get_image_data("YX", C=channel_index, T=timepoint, Z=0)

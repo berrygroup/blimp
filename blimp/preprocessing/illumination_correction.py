@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt
 from aicsimageio import AICSImage
 from aicsimageio.transforms import reshape_data
 import numpy as np
-import basicpy
+#import basicpy
 import dask.array as da
 
 from blimp.utils import (
