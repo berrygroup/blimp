@@ -14,63 +14,96 @@ logger = logging.getLogger(__name__)
 def segment_nuclei_cellpose(
     intensity_image: AICSImage,
     nuclei_channel: int = 0,
-    model_type: str = "nuclei",
     pretrained_model: Union[str, Path, None] = None,
     diameter: Optional[int] = None,
     threshold: float = 0,
     flow_threshold: float = 0.4,
     normalize: Union[bool, dict] = True,
-    timepoint: Union[int, None] = None,
+    gpu: bool = False,
 ) -> AICSImage:
-    """Segment nuclei.
+    """Segment nuclei in 2D images across all timepoints using cellpose 4.
 
     Parameters
     ----------
     intensity_image
-        intensity image (possibly 5D: "TCZYX")
+        intensity image in 5D format "TCZYX" where Z=1
     nuclei_channel
         channel number corresponding to nuclear stain
+    pretrained_model
+        path to custom pretrained model, if None uses default "cpsam" model
+    diameter
+        estimated diameter of nuclei in pixels, if None cellpose estimates
     threshold
         cellprob_threshold, float between [-6,+6] after which objects are discarded
-    timepoint
-        which timepoint should be segmented (optional,
-        default None will segment all time-points)
+    flow_threshold
+        flow error threshold for filtering masks
+    normalize
+        normalization settings, can be bool or dict of parameters
+    gpu
+        whether to use GPU acceleration, by default False
 
     Returns
     -------
     AICSImage
-        label_image
+        label image with segmented nuclei for all timepoints
+        
+    Raises
+    ------
+    ValueError
+        If input image has Z dimension > 1 (3D images not supported)
     """
     from cellpose import models
 
-    if timepoint is None:
-        logger.debug(f"Segmenting all timepoints")
-        nuclei_images = [
-            intensity_image.get_image_data("ZYX", C=nuclei_channel, T=t) for t in range(intensity_image.dims[["T"]][0])
-        ]
-    else:
-        logger.debug(f"Segmenting timepoint {timepoint}")
-        nuclei_images = [intensity_image.get_image_data("ZYX", C=nuclei_channel, T=timepoint)]
+    # Check that input is 2D only
+    if intensity_image.dims.Z > 1:
+        raise ValueError(
+            f"segment_nuclei_cellpose only supports 2D images (Z=1). "
+            f"Input image has Z={intensity_image.dims.Z}. "
+            f"For 3D segmentation, use cellpose with do_3D=True directly."
+        )
 
+    # Initialize model once for all timepoints
     if pretrained_model is None:
-        logger.debug(f"Segmenting nuclei with default {model_type} model")
-        cellpose_model = models.CellposeModel(gpu=False, model_type=model_type)
-        masks, flows, styles = cellpose_model.eval(
-            nuclei_images,
+        logger.debug("Initializing cellpose with default cpsam model")
+        cellpose_model = models.CellposeModel(gpu=gpu)
+    else:
+        logger.debug(f"Initializing cellpose with pretrained model {str(pretrained_model)}")
+        cellpose_model = models.CellposeModel(gpu=gpu, pretrained_model=str(pretrained_model))
+
+    # Segment all timepoints
+    all_masks = []
+    n_timepoints = intensity_image.dims.T
+    
+    for t in range(n_timepoints):
+        logger.debug(f"Segmenting nuclei at timepoint {t}/{n_timepoints-1}")
+        
+        # Extract single 2D image
+        nuclei_image = intensity_image.get_image_data("YX", C=nuclei_channel, T=t, Z=0)
+        
+        # Add channel dimension (YX -> CYX)
+        # Cellpose's convert_image will automatically convert to 3 channels
+        nuclei_image_with_channel = nuclei_image[np.newaxis, :, :]
+        
+        # Run segmentation
+        # Note: cellpose 4 cpsam model returns 3 values (masks, flows, styles)
+        results = cellpose_model.eval(
+            nuclei_image_with_channel,
+            channel_axis=0,
             diameter=diameter,
-            channels=[0, 0],
             flow_threshold=flow_threshold,
             cellprob_threshold=threshold,
             normalize=normalize,
             do_3D=False,
         )
-    else:
-        logger.debug(f"Using pretrained model {str(pretrained_model)}")
-        cellpose_model = models.CellposeModel(gpu=False, pretrained_model=str(pretrained_model))
-        masks, flows, styles = cellpose_model.eval(nuclei_images, channels=[0, 0])
+        
+        # Extract masks (first element of returned tuple)
+        masks = results[0]
+        all_masks.append(masks)
 
+    # Stack all timepoints and convert to AICSImage format (add C and Z dimensions)
+    masks_stack = np.stack(all_masks)[:, np.newaxis, np.newaxis, :, :]
     segmentation = AICSImage(
-        np.stack(masks)[:, np.newaxis, np.newaxis, :],
+        masks_stack,
         channel_names=["Nuclei"],
         physical_pixel_sizes=intensity_image.physical_pixel_sizes,
     )

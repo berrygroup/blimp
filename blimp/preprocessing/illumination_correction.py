@@ -7,7 +7,6 @@ from matplotlib import pyplot as plt
 from aicsimageio import AICSImage
 from aicsimageio.transforms import reshape_data
 import numpy as np
-#import basicpy
 import dask.array as da
 
 from blimp.utils import (
@@ -26,7 +25,7 @@ logger = logging.getLogger(__name__)
 class IlluminationCorrection:
     def __init__(
         self,
-        method: Union[Literal["pixel_z_score"], Literal["basic"]] = "pixel_z_score",
+        method: Literal["pixel_z_score"] = "pixel_z_score",
         reference_images: Union[List[AICSImage], List[str], List[Path], None] = None,
         timelapse: Union[bool, Literal["multiplicative"], Literal["additive"], None] = None,
         from_file: Union[str, Path, None] = None,
@@ -45,8 +44,8 @@ class IlluminationCorrection:
         self._is_smoothed = False
 
         # Check if the provided method is valid
-        if self._method not in ["pixel_z_score", "basic"]:
-            raise ValueError(f"Unrecognized method: {self._method}. Supported methods are 'pixel_z_score' and 'basic'.")
+        if self._method != "pixel_z_score":
+            raise ValueError(f"Unrecognized method: {self._method}. Only 'pixel_z_score' method is supported.")
 
         # 1. Initialise using reference images and set correctors using fit()
         if reference_images is not None:
@@ -73,7 +72,6 @@ class IlluminationCorrection:
                     )
 
                 # call the fit method to initialise self._correctors
-                # pass on **kwargs to allow basicpy.BaSiC optimisation
                 if is_input_AICSImage:
                     self.fit(reference_images, **kwargs)  # type: ignore
                 elif is_input_files:
@@ -165,38 +163,9 @@ class IlluminationCorrection:
                     "``pixel_z_score`` method not implemented for timelapse data. "
                     + "Set ``timelapse=False`` to calculate a constant correction across time"
                 )
-        elif self._method == "basic":
-            # Use pybasic
-            if not self._timelapse:
-                # use the 'T' axis to concatenate images
-                images = concatenate_images(reference_images, axis="T", order="append")
-            else:
-                # if timelapse, average each timepoint
-                images = average_images(reference_images)
-
-            self._correctors = [basicpy.BaSiC(**kwargs) for _ in range(self._dims.C)]
-            for c in range(images.dims.C):
-                self._correctors[c].fit(images.get_image_data("TYX", C=c))
 
     def plot(self, log_transform: bool = True):
-        if self._method == "basic":
-            if isinstance(self._correctors, list):
-                fig, axes = plt.subplots(self.dims.C, 3, figsize=(9, 3 * self.dims.C), squeeze=False)
-                for i in range(self.dims.C):
-                    im = axes[i, 0].imshow(self.correctors[i].flatfield)
-                    fig.colorbar(im, ax=axes[i, 0])
-                    axes[i, 0].set_title("Flatfield")
-                    im = axes[i, 1].imshow(self.correctors[i].darkfield)
-                    fig.colorbar(im, ax=axes[i, 1])
-                    axes[i, 1].set_title("Darkfield")
-                    axes[i, 2].plot(self.correctors[i].baseline)
-                    axes[i, 2].set_xlabel("Frame")
-                    axes[i, 2].set_ylabel("Baseline")
-                fig.tight_layout()
-            else:
-                raise RuntimeError("Cannot plot ``IlluminationCorrection`` if correctors are not defined")
-
-        elif self._method == "pixel_z_score":
+        if self._method == "pixel_z_score":
             if isinstance(self._mean_image, AICSImage):
                 fig, axes = plt.subplots(self.dims.C, 2, figsize=(9, 3 * self.dims.C), squeeze=False)
                 for i in range(self.dims.C):
@@ -247,8 +216,6 @@ class IlluminationCorrection:
                     np.mean(self._std_image.get_image_data("YX", C=c)) for c in range(self._mean_image.dims.C)
                 ]
             self._is_smoothed = True
-        else:
-            raise NotImplementedError("``smooth`` method not implemented for BaSiC correction")
 
     @property
     def file_name(self):
@@ -275,15 +242,7 @@ class IlluminationCorrection:
 
     def save(self, path: Union[str, Path]):
         self.file_path = path
-        if self._method == "basic":
-            if isinstance(self._correctors, list):
-                with open(self._file_path, "wb") as f:  # type: ignore
-                    pickle.dump(self, f)
-            else:
-                raise RuntimeError(
-                    "Cannot save ``IlluminationCorrection`` if correctors are not defined (method = ``basic``)"
-                )
-        elif self._method == "pixel_z_score":
+        if self._method == "pixel_z_score":
             if (
                 isinstance(self._mean_image, AICSImage)
                 and isinstance(self._std_image, AICSImage)
@@ -296,7 +255,7 @@ class IlluminationCorrection:
                 self._std_image.save(self._file_path.parent / (self._file_path.stem + "_std_image.ome.tiff"))
             else:
                 raise RuntimeError(
-                    "Cannot save ``IlluminationCorrection`` if mean and std have not been calculated (method = ``basic``)"
+                    "Cannot save ``IlluminationCorrection`` if mean and std have not been calculated"
                 )
 
     def load(self, path: Union[str, Path, None] = None):
@@ -331,17 +290,7 @@ class IlluminationCorrection:
         if illumination_correction._method is None:
             raise RuntimeError(f"Object at {path} has no ``method`` attribute.")
 
-        if illumination_correction._method == "basic":
-            if not isinstance(illumination_correction._correctors, list):
-                raise RuntimeError(f"Object at {path} does not have a list of correctors.")
-            if not all(isinstance(c, basicpy.BaSiC) for c in illumination_correction._correctors):
-                raise RuntimeError(f"Correctors in object at {path} have unrecognised type.")
-            if illumination_correction._dims.C != len(illumination_correction._correctors):
-                raise RuntimeError(
-                    f"Object at {path} has ``dims`` = {illumination_correction._dims.C} "
-                    + f"but only {len(illumination_correction._correctors)} correctors."
-                )
-        elif illumination_correction._method == "pixel_z_score":
+        if illumination_correction._method == "pixel_z_score":
             pass
         else:
             raise RuntimeError(f"Object at {path} has unrecognised ``method`` attribute.")
@@ -349,12 +298,8 @@ class IlluminationCorrection:
         # 4. Set attributes
         self._dims = illumination_correction.dims
         self._timelapse = illumination_correction.timelapse
-
-        if illumination_correction._method == "basic":
-            self._correctors = illumination_correction.correctors
-        elif illumination_correction._method == "pixel_z_score":
-            self._mean_image = illumination_correction.mean_image
-            self._std_image = illumination_correction.std_image
+        self._mean_image = illumination_correction.mean_image
+        self._std_image = illumination_correction.std_image
 
     def correct(
         self,
@@ -426,30 +371,7 @@ def _correct_illumination(
                 "``IlluminationCorrection`` object has incorrect ``dims``: expected "
                 + f"{im.dims}, found {illumination_correction.dims}."
             )
-        if illumination_correction.method == "basic":
-            corr = np.stack(
-                [
-                    np.stack(
-                        [
-                            np.stack(
-                                [
-                                    illumination_correction.correctors[c].transform(
-                                        im.get_image_data("YX", C=c, Z=z, T=t),
-                                        timelapse=illumination_correction.timelapse,
-                                    )[0]
-                                    for z in range(im.dims.Z)
-                                ],
-                                axis=0,
-                            )
-                            for c in range(im.dims.C)
-                        ],
-                        axis=0,
-                    )
-                    for t in range(im.dims.T)
-                ],
-                axis=0,
-            )
-        elif illumination_correction.method == "pixel_z_score":
+        if illumination_correction.method == "pixel_z_score":
             # smooth correction object before applying if required
             if smooth is None:
                 corr_obj = illumination_correction

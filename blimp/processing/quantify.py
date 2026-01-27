@@ -199,12 +199,12 @@ def _calculate_texture_features_single_object(
             )
 
         except ValueError:
-            haralick_values = np.full(len(HARALICK_BASE_NAMES), np.NaN, dtype=float)
+            haralick_values = np.full(len(HARALICK_BASE_NAMES), np.nan, dtype=float)
 
         if not isinstance(haralick_values, np.ndarray):
             # NOTE: setting `ignore_zeros` to True creates problems for some
             # objects, when all values of the adjacency matrices are zeros
-            haralick_values = np.full(len(HARALICK_BASE_NAMES), np.NaN, dtype=float)
+            haralick_values = np.full(len(HARALICK_BASE_NAMES), np.nan, dtype=float)
 
         # adjust feature names using object and scale
         haralick_full_names = [

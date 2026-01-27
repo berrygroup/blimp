@@ -30,7 +30,11 @@ AXIS_INT_TO_STR = {0: "T", 1: "C", 2: "Z", 3: "Y", 4: "X"}
 
 def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
     # check requested type is allowed
-    allowed_types = np.sctypes["int"] + np.sctypes["uint"] + np.sctypes["float"]
+    # NumPy 2.0 compatible: explicitly list integer, unsigned integer, and float dtypes
+    int_types = [np.int8, np.int16, np.int32, np.int64]
+    uint_types = [np.uint8, np.uint16, np.uint32, np.uint64]
+    float_types = [np.float16, np.float32, np.float64]
+    allowed_types = int_types + uint_types + float_types
     if not dtype in allowed_types:
         raise TypeError("``dtype`` = {dtype} is either not recognised or not allowed")
 
@@ -52,21 +56,21 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
     if old_dtype == new_dtype:
         pass
 
-    elif old_dtype in np.sctypes["uint"]:
+    elif old_dtype.kind == 'u':  # unsigned integer
         # convert from uint
         if np.can_cast(old_dtype, new_dtype):
             new = new.astype(new_dtype)
         else:
             raise TypeError(f"Cannot cast {old_dtype} to {new_dtype}")
 
-    elif old_dtype in np.sctypes["int"]:
+    elif old_dtype.kind == 'i':  # signed integer
         # convert from int
         if np.can_cast(old_dtype, new_dtype):
             new = new.astype(new_dtype)
         else:
             raise TypeError(f"Cannot cast {old_dtype} to {new_dtype}")
 
-    elif old_dtype in np.sctypes["float"]:
+    elif old_dtype.kind == 'f':  # float
         # convert from float
         if not round_floats_if_necessary:
             if np.can_cast(old_dtype, new_dtype):
@@ -930,7 +934,7 @@ def extract_bbox(array: np.ndarray, bbox: list, pad: int = 0) -> np.ndarray:
     """
     cropped_array = array[bbox[0] : bbox[1], bbox[2] : bbox[3]]
     if pad:
-        cropped_array = np.lib.pad(cropped_array, (pad, pad), "constant", constant_values=(0))
+        cropped_array = np.pad(cropped_array, (pad, pad), "constant", constant_values=(0))
     return cropped_array
 
 

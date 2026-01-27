@@ -60,15 +60,6 @@ def test_IlluminationCorrection_fit_non_uniform_images():
         illumination_correction.fit(images)
 
 
-def test_IlluminationCorrection_smooth_invalid_method():
-    images = _load_test_data("illumination_correction")
-    illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
-        reference_images=images, timelapse=False, method="basic"
-    )
-    with pytest.raises(NotImplementedError):
-        illumination_correction.smooth(sigma=3)
-
-
 def test_IlluminationCorrection_save_invalid():
     illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection()
     with pytest.raises(RuntimeError):
@@ -150,12 +141,6 @@ def test_IlluminationCorrection_fit(_ensure_test_data):
     assert illumination_correction.std_image is not None
     assert illumination_correction.mean_mean_image is not None
     assert illumination_correction.mean_std_image is not None
-
-    illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
-        method="basic", timelapse=False
-    )
-    illumination_correction.fit(images)
-    assert illumination_correction.correctors is not None
 
 
 def test_IlluminationCorrection_smooth(_ensure_test_data):
