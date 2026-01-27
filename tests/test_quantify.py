@@ -714,6 +714,31 @@ def test_quantify_aggregate(_ensure_test_data):
     assert res_agg.Object2_intensity_min_Channel2_max.to_list() == [0.0, 5000.0, 5000.0, 0.0]
 
 
+def test_quantify_aggregate_all_objects(_ensure_test_data):
+    """Test aggregation when measure_objects is omitted (all objects measured)."""
+    intensity_image_2D, label_image_2D = _load_test_data("synthetic_2D")
+
+    from blimp.processing.segment import mask_child_objects_by_parent
+    label_image_2D = mask_child_objects_by_parent(
+        label_image_2D,
+        parent_object=0,
+        in_place=False
+    )
+
+    res_agg = blimp.processing.quantify.quantify(
+        intensity_image=intensity_image_2D,
+        label_image=label_image_2D,
+        parent_object=0,
+        aggregate=True,
+        timepoint=0,
+    )
+
+    assert isinstance(res_agg, pd.DataFrame)
+    assert "Object1_area" in res_agg.columns
+    assert "Object2_count" in res_agg.columns
+    assert "Object3_count" in res_agg.columns
+
+
 def test_quantify_texture_features(_ensure_test_data):
     intensity_image_2D, label_image_2D = _load_test_data("synthetic_2D")
 
@@ -1291,3 +1316,46 @@ def test_point_object_3D_comparison_with_standard_object(_ensure_test_data):
     
     assert total_intensity_standard == total_intensity_points, \
         f"Point total intensity ({total_intensity_points}) doesn't match standard total intensity ({total_intensity_standard})"
+
+
+def test_aggregate_mixed_point_and_regular_objects_3D(_ensure_test_data):
+    """Regression test: point object counts preserved when mixing with regular objects."""
+    intensity_image_3D, label_image_3D = _load_test_data("synthetic_3D")
+    
+    # Duplicate Object2 as a 4th channel to test multiple point objects with regular objects
+    label_data = label_image_3D.data.copy()
+    new_label_data = np.concatenate([label_data, label_data[:, 1:2, :, :, :]], axis=1)
+    
+    new_label_image = AICSImage(
+        new_label_data, 
+        channel_names=["Object1", "Object2", "Object3", "Object2_dup"],
+        physical_pixel_sizes=label_image_3D.physical_pixel_sizes
+    )
+    
+    # Mask child objects to be within parent boundaries
+    from blimp.processing.segment import mask_child_objects_by_parent
+    new_label_image = mask_child_objects_by_parent(
+        new_label_image, 
+        parent_object="Object1",
+        in_place=False
+    )
+    
+    result = blimp.processing.quantify.quantify(
+        intensity_image=new_label_image,
+        label_image=new_label_image,
+        measure_objects=[0, 1, 2, 3],
+        parent_object=0,
+        aggregate=True,
+        timepoint=0,
+        intensity_channels=None,
+        point_objects=[1, 3],
+    )
+    
+    assert isinstance(result, pd.DataFrame)
+    assert "Object2_count" in result.columns
+    assert "Object2_dup_count" in result.columns
+    assert "Object3_count" in result.columns
+    assert result["Object2_count"].sum() == result["Object2_dup_count"].sum()
+    
+    duplicate_cols = [col for col in result.columns if result.columns.tolist().count(col) > 1]
+    assert len(duplicate_cols) == 0, f"Duplicate columns: {duplicate_cols}"

@@ -1247,8 +1247,9 @@ def quantify(
         remaining_names = [obj for obj in measure_objects_list if obj != parent_object_str and obj not in point_object_names]
         if remaining_names:
             remaining_dfs = [features_by_name[name] for name in remaining_names]
+            # Use output (parent + point objects) as the "parent" for aggregation
             output = aggregate_and_merge_features(
-                df_list=[features_by_name[parent_object_str]] + remaining_dfs,
+                df_list=[output] + remaining_dfs,
                 parent_index=0,
                 object_names=[parent_object_str] + remaining_names,
             )
