@@ -462,7 +462,7 @@ def mask_child_objects_by_parent(
         
     Examples
     --------
-    >>> # Mask all objects except nuclei to be within cell boundaries
+    >>> # Mask all objects to be within cell boundaries
     >>> masked_labels = mask_child_objects_by_parent(
     ...     label_image, 
     ...     parent_object='Cell',

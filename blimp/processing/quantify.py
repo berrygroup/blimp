@@ -1089,9 +1089,17 @@ def aggregate_and_merge_features(
 
     # Merge all aggregated dataframes with the parent dataframe on parent_label -> label
     out = parent_df
+    
     for agg_df in aggregated_dfs:
+        # Drop parent_label from parent if it exists to avoid conflicts during merge
+        if "parent_label" in out.columns:
+            out = out.drop(columns=["parent_label"])
+        
+        # Drop parent_label_name from aggregated df to avoid duplicates (keep parent's version)
+        if "parent_label_name" in agg_df.columns:
+            agg_df = agg_df.drop(columns=["parent_label_name"])
+        
         out = out.merge(agg_df, how="left", left_on="label", right_on="parent_label")
-        # Drop the parent_label column after merge to avoid duplicates (only if it exists)
         if "parent_label" in out.columns:
             out = out.drop(columns=["parent_label"])
 
