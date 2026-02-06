@@ -102,8 +102,24 @@ def get_start_time_abs(raw_metadata: dict, acq_metadata: dict) -> datetime.datet
 
     if start_time_abs is None:
         logger.info("Checking ND2Reader.parser._raw_metadata.image_text_info for absolute start time")
-        start_time_abs = acq_metadata["TextInfoItem_9"]
-        start_time_abs = datetime.datetime.strptime(start_time_abs, "%d/%m/%Y  %I:%M:%S %p")
+        time_str = acq_metadata["TextInfoItem_9"]
+        
+        # Try different date formats (Nikon software changed format between versions)
+        date_formats = [
+            "%d/%m/%Y  %I:%M:%S %p",  # Format used in 2025: "21/11/2025  4:47:13 PM"
+            "%d-%b-%y  %I:%M:%S %p",  # Format used in 2026: "05-Feb-26  9:54:21 PM"
+        ]
+        
+        for date_format in date_formats:
+            try:
+                start_time_abs = datetime.datetime.strptime(time_str, date_format)
+                logger.info(f"Parsed start time using format: {date_format}")
+                break
+            except ValueError:
+                continue
+        
+        if start_time_abs is None:
+            logger.warning(f"Could not parse start time string: '{time_str}' with any known format")
 
     if start_time_abs is None:
         logger.warn("Absolute start time not found. Only relative time information available")
@@ -225,6 +241,11 @@ def nd2_extract_metadata_and_save(
     # metadata parsed by nd2reader
     metadata_dict = nd2_file.parser._raw_metadata.__dict__
 
+    # Get number of fields of view - handle both old and new nd2reader API
+    n_fields = nd2_file.sizes.get("v", len(metadata_dict["fields_of_view"]))
+    n_timepoints = nd2_file.sizes["t"]
+    n_z = nd2_file.sizes["z"]
+
     # combine into dataframe
     metadata_df = pd.DataFrame(
         data={
@@ -236,12 +257,12 @@ def nd2_extract_metadata_and_save(
             "stage_y_abs": nd2_file.parser._raw_metadata.y_data,
             "stage_z_abs": nd2_file.parser._raw_metadata.z_data,
             "acquisition_time_rel": acquisition_times,
-            "stage_z_id": list(metadata_dict["z_levels"]) * (nd2_file.sizes["t"] * nd2_file.sizes["v"]),
-            "field_id": list(np.repeat(range(1, 1 + nd2_file.sizes["v"]), nd2_file.sizes["z"])) * nd2_file.sizes["t"],
+            "stage_z_id": list(metadata_dict["z_levels"]) * (n_timepoints * n_fields),
+            "field_id": list(np.repeat(range(1, 1 + n_fields), n_z)) * n_timepoints,
             "timepoint_id": list(
                 np.repeat(
-                    range(nd2_file.sizes["t"]),
-                    nd2_file.sizes["z"] * nd2_file.sizes["v"],
+                    range(n_timepoints),
+                    n_z * n_fields,
                 )
             ),
         }
