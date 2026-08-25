@@ -35,6 +35,43 @@ for the development tools.
 
 The installation will make many functions externally accessible and will also install the `blimp` command line interface (CLI) in the `bin` directory of the installation environment. This should be accessible in your path.
 
+### Development environment (conda)
+
+To get a self-contained development environment with the test tooling:
+
+```bash
+git clone https://github.com/berrygroup/blimp.git
+cd blimp
+conda env create -f environment-dev.yml
+conda activate blimp-dev
+pip install -e ".[test,dev]"
+pre-commit install          # optional: run the hooks on every commit
+```
+
+`environment-dev.yml` installs the compiled scientific stack (numpy, pandas,
+scikit-image, SimpleITK, mahotas) from conda-forge, plus `tox`, `pytest` and
+`pre-commit`. The `pip install -e` step then adds blimp itself in editable mode
+along with the pip-only dependencies (`aicsimageio[nd2]`, `cellpose`,
+`itk-elastix`, `nd2reader`, `pystackreg`, `welford`).
+
+Clone rather than downloading a source zip: `setuptools_scm` is a build
+requirement and needs the git history.
+
+### Running the tests
+
+```bash
+tox -e offline      # ~140 tests, no network and no reference data needed
+tox                 # full suite; downloads the reference dataset if absent
+tox -e coverage     # coverage report (terminal + XML + HTML)
+tox -l              # list all environments
+pytest tests/ -q    # run pytest directly, e.g. with -k to select tests
+```
+
+The full suite needs a ~200 MB reference dataset from Figshare. `tox` fetches it
+automatically before running and skips the download when it is already present.
+Set `BLIMP_SKIP_TEST_DATA=1` to skip the download entirely; the tests that need
+the dataset are then deselected rather than failing.
+
 ## Documentation
 
 Documentation is generated directly from code using [Sphinx](https://www.sphinx-doc.org/en/master/) and the [napoleon](https://www.sphinx-doc.org/en/master/usage/extensions/napoleon.html) extension. To generate documentation use `tox`,

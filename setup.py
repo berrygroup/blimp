@@ -48,7 +48,14 @@ setup(
             if not l.startswith("-r")
         ],
     ),
-    install_requires=[line.strip() for line in Path("requirements.txt").read_text("utf-8").splitlines()],
+    # Skip comments and blank lines explicitly. setuptools happens to filter
+    # them out anyway, but relying on that is fragile: a comment reaching
+    # install_requires is not a valid PEP 508 specifier.
+    install_requires=[
+        line.strip()
+        for line in Path("requirements.txt").read_text("utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ],
     entry_points={
         "console_scripts": ["blimp=blimp.cli.main:main"],
     },
