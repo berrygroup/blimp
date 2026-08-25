@@ -66,8 +66,13 @@ jobs:
         -   name: Cache reference test dataset
             uses: actions/cache@v4
             with:
+                # The zip extracts to BOTH tests/_data and tests/_experiments,
+                # and blimp.data.load_test_data treats the dataset as present
+                # only when both exist. Caching just _data means the guard fails
+                # on a cache hit and the whole archive is downloaded again.
                 path: |
                     tests/_data
+                    tests/_experiments
                     tests/_data.zip
                 key: blimp-testdata-23972244
 

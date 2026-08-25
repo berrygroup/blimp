@@ -37,7 +37,8 @@ The installation will make many functions externally accessible and will also in
 
 ### Development environment (conda)
 
-To get a self-contained development environment with the test tooling:
+See [CONTRIBUTING_TESTING.md](CONTRIBUTING_TESTING.md) for the full recipe,
+including how to run the tests and the known caveats. In short:
 
 ```bash
 git clone https://github.com/berrygroup/blimp.git
