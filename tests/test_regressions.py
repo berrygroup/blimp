@@ -6,6 +6,7 @@ offline in under a second. If one of these fails, a fixed bug has returned.
 """
 from pathlib import Path
 import pickle
+import logging
 
 from aicsimageio import AICSImage
 import numpy as np
@@ -19,7 +20,11 @@ from blimp.preprocessing.registration import (
     transform_2D,
     TransformationParameters,
 )
-from blimp.preprocessing.illumination_correction import pixel_z_score
+from blimp.preprocessing.illumination_correction import (
+    pixel_z_score,
+    _floor_zero_std,
+    _ZERO_STD_WARNED,
+)
 import blimp.utils as utils
 
 # --------------------------------------------------------------------------
@@ -180,6 +185,91 @@ def test_pixel_z_score_float_input_unchanged_dtype():
     ones = np.ones((2, 2))
     out = pixel_z_score(original, ones, ones, 1.0, 1.0, log_transform=False)
     assert out.dtype == np.float32
+
+
+# --------------------------------------------------------------------------
+# illumination_correction: zero reference standard deviation
+#  A per-pixel std of exactly 0 made the z-score division produce +/-inf (or
+#  NaN for 0/0), which the cast to uint16 turned into 0 or 65535. The output
+#  was a plausible-looking image with dead and saturated pixels, so nothing
+#  failed and nothing warned. On the packaged two-image reference dataset this
+#  hit 3.95% of pixels, at ordinary mid-range intensities.
+# --------------------------------------------------------------------------
+
+
+def test_pixel_z_score_zero_std_does_not_produce_nonfinite():
+    """A zero std must not leak inf/NaN into the corrected image."""
+    original = np.array([[100, 200], [300, 400]], dtype=np.uint16)
+    mean_image = np.full((2, 2), 2.0)
+    std_image = np.array([[0.0, 0.5], [0.25, 0.5]])
+    out = pixel_z_score(original, mean_image, std_image, 2.0, 0.5, log_transform=True)
+    assert np.all(np.isfinite(out.astype(np.float64)))
+
+
+def test_pixel_z_score_zero_std_does_not_saturate_or_zero_the_pixel():
+    """The failure mode was silent: affected pixels became 0 or the dtype max
+    while looking like ordinary data. Guard the symptom directly."""
+    original = np.array([[500, 500], [500, 500]], dtype=np.uint16)
+    mean_image = np.full((2, 2), np.log10(500.0))
+    std_image = np.array([[0.0, 0.1], [0.1, 0.1]])
+    out = pixel_z_score(original, mean_image, std_image, np.log10(500.0), 0.1, log_transform=True)
+    assert out[0, 0] not in (0, np.iinfo(np.uint16).max)
+
+
+def test_floor_zero_std_uses_median_of_positive_values():
+    std_image = np.array([[0.0, 1.0], [2.0, 3.0]])
+    floored = _floor_zero_std(std_image)
+    # median of the positive entries (1, 2, 3) is 2
+    assert floored[0, 0] == 2.0
+
+
+def test_floor_zero_std_leaves_positive_values_untouched():
+    std_image = np.array([[0.0, 1.0], [2.0, 3.0]])
+    floored = _floor_zero_std(std_image)
+    np.testing.assert_array_equal(floored[std_image > 0], std_image[std_image > 0])
+
+
+def test_floor_zero_std_does_not_mutate_input():
+    """The caller's correction object must not be modified in place."""
+    std_image = np.array([[0.0, 1.0], [2.0, 3.0]])
+    before = std_image.copy()
+    _floor_zero_std(std_image)
+    np.testing.assert_array_equal(std_image, before)
+
+
+def test_floor_zero_std_returns_input_when_no_zeros():
+    std_image = np.array([[1.0, 2.0], [3.0, 4.0]])
+    np.testing.assert_array_equal(_floor_zero_std(std_image), std_image)
+
+
+def test_floor_zero_std_all_zero_is_left_alone():
+    """With no positive value to floor with there is nothing defensible to do;
+    the caller is warned rather than handed an invented std."""
+    std_image = np.zeros((2, 2))
+    np.testing.assert_array_equal(_floor_zero_std(std_image), std_image)
+
+
+def test_floor_zero_std_warns_with_affected_fraction(caplog):
+    """The substitution is an assumption, so it must be visible in the log."""
+    std_image = np.array([[0.0, 1.0], [2.0, 3.0]])
+    # The warning is deduplicated per distinct (n_zero, size, floor) signature so
+    # that a timelapse does not emit thousands of copies. Clear the cache, or this
+    # assertion depends on whether an earlier test already logged this signature.
+    _ZERO_STD_WARNED.clear()
+    with caplog.at_level(logging.WARNING):
+        _floor_zero_std(std_image)
+    assert "25.00%" in caplog.text
+
+
+def test_floor_zero_std_warns_only_once_per_signature(caplog):
+    """`pixel_z_score` runs per (T, C, Z) plane, so an undeduplicated warning
+    would flood the log on a timelapse."""
+    std_image = np.array([[0.0, 1.0], [2.0, 3.0]])
+    _ZERO_STD_WARNED.clear()
+    with caplog.at_level(logging.WARNING):
+        for _ in range(5):
+            _floor_zero_std(std_image)
+    assert caplog.text.count("Reference standard deviation is zero") == 1
 
 
 # --------------------------------------------------------------------------

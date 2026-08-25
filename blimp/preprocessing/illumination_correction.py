@@ -1,4 +1,4 @@
-from typing import List, Union, Literal, Optional
+from typing import Set, List, Tuple, Union, Literal, Optional
 from pathlib import Path
 import pickle
 import logging
@@ -309,6 +309,83 @@ class IlluminationCorrection:
         return correct_illumination(image, self, smooth)
 
 
+_ZERO_STD_WARNED: Set[Tuple[int, int, float]] = set()
+
+
+def _floor_zero_std(std_image: np.ndarray) -> np.ndarray:
+    """Replace zero standard deviations with the median positive value.
+
+    A per-pixel standard deviation of exactly zero means every reference image
+    held the same value at that pixel, so the z-score ``(x - mean) / std`` is
+    undefined. Dividing anyway yields ``+/-inf`` (or ``NaN`` where the numerator
+    is also zero), and the subsequent cast to an integer dtype turns those into
+    ``0`` or the dtype maximum. The result looks like a clean image containing
+    dead and saturated pixels, so the failure is silent.
+
+    Zero standard deviations arise when the correction is estimated from few
+    reference images: with two images, any pixel whose two values coincide gets
+    a standard deviation of zero. On the packaged two-image reference dataset
+    this affects 3.95% of pixels, which are ordinary mid-intensity signal
+    (around 935 counts), not background.
+
+    Such pixels are treated as varying by a typical amount for the channel: the
+    zero entries are replaced by the median of the positive standard deviations.
+    This is a deliberate modelling assumption, not a measurement -- the true
+    variance at these pixels was not sampled. It keeps the correction finite and
+    well-conditioned, and the corrections it produces are mild and bounded. Note
+    that flooring at the smallest positive value instead would divide by a
+    near-zero number and produce extreme corrections driven by numerical noise.
+
+    ``pixel_z_score`` is called with one channel of one plane at a time, so the
+    median here is a per-channel quantity.
+
+    Parameters
+    ----------
+    std_image
+        Per-pixel standard deviation of the reference images, for a single
+        channel.
+
+    Returns
+    -------
+    numpy.ndarray
+        A copy of ``std_image`` with zeros replaced by the median positive
+        standard deviation. Returned unchanged if it contains no zeros. If
+        *every* entry is zero there is no positive value to floor with, so the
+        array is returned unchanged and the caller will produce non-finite
+        values -- a correction estimated from identical reference images carries
+        no information and should be rebuilt from more images.
+    """
+    zero = std_image == 0
+    n_zero = int(zero.sum())
+    if n_zero == 0:
+        return std_image
+
+    positive = std_image[~zero]
+    if positive.size == 0:
+        logger.warning(
+            "Reference standard deviation is zero at every pixel; the illumination "
+            "correction carries no information. Rebuild it from more reference images."
+        )
+        return std_image
+
+    floor = float(np.median(positive))
+    # This is called once per (T, C, Z) plane, so a timelapse would emit the
+    # identical warning thousands of times. Warn once per distinct signature.
+    signature = (n_zero, std_image.size, floor)
+    if signature not in _ZERO_STD_WARNED:
+        _ZERO_STD_WARNED.add(signature)
+        logger.warning(
+            f"Reference standard deviation is zero at {n_zero} of {std_image.size} pixels "
+            f"({100 * n_zero / std_image.size:.2f}%), where the z-score is undefined. "
+            f"Flooring these to the median positive standard deviation ({floor:.4g}). "
+            "This is an assumption, not a measurement: estimate the correction from more "
+            "reference images to reduce the affected fraction."
+        )
+    std_image = std_image.copy()
+    std_image[zero] = floor
+    return std_image
+
+
 def pixel_z_score(
     original: np.ndarray,
     mean_image: np.ndarray,
@@ -324,6 +401,8 @@ def pixel_z_score(
         logger.debug("Log-transforming input image for pixel-wise z-score correction")
         original[original <= 0] = 1e-10
         original = np.log10(original)
+
+    std_image = _floor_zero_std(std_image)
 
     z = (original - mean_image) / std_image
     corrected = mean_mean_image + (mean_std_image * z)
