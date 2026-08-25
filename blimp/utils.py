@@ -56,21 +56,21 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
     if old_dtype == new_dtype:
         pass
 
-    elif old_dtype.kind == 'u':  # unsigned integer
+    elif old_dtype.kind == "u":  # unsigned integer
         # convert from uint
         if np.can_cast(old_dtype, new_dtype):
             new = new.astype(new_dtype)
         else:
             raise TypeError(f"Cannot cast {old_dtype} to {new_dtype}")
 
-    elif old_dtype.kind == 'i':  # signed integer
+    elif old_dtype.kind == "i":  # signed integer
         # convert from int
         if np.can_cast(old_dtype, new_dtype):
             new = new.astype(new_dtype)
         else:
             raise TypeError(f"Cannot cast {old_dtype} to {new_dtype}")
 
-    elif old_dtype.kind == 'f':  # float
+    elif old_dtype.kind == "f":  # float
         # convert from float
         if not round_floats_if_necessary:
             if np.can_cast(old_dtype, new_dtype):

@@ -255,9 +255,7 @@ class IlluminationCorrection:
                 self._mean_image.save(self._file_path.parent / (self._file_path.stem + "_mean_image.ome.tiff"))
                 self._std_image.save(self._file_path.parent / (self._file_path.stem + "_std_image.ome.tiff"))
             else:
-                raise RuntimeError(
-                    "Cannot save ``IlluminationCorrection`` if mean and std have not been calculated"
-                )
+                raise RuntimeError("Cannot save ``IlluminationCorrection`` if mean and std have not been calculated")
 
     def load(self, path: Union[str, Path, None] = None):
         # 1. Check inputs

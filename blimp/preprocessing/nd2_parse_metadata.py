@@ -103,13 +103,13 @@ def get_start_time_abs(raw_metadata: dict, acq_metadata: dict) -> datetime.datet
     if start_time_abs is None:
         logger.info("Checking ND2Reader.parser._raw_metadata.image_text_info for absolute start time")
         time_str = acq_metadata["TextInfoItem_9"]
-        
+
         # Try different date formats (Nikon software changed format between versions)
         date_formats = [
             "%d/%m/%Y  %I:%M:%S %p",  # Format used in 2025: "21/11/2025  4:47:13 PM"
             "%d-%b-%y  %I:%M:%S %p",  # Format used in 2026: "05-Feb-26  9:54:21 PM"
         ]
-        
+
         for date_format in date_formats:
             try:
                 start_time_abs = datetime.datetime.strptime(time_str, date_format)
@@ -117,7 +117,7 @@ def get_start_time_abs(raw_metadata: dict, acq_metadata: dict) -> datetime.datet
                 break
             except ValueError:
                 continue
-        
+
         if start_time_abs is None:
             logger.warning(f"Could not parse start time string: '{time_str}' with any known format")
 
@@ -209,8 +209,7 @@ def nd2_extract_metadata_and_save(
     logger.info(f"Acquisition_increment_order specified as {acquisition_increment_order}")
     if acquisition_increment_order != "TFZ":
         raise NotImplementedError(
-            f"acquisition_increment_order is {acquisition_increment_order}. "
-            "Only 'TFZ' is currently supported."
+            f"acquisition_increment_order is {acquisition_increment_order}. " "Only 'TFZ' is currently supported."
         )
 
     nd2_file = ND2Reader(str(in_file_path))
