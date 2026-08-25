@@ -355,6 +355,68 @@ def check_uniform_dimension_sizes(
     return result
 
 
+def safe_log10(array: np.ndarray) -> np.ndarray:
+    """Base-10 logarithm of an integer intensity image, with zeros mapped to 0.
+
+    ``log10(0)`` is ``-inf``, which propagates into any statistic computed from
+    it and, after a cast back to an integer dtype, silently becomes ``0`` or the
+    dtype maximum. Zero-valued pixels are therefore replaced by ``1`` before the
+    transform, so they map to ``log10(1) == 0``.
+
+    Restricted to unsigned and signed integer arrays deliberately. Substituting
+    ``1`` is only meaningful when ``1`` is the smallest representable non-zero
+    intensity, i.e. one detector count. On a float array -- normalised to
+    ``[0, 1]``, background-subtracted, or already log-scaled -- ``1`` may be the
+    maximum of the data or well outside its range, so the substitution would
+    corrupt rather than protect. Such input is rejected rather than silently
+    mishandled.
+
+    Negative values are also rejected. ``log10`` of a negative number is
+    ``NaN``, and ``NaN`` is not caught by an ``isinf`` check, so it passes
+    silently into a running accumulator and poisons that pixel for every
+    subsequent image. Negatives in raw intensity data indicate a prior
+    background subtraction or an out-of-range cast, which the caller should
+    resolve rather than have this function guess at.
+
+    Parameters
+    ----------
+    array
+        Integer intensity image. Not modified.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``float64`` array of base-10 logarithms, with zero-valued pixels mapped
+        to ``0.0``.
+
+    Raises
+    ------
+    TypeError
+        If ``array`` does not have an integer dtype.
+    ValueError
+        If ``array`` contains negative values.
+    """
+    if array.dtype.kind not in ("u", "i"):
+        raise TypeError(
+            f"``safe_log10`` requires an integer intensity array, got dtype {array.dtype}. "
+            "Zeros are replaced by 1 before the log transform, which is only meaningful "
+            "when 1 is one detector count. For float input (normalised, background-"
+            "subtracted, or already log-scaled) rescale to integer counts first."
+        )
+    if array.dtype.kind == "i" and array.min() < 0:
+        raise ValueError(
+            f"``safe_log10`` requires non-negative intensities, found minimum {array.min()}. "
+            "``log10`` of a negative value is NaN, which is not caught by ``isinf`` checks "
+            "and would silently corrupt any statistic computed from it."
+        )
+
+    n_zero = int(np.count_nonzero(array == 0))
+    if n_zero:
+        logger.debug(f"Replacing {n_zero} zero-valued pixels with 1 before log10 transform")
+    # np.where builds a new array, so the caller's input is never modified.
+    return np.log10(np.where(array == 0, 1, array).astype(np.float64))
+
+
 def mean_std_welford(images: List[AICSImage], log_transform: bool = False) -> tuple:
     n_c = images[0].dims.C
     w = [Welford() for i in range(n_c)]
@@ -363,14 +425,16 @@ def mean_std_welford(images: List[AICSImage], log_transform: bool = False) -> tu
             array_lazy = image.get_image_dask_data("YX", C=c, T=0, Z=0)
             array = array_lazy.compute()
             if log_transform:
-                is_zero = array == 0
-                if np.any(is_zero):
-                    logger.warning("image contains zero values")
-                array = np.log10(array)
-                # The log10 transform sets zero pixel values to -inf
-                array[is_zero] = 0
-            if np.any(np.isinf(array)):
-                logger.warning("skip image because it contains infinite values")
+                # Maps zeros to log10(1) == 0, matching the previous behaviour
+                # here exactly, but without emitting a log10(0) warning and
+                # while rejecting float and negative input rather than
+                # silently producing NaN. See ``safe_log10``.
+                array = safe_log10(array)
+            if np.any(~np.isfinite(array)):
+                # NaN as well as +/-inf: NaN is not caught by ``isinf`` and would
+                # otherwise enter the accumulator and poison that pixel for every
+                # subsequent image.
+                logger.warning("skip image because it contains non-finite values")
             else:
                 w[c].add(array)
 

@@ -7,12 +7,14 @@ offline in under a second. If one of these fails, a fixed bug has returned.
 from pathlib import Path
 import pickle
 import logging
+import warnings
 
 from aicsimageio import AICSImage
 import numpy as np
 import pytest
 
 from blimp.data import get_filename_from_content_disposition
+from blimp.utils import safe_log10
 from blimp.constants import blimp_config
 from blimp.processing.quantify import border_objects
 from blimp.preprocessing.registration import (
@@ -259,6 +261,87 @@ def test_floor_zero_std_warns_with_affected_fraction(caplog):
     with caplog.at_level(logging.WARNING):
         _floor_zero_std(std_image)
     assert "25.00%" in caplog.text
+
+
+# --------------------------------------------------------------------------
+# utils.safe_log10 -- zero and negative handling before the log transform
+#  Zeros previously took two different paths that disagreed by ten decades:
+#  `mean_std_welford` mapped a zero to log-space 0.0 (raw value 1) while
+#  `pixel_z_score` clamped it to 1e-10 (log-space -10), giving z-scores of
+#  order -3000 for a pixel whose neighbours sat near 3. Negative values were
+#  worse: log10 of a negative is NaN, NaN is not caught by an `isinf` check,
+#  so it entered the Welford accumulator and poisoned that pixel for every
+#  subsequent reference image.
+# --------------------------------------------------------------------------
+
+
+def test_safe_log10_maps_zero_to_zero():
+    """log10(1) == 0, the convention the reference statistics already used."""
+    array = np.array([[0, 1, 10], [100, 0, 1000]], dtype=np.uint16)
+    out = safe_log10(array)
+    assert out[0, 0] == 0.0
+    assert out[1, 1] == 0.0
+
+
+def test_safe_log10_matches_old_welford_behaviour():
+    """The reference path previously log10'd then patched -inf back to 0. The
+    new form must be numerically identical, so saved correction objects stay
+    valid -- only the spurious log10(0) warning goes away."""
+    array = np.array([[0, 1, 100], [200, 0, 300]], dtype=np.uint16)
+    with np.errstate(divide="ignore"):
+        old = np.log10(array.astype(np.float64))
+    old[array == 0] = 0.0
+    np.testing.assert_array_equal(safe_log10(array), old)
+
+
+def test_safe_log10_produces_no_nonfinite_values():
+    array = np.array([[0, 0], [0, 65535]], dtype=np.uint16)
+    assert np.all(np.isfinite(safe_log10(array)))
+
+
+def test_safe_log10_emits_no_numpy_warning_for_zeros():
+    """The old form called log10(0) and warned before patching the result."""
+    array = np.array([[0, 100]], dtype=np.uint16)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        safe_log10(array)
+
+
+def test_safe_log10_does_not_mutate_input():
+    array = np.array([[0, 100], [200, 300]], dtype=np.uint16)
+    before = array.copy()
+    safe_log10(array)
+    np.testing.assert_array_equal(array, before)
+
+
+def test_safe_log10_rejects_float_input():
+    """Replacing zeros with 1 assumes 1 is one detector count. On floats
+    normalised to [0, 1] that is the maximum of the data, not a floor."""
+    with pytest.raises(TypeError, match="integer intensity array"):
+        safe_log10(np.array([[0.0, 0.5]], dtype=np.float64))
+
+
+def test_safe_log10_rejects_negative_values():
+    """log10 of a negative is NaN, which `isinf` does not catch."""
+    with pytest.raises(ValueError, match="non-negative"):
+        safe_log10(np.array([[-500, 100]], dtype=np.int16))
+
+
+def test_safe_log10_accepts_signed_integers_without_negatives():
+    array = np.array([[0, 100]], dtype=np.int32)
+    np.testing.assert_allclose(safe_log10(array), [[0.0, 2.0]])
+
+
+def test_pixel_z_score_zero_pixels_agree_with_reference_convention():
+    """A zero pixel must be treated as log-space 0 by `pixel_z_score`, the same
+    value `mean_std_welford` used when building the statistics. The old 1e-10
+    clamp mapped it to -10 instead."""
+    original = np.array([[0, 100]], dtype=np.uint16)
+    mean_image = np.zeros((1, 2))
+    std_image = np.ones((1, 2))
+    out = pixel_z_score(original, mean_image, std_image, 0.0, 1.0, log_transform=True)
+    # z = (0 - 0) / 1 = 0  ->  corrected = 10**0 = 1
+    assert out[0, 0] == 1
 
 
 def test_floor_zero_std_warns_only_once_per_signature(caplog):

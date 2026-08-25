@@ -11,6 +11,7 @@ import dask.array as da
 
 from blimp.utils import (
     equal_dims,
+    safe_log10,
     smooth_image,
     average_images,
     mean_std_welford,
@@ -395,12 +396,16 @@ def pixel_z_score(
     log_transform: bool = True,
 ) -> np.ndarray:
     original_dtype = original.dtype
-    original = original.astype(np.float64)
 
     if log_transform:
         logger.debug("Log-transforming input image for pixel-wise z-score correction")
-        original[original <= 0] = 1e-10
-        original = np.log10(original)
+        # Zeros map to log10(1) == 0, the same convention used when the reference
+        # statistics were built by ``mean_std_welford``. The previous clamp to
+        # 1e-10 mapped them to -10 instead, disagreeing with the reference path
+        # by ten decades and producing z-scores of order -3000.
+        original = safe_log10(original)
+    else:
+        original = original.astype(np.float64)
 
     std_image = _floor_zero_std(std_image)
 
