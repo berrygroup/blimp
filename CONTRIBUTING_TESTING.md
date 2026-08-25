@@ -128,13 +128,76 @@ re-fetch rather than re-extract).
 cache pretrained cellpose weights. The skip message names the cause; it is not a
 failure.
 
-**`tox -e lint` currently fails on pre-existing formatting.** As of this writing
-this branch has 6 files failing `black==23.1.0` and 2 failing `isort==5.12.0`,
-all inherited from `main` (which has 7 and 2 respectively). The CI lint job is
-therefore marked `continue-on-error`. To
-clear it, run `pre-commit run --all-files`, commit the result as a
-formatting-only change, then remove `continue-on-error` from
-`.github/workflows/ci.yml`.
+## Install the hooks
+
+The hooks are declared in `.pre-commit-config.yaml` but **git does not run them
+until you install them into your clone**:
+
+```bash
+pre-commit install
+```
+
+Without this, `.git/hooks/pre-commit` does not exist and commits are never
+checked. `pre-commit` is in `environment-dev.yml`, so it is already available
+once the conda environment is active. This is per-clone and is not carried by
+`git clone`, so each person has to do it once.
+
+To check without committing:
+
+```bash
+pre-commit run --all-files          # every hook, every file
+pre-commit run black --all-files    # one hook
+tox -e lint                         # same hooks, in an isolated environment
+```
+
+**`tox -e lint` still fails, but no longer on formatting.** `black` and `isort`
+now pass across the whole tree. Three hooks fail, all pre-existing and none
+fixable by reformatting, so the CI lint job stays `continue-on-error`:
+
+| hook | failures | why it needs a human |
+| --- | --- | --- |
+| `mypy==1.7.1` | 5 errors | 4 are indexed assignment on an `Optional` in `segment.py`; 1 is a `Path` assigned to a `str`-annotated variable in `convert_nd2.py` |
+| `autoflake` | 10 files | unused imports, mostly `import os` -- the hook runs `--remove-all-unused-imports`, i.e. it deletes code |
+| `pyupgrade` | 1 file | |
+
+Fix those, then remove `continue-on-error` from `.github/workflows/ci.yml`.
+
+### A note on the pinned versions
+
+Every `rev:` in `.pre-commit-config.yaml` is an exact git tag -- that is how
+pre-commit works, there is no floating option. It builds an isolated environment
+per hook at that tag, which is what makes the checks reproducible across
+machines. So the pins are not a special decision; the question is when to bump
+them.
+
+They were last bumped in `ba4d35a` (Nov 2023). As of Aug 2026 that leaves
+`black` 27 releases behind, `isort` 9, `mypy` 29, `pyupgrade` 34.
+
+Bumping is a deliberate, separate change, because a formatter upgrade rewrites
+files:
+
+| black | files it reformats | non-blank lines changed |
+| --- | --- | --- |
+| `23.1.0` (pinned) | 6 -> now 0 | 420 |
+| `24.10.0` | 21 | 432 |
+| `26.5.1` | 22 | -- |
+
+The jump at black 24 is almost entirely cosmetic: 167 of the changed lines are
+blank-line insertions, because black 24 made "blank line after the module
+docstring" a stable style rule. `isort` is unaffected -- 5.12.0, 5.13.2 and
+6.0.1 all report the same 2 files.
+
+If you do bump, do it as `pre-commit autoupdate` plus one formatting-only
+commit, separate from any behaviour change, so a later `git bisect` is not
+wading through reformatting. Consider holding `mypy` back: 2.x is much stricter
+and may surface type errors that need real fixes rather than reformatting.
+
+**The `black`/`isort` line lengths look inconsistent but are not.** `black` is
+set to 120 and `isort` to 88 in `pyproject.toml`. Because `isort` runs with
+`include_trailing_comma = true`, a wrapped import gets a trailing comma, which
+triggers black's magic trailing comma and keeps the import exploded rather than
+joining it. Verified stable: applied alternately to a 115-character import they
+converge after one pass and do not fight.
 
 **tox builds its own isolated environments.** The conda environment is for
 interactive work and direct `pytest` runs; `tox` will create separate virtualenvs
