@@ -11,7 +11,6 @@ from aicsimageio import AICSImage
 import numpy as np
 import pytest
 
-import blimp.utils as utils
 from blimp.data import get_filename_from_content_disposition
 from blimp.constants import blimp_config
 from blimp.processing.quantify import border_objects
@@ -21,6 +20,7 @@ from blimp.preprocessing.registration import (
     TransformationParameters,
 )
 from blimp.preprocessing.illumination_correction import pixel_z_score
+import blimp.utils as utils
 
 # --------------------------------------------------------------------------
 # utils.estimate_focus_plane: the type guard validated ``crop`` twice, so the

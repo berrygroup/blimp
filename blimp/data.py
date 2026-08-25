@@ -1,8 +1,8 @@
 from typing import Union, Optional
 from pathlib import Path
+from urllib.parse import urlparse
 import os
 import shutil
-from urllib.parse import urlparse
 import logging
 import tempfile
 
@@ -255,9 +255,7 @@ def download(
 
     archive_formats, _ = zip(*shutil.get_archive_formats())
     if str(Path(filename).suffix)[1:] not in archive_formats:
-        raise ValueError(
-            f"Downloaded file {filename} is not a supported archive format {archive_formats}"
-        )
+        raise ValueError(f"Downloaded file {filename} is not a supported archive format {archive_formats}")
 
     download_to_path = os.path.join(download_to_folder, filename)
 

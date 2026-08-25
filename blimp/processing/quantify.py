@@ -1061,11 +1061,6 @@ def aggregate_and_merge_features(
       'TimepointID', and 'parent_label'.
     - Aggregation functions are 'sum', 'mean', 'min' and 'max', plus a
       '<object>_count' column giving the number of child objects per parent.
-      NOTE: this docstring previously also listed 'std' and 'median', which have
-      never been computed. The list has been corrected to match the code rather
-      than adding the two functions, since adding columns would change the
-      output schema of existing analyses. If 'std'/'median' are wanted, add them
-      to ``aggregations`` deliberately as a feature change.
     - After aggregation, the result is merged with the parent DataFrame using the 'label' column from the parent
       and 'parent_label' from the aggregated data.
     """

@@ -1,12 +1,11 @@
 # blimp
 
-![CI](https://github.com/berrygroup/blimp/actions/workflows/ci.yml/badge.svg)
-![Tests](tests/coverage/tests.svg)
-![Coverage](tests/coverage/coverage.svg)
-![Read the docs](https://readthedocs.org/projects/blimp/badge/?version=latest)
-![DOI](https://zenodo.org/badge/508656801.svg)
-![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)
-![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)
+[![CI](https://github.com/berrygroup/blimp/actions/workflows/ci.yml/badge.svg)](https://github.com/berrygroup/blimp/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/berrygroup/blimp/branch/main/graph/badge.svg)](https://codecov.io/gh/berrygroup/blimp)
+[![Documentation Status](https://readthedocs.org/projects/blimp/badge/?version=latest)](https://blimp.readthedocs.io/en/latest/)
+[![DOI](https://zenodo.org/badge/508656801.svg)](https://zenodo.org/badge/latestdoi/508656801)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 **B**erry **L**ab **IM**age **P**rocessing
 

@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 
 from blimp.archive import (
-    split_operetta_files_into_archiving_batches,
-    write_archiving_batch_files,
     write_archiving_script_nd2,
+    write_archiving_batch_files,
     write_archiving_script_operetta,
+    split_operetta_files_into_archiving_batches,
 )
 from blimp.cli.main import _get_full_parser
 

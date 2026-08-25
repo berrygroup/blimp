@@ -10,8 +10,8 @@ import pytest
 
 from blimp.preprocessing.operetta_parse_metadata import (
     _remove_ns,
-    _to_well_name,
     _xml_to_df,
+    _to_well_name,
     get_image_metadata,
     get_plate_metadata,
 )

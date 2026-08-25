@@ -8,15 +8,16 @@ from numbers import Integral
 from pathlib import Path
 import logging
 
-import itk
 from itk import ParameterObject, transformix_filter, elastix_registration_method
 from aicsimageio import AICSImage
+import itk
 import numpy as np
 import dask.array as da
 
 from blimp.utils import confirm_array_rank, check_uniform_dimension_sizes
 
 logger = logging.getLogger(__name__)
+
 
 def _as_itk_float_image(arr: Union[np.ndarray, "da.core.Array"]) -> "itk.Image":
     """Convert an array to a float32 ``itk.Image``.
@@ -28,7 +29,6 @@ def _as_itk_float_image(arr: Union[np.ndarray, "da.core.Array"]) -> "itk.Image":
     """
     array = np.ascontiguousarray(np.asarray(arr), dtype=np.float32)
     return itk.image_from_array(array)
-
 
 
 class TransformationParameters:

@@ -5,18 +5,18 @@ none of it can run offline. These tests construct small ``AICSImage`` objects
 with analytically known properties, which makes the expected feature values
 exact rather than regression-recorded.
 """
+from aicsimageio import AICSImage
 import numpy as np
 import pandas as pd
 import pytest
-from aicsimageio import AICSImage
 
 from blimp.processing.quantify import (
-    _quantify_single_timepoint_2D,
-    _quantify_single_timepoint_3D,
-    aggregate_and_merge_features,
+    quantify,
     border_objects,
     border_objects_XY_3D,
-    quantify,
+    aggregate_and_merge_features,
+    _quantify_single_timepoint_2D,
+    _quantify_single_timepoint_3D,
 )
 
 # --------------------------------------------------------------------------
@@ -123,9 +123,7 @@ def test_quantify_2D_areas_are_exact(two_squares_2D):
 
 def test_quantify_2D_mean_intensities_are_exact(two_squares_2D):
     intensity, label = two_squares_2D
-    df = _quantify_single_timepoint_2D(
-        intensity, label, measure_object="nuclei", intensity_channels="DAPI"
-    )
+    df = _quantify_single_timepoint_2D(intensity, label, measure_object="nuclei", intensity_channels="DAPI")
     mean_col = [c for c in df.columns if "mean" in c.lower() and "DAPI" in c]
     assert mean_col, f"no DAPI mean column in {list(df.columns)}"
     means = dict(zip(df["label"], df[mean_col[0]]))
@@ -135,9 +133,7 @@ def test_quantify_2D_mean_intensities_are_exact(two_squares_2D):
 
 def test_quantify_2D_sum_intensity_is_area_times_value(two_squares_2D):
     intensity, label = two_squares_2D
-    df = _quantify_single_timepoint_2D(
-        intensity, label, measure_object="nuclei", intensity_channels="DAPI"
-    )
+    df = _quantify_single_timepoint_2D(intensity, label, measure_object="nuclei", intensity_channels="DAPI")
     sum_col = [c for c in df.columns if "sum" in c.lower() and "DAPI" in c]
     assert sum_col
     sums = dict(zip(df["label"], df[sum_col[0]]))
@@ -147,9 +143,7 @@ def test_quantify_2D_sum_intensity_is_area_times_value(two_squares_2D):
 
 def test_quantify_2D_sd_of_uniform_object_is_zero(two_squares_2D):
     intensity, label = two_squares_2D
-    df = _quantify_single_timepoint_2D(
-        intensity, label, measure_object="nuclei", intensity_channels="DAPI"
-    )
+    df = _quantify_single_timepoint_2D(intensity, label, measure_object="nuclei", intensity_channels="DAPI")
     sd_col = [c for c in df.columns if "sd" in c.lower() and "DAPI" in c]
     assert sd_col
     assert np.allclose(df[sd_col[0]].to_numpy(), 0.0)
@@ -157,12 +151,8 @@ def test_quantify_2D_sd_of_uniform_object_is_zero(two_squares_2D):
 
 def test_quantify_2D_channel_by_index_matches_channel_by_name(two_squares_2D):
     intensity, label = two_squares_2D
-    by_name = _quantify_single_timepoint_2D(
-        intensity, label, measure_object="nuclei", intensity_channels="DAPI"
-    )
-    by_index = _quantify_single_timepoint_2D(
-        intensity, label, measure_object="nuclei", intensity_channels=0
-    )
+    by_name = _quantify_single_timepoint_2D(intensity, label, measure_object="nuclei", intensity_channels="DAPI")
+    by_index = _quantify_single_timepoint_2D(intensity, label, measure_object="nuclei", intensity_channels=0)
     pd.testing.assert_frame_equal(by_name, by_index)
 
 
@@ -273,9 +263,7 @@ def test_quantify_3D_requires_physical_pixel_sizes():
 
 def test_quantify_3D_mean_intensities_are_exact(two_cubes_3D):
     intensity, label = two_cubes_3D
-    df = _quantify_single_timepoint_3D(
-        intensity, label, measure_object="nuclei", intensity_channels="DAPI"
-    )
+    df = _quantify_single_timepoint_3D(intensity, label, measure_object="nuclei", intensity_channels="DAPI")
     means = dict(zip(df["label"], df["nuclei_3D_intensity_mean_DAPI"]))
     assert means[1] == pytest.approx(50.0)
     assert means[2] == pytest.approx(150.0)
@@ -320,9 +308,9 @@ def test_aggregate_count_column_is_integer_dtype():
 
 def test_aggregate_sums_and_means_are_exact():
     parent, child = _parent_and_child()
-    out = aggregate_and_merge_features(
-        [parent, child], parent_index=0, object_names=["nuclei", "spots"]
-    ).set_index("label")
+    out = aggregate_and_merge_features([parent, child], parent_index=0, object_names=["nuclei", "spots"]).set_index(
+        "label"
+    )
     assert out.loc[1, "spots_intensity_sum"] == pytest.approx(30.0)
     assert out.loc[1, "spots_intensity_mean"] == pytest.approx(15.0)
     assert out.loc[1, "spots_intensity_min"] == pytest.approx(10.0)
