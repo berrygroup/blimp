@@ -89,6 +89,14 @@ tox -e lint        # pre-commit hooks (see caveat below)
 tox -l             # list the default environments
 ```
 
+`coverage` reports on the accumulated data file, so it only has anything to say
+after a test env has run in the same session. It must also run *after*
+`covclean`, which erases that file; `envlist` is ordered accordingly. A full
+`tox` run measures **65% of `blimp/`** (1488 of 2287 statements, macOS/py311).
+Coverage is scoped to the package via `source = blimp` in `[coverage:run]` --
+without that, test files score near 100% and inflate the headline to about 80%,
+and any stray package tree in the repo root gets measured too.
+
 Note that `tox -l` lists only the `envlist` entries (the py310/311/312 matrix
 across linux and macos, plus `lint`, `coverage`, `covclean` and the docs
 targets). `offline` is defined but deliberately not in `envlist`, so it does not
