@@ -21,12 +21,23 @@ jobs:
         # Cheap and fails fast, so run it as its own job rather than making
         # every matrix leg wait on it.
         #
-        # NOTE: as of this commit `main` does not pass the pinned hooks --
-        # 7 files fail black==23.1.0 and 2 fail isort==5.12.0, all pre-existing.
-        # `continue-on-error` therefore reports the result without blocking
-        # merges on inherited formatting debt. Run `pre-commit run --all-files`,
-        # commit the result as a formatting-only change, then delete this line
-        # so lint becomes enforcing.
+        # NOTE: black and isort now pass cleanly across the tree (see the
+        # formatting-only commit that applied the pinned versions). Three hooks
+        # still fail, all pre-existing and all needing real code changes rather
+        # than reformatting, so `continue-on-error` stays for now:
+        #
+        #   mypy==1.7.1   5 errors. 4 are indexed assignment on an Optional in
+        #                 segment.py (needs a None check or an assert); 1 is a
+        #                 Path assigned to a str-annotated variable in
+        #                 convert_nd2.py, next to two existing `# type: ignore`
+        #                 comments on the same pattern.
+        #   autoflake     10 files with unused imports (mostly `import os`).
+        #                 The hook runs with --in-place --remove-all-unused-
+        #                 imports, i.e. it deletes code, so it wants review
+        #                 rather than a blind apply.
+        #   pyupgrade     1 file.
+        #
+        # Fix those three, then delete this line so lint becomes enforcing.
         continue-on-error: true
         runs-on: ubuntu-latest
         steps:
