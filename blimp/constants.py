@@ -110,7 +110,7 @@ class BLIMPConfig:
 
     @EXPERIMENT_DIR.setter
     def EXPERIMENT_DIR(self, experiment_dir):
-        self._EXPERIMENT_DIR = os.path.abspath(experiment_dir)
+        self._EXPERIMENT_DIR = None if experiment_dir is None else os.path.abspath(experiment_dir)
 
     @property
     def BASE_DATA_DIR(self):
@@ -127,7 +127,7 @@ class BLIMPConfig:
 
     @BASE_DATA_DIR.setter
     def BASE_DATA_DIR(self, data_dir):
-        self._BASE_DATA_DIR = os.path.abspath(data_dir)
+        self._BASE_DATA_DIR = None if data_dir is None else os.path.abspath(data_dir)
 
     @property
     def data_configs(self):
@@ -206,4 +206,4 @@ class BLIMPConfig:
 blimp_config: BLIMPConfig = BLIMPConfig()
 
 # scripts dir is parent dir of this file (blimp folder)
-SCRIPTS_DIR = Path(__file__).parent.parent
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent

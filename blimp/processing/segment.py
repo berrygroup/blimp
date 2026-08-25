@@ -278,7 +278,7 @@ def segment_secondary(
             secondary_label_image = np.zeros(primary_label_image.shape, dtype=np.int32)
 
     n_objects = len(np.unique(secondary_label_image)[1:])
-    logger.info("identified {n_objects} objects")
+    logger.info(f"identified {n_objects} objects")
 
     return secondary_label_image
 

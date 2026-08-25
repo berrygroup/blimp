@@ -2,6 +2,7 @@
 from typing import List, Union
 from pathlib import Path
 import os
+import subprocess
 import re
 import glob
 import logging
@@ -149,8 +150,7 @@ def convert_nd2(
     """
 
     if image_format != "TIFF":
-        logger.error(f"image_format = {image_format}. Only TIFF format currently implemented")
-        os._exit(1)
+        raise NotImplementedError(f"image_format = {image_format}. Only TIFF format currently implemented")
 
     # create job/log directory if it does not exist
     job_path = Path(job_path)
@@ -186,8 +186,9 @@ def convert_nd2(
         else:
             # Or if zIDs match, just add the original path
             # to the output path list (appending OME-TIFF)
+            out_path = path / "OME-TIFF"
             logger.debug(f"zID in input path matches user's zID, output path is {str(out_path)}")
-            out_paths.append(path / "OME-TIFF")  # type: ignore
+            out_paths.append(out_path)  # type: ignore
 
     # read template from file
     if template_path is None:
@@ -217,11 +218,11 @@ def convert_nd2(
     # dryrun
     if dryrun:
         for j in job_paths:
-            os.system("echo qsub " + str(j))
+            logger.info(f"[dryrun] qsub {j}")
 
     # submit jobs
     if submit:
         for j in job_paths:
-            os.system("qsub " + str(j))
+            subprocess.run(["qsub", str(j)], check=True)
 
     return None

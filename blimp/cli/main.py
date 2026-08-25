@@ -186,9 +186,8 @@ def _add_archive_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-j",
         "--jobscript_path",
-        default=os.getcwd(),
+        default=None,
         help="Directory to save jobscripts (default = current working directory)",
-        required=True,
     )
 
     parser.add_argument(
@@ -210,7 +209,7 @@ def _archive_nd2(args) -> None:
 
     archive(
         in_path=args.input_path,
-        jobscript_path=args.jobscript_path,
+        jobscript_path=args.jobscript_path if args.jobscript_path is not None else os.getcwd(),
         input_type="nd2",
         first_name=args.first_name,
         project_name=args.project_name,
@@ -224,7 +223,7 @@ def _archive_operetta(args) -> None:
 
     archive(
         in_path=args.input_path,
-        jobscript_path=args.jobscript_path,
+        jobscript_path=args.jobscript_path if args.jobscript_path is not None else os.getcwd(),
         input_type="operetta",
         first_name=args.first_name,
         project_name=args.project_name,
@@ -254,6 +253,11 @@ def _get_full_parser() -> argparse.ArgumentParser:
         help="Create configuration file ``blimp.ini``.",
         description="".join([header, setup_header]),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    setup_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="create default configuration file without asking for user input.",
     )
     setup_parser.set_defaults(func=prepare_config)
 
@@ -360,9 +364,7 @@ def main():
     # call function provided as default for the subparser
     if args.func == prepare_config:
         # setup requires user input so needs a slightly different interface
-        setup_parser = _get_setup_parser()
-        setup_args = setup_parser.parse_args(sys.argv[sys.argv.index("setup") + 1 :])
-        prepare_config(**vars(setup_args))
+        prepare_config(quiet=args.quiet)
     else:
         args.func(args)
 

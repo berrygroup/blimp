@@ -35,12 +35,12 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
     uint_types = [np.uint8, np.uint16, np.uint32, np.uint64]
     float_types = [np.float16, np.float32, np.float64]
     allowed_types = int_types + uint_types + float_types
-    if not dtype in allowed_types:
-        raise TypeError("``dtype`` = {dtype} is either not recognised or not allowed")
+    if dtype not in allowed_types:
+        raise TypeError(f"``dtype`` = {dtype} is either not recognised or not allowed")
 
     # convert input to a numpy array
     if isinstance(arr, da.core.Array):
-        arr = np.ndarray(arr)
+        arr = np.asarray(arr)
     if not isinstance(arr, np.ndarray):
         raise TypeError("``arr`` is not a ``numpy.ndarray``")
 
@@ -686,30 +686,28 @@ def translate_array(img: np.ndarray, y: int, x: int):
     return shifted_img
 
 
-def _vollath_f4(arr: np.ndarray):
-    """Vollath's F4 function.
+def _vollath_f4(arr: np.ndarray) -> float:
+    """Vollath's F4 autocorrelation-based focus measure.
 
     Described in https://doi.org/10.1002/jemt.24035
 
-    Code adapted from
-    https://github.com/aquimb/Autofocus-URJC/blob/d3b83382a82315e27e248d09519e3da4dbac40f6/Code/algorithms.py#L200
+    Notes
+    -----
+    The accumulation is performed in ``float64``. Computing this metric in the
+    input's native dtype silently overflows for integer images: for ``uint16``
+    microscopy data, products reach ~4.3e9 and wrap modulo 65536, which can
+    change the selected focus plane. The result is therefore a Python float,
+    independent of input dtype.
     """
-    sum1 = 0
-    sum2 = 0
-    rows = arr.shape[0]
-    cols = arr.shape[1]
-    for i in range(rows - 1):
-        sum1 = sum1 + (arr[i] * arr[i + 1])
+    a = np.asarray(arr, dtype=np.float64)
+    if a.ndim != 2:
+        raise ValueError(f"``arr`` must be rank 2, got rank {a.ndim}")
+    if a.shape[0] < 3:
+        raise ValueError(f"``arr`` must have at least 3 rows, got {a.shape[0]}")
 
-    for i in range(rows - 2):
-        sum2 = sum2 + (arr[i] * arr[i + 2])
-
-    sum3 = sum1 - sum2
-    res = 0
-    for i in range(cols):
-        res = res + sum3[i]  # type: ignore
-
-    return res
+    sum1 = (a[:-1] * a[1:]).sum()
+    sum2 = (a[:-2] * a[2:]).sum()
+    return float(sum1 - sum2)
 
 
 def estimate_focus_plane(
@@ -744,10 +742,10 @@ def estimate_focus_plane(
         If `crop` is not less than 1.
     """
 
+    if not isinstance(image, AICSImage):
+        raise TypeError("``image`` must be an ``aicsimageio.AICSImage``")
     if not isinstance(crop, float):
         raise TypeError("``crop`` must be of type float")
-    if not isinstance(crop, AICSImage):
-        raise TypeError("``image`` must be an ``aicsimageio.AICSImage``")
 
     if C is None:
         logger.warning("Using default channel (C = 0) to calculate focus_plane")
@@ -769,7 +767,9 @@ def estimate_focus_plane(
     # out-of-focus images from stack
     # e.g. intensity = [np.mean(arr) for arr in arrays]
 
-    if sliding_window is not None:
+    if sliding_window is None:
+        max_pos = np.argmax(f4)
+    else:
         if sliding_window > 0:
             logger.debug(f"cropping image with window size {crop}")
             # average using sliding window

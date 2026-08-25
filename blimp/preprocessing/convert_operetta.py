@@ -3,6 +3,7 @@ environment formats."""
 from typing import Union
 from pathlib import Path
 import os
+import subprocess
 import re
 import glob
 import logging
@@ -158,12 +159,12 @@ def convert_operetta(
     # dryrun
     if dryrun:
         for j in jobscript_paths:
-            os.system("echo qsub " + str(j))
+            logger.info(f"[dryrun] qsub {j}")
 
     # submit jobs
     if submit:
         for j in jobscript_paths:
-            os.system("qsub " + str(j))
+            subprocess.run(["qsub", str(j)], check=True)
 
     return None
 
@@ -276,8 +277,8 @@ def check_convert_operetta_dir(
         unique_output_sites_mip = {tuple(re.findall(r"(?<=r|c|f)\d+", str(s))) for s in out_path_mip.glob("*.tiff")}
         missing_sites_mip = unique_input_sites.difference(unique_output_sites_mip)
 
-        if len(missing_sites) != 0:
-            logger.warn(f"The following sites are expected in {str(out_path_mip)}, but were not found")
+        if len(missing_sites_mip) != 0:
+            logger.warning(f"The following sites are expected in {str(out_path_mip)}, but were not found")
             for m in missing_sites_mip:
                 logger.warn(
                     f"Plate row {m[0]}; plate col {m[1]}; field {m[2]} (filename string = r{str(m[0]).zfill(2)}c{str(m[1]).zfill(2)}f{str(m[2]).zfill(2)})"

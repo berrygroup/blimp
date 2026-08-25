@@ -18,12 +18,10 @@ def check_config_file() -> bool:
     """Check that the config file exists in the correct location"""
     config_path = Path.home() / "config.cfg"
     if not config_path.exists():
-        logger.error(
+        raise FileNotFoundError(
             f"Config file not found at {config_path}. Please use get-config-file from UNSW's data archive module"
         )
-        os._exit(1)
-    else:
-        return True
+    return True
 
 
 def write_archiving_script_nd2(
@@ -142,6 +140,8 @@ def write_archiving_script_operetta(
 
     file_mode = "a" if append else "w"
     file_paths = [str(f) for f in file_paths]
+    archive_path = None
+    archive_batch_files: List[str] = []
     try:
         with open(Path(script_path), file_mode) as f:
             if not append:
@@ -151,7 +151,7 @@ def write_archiving_script_operetta(
                 f.write(f"##     First name: {first_name}\n")
                 f.write(f"##     Project:    {project_name}\n\n")
                 f.write("module add unswdataarchive/2021-02-17\n\n")
-                f.write("export CONFIG_FILE=${HOME}/config.cfg")
+                f.write("export CONFIG_FILE=${HOME}/config.cfg")  # noqa: FS003  (shell var, not f-string)
             for file_path in file_paths:
                 # Identify Archive directory by name and write compression commands
                 if Path(file_path).stem == "Archive":

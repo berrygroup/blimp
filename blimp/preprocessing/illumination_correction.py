@@ -84,9 +84,9 @@ class IlluminationCorrection:
             self.file_path = from_file
             self.load(self._file_path)  # type: ignore
             if self._timelapse is None:
-                raise ValueError("``timelapse`` is not specified in file {self._file_path}")
+                raise ValueError(f"``timelapse`` is not specified in file {self._file_path}")
             if self._method is None:
-                raise ValueError("``method`` is not specified in file {self._file_path}")
+                raise ValueError(f"``method`` is not specified in file {self._file_path}")
             elif self._method == "pixel_z_score":
                 # FIXME: recompute mean_mean and mean_std on loading as these seem to not be stored in file
                 if isinstance(self._mean_image, AICSImage) and self._dims is not None:
@@ -322,9 +322,8 @@ def pixel_z_score(
 
     if log_transform:
         logger.debug("Log-transforming input image for pixel-wise z-score correction")
-        original[original == 0] = 1e-10
+        original[original <= 0] = 1e-10
         original = np.log10(original)
-        original[original == 0] = 0
 
     z = (original - mean_image) / std_image
     corrected = mean_mean_image + (mean_std_image * z)
@@ -332,7 +331,7 @@ def pixel_z_score(
     if log_transform:
         corrected = 10**corrected
 
-    if original.dtype.kind in ["i", "u"]:
+    if original_dtype.kind in ["i", "u"]:
         corrected = np.rint(corrected).astype(original_dtype)
     else:
         corrected = corrected.astype(original_dtype)

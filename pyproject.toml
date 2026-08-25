@@ -49,7 +49,39 @@ force_alphabetical_sort_within_sections = true
 lexicographical = true
 
 [tool.pytest.ini_options]
+# NOTE: this is the *only* pytest configuration in the project. pytest ignores
+# the [pytest] section of tox.ini whenever a [tool.pytest.ini_options] table
+# exists here (it emits "WARNING: ignoring pytest config in tox.ini"), so the
+# filterwarnings list and addopts that used to live in tox.ini were silently
+# dead. They have been moved here.
+minversion = "7.0"
+testpaths = ["tests"]
+
+# Warnings are printed rather than raised: the imaging stack is warning-heavy
+# and -W error would make the suite unusable. Known-noisy warnings are muted.
+filterwarnings = [
+    "ignore:the imp module is deprecated:DeprecationWarning",
+    "ignore:'contextfilter':DeprecationWarning",
+    "ignore:distutils:DeprecationWarning",
+    "ignore:Please use `spmatrix`:DeprecationWarning",
+    "ignore:Passing a schema to Validator.iter_errors:DeprecationWarning",
+    "ignore:Please use:DeprecationWarning",
+    "ignore:'plotting' is not a valid key!:SyntaxWarning",
+    # skimage >= 0.22 shadows the custom intensity_median extra property
+    "ignore:Extra property 'intensity_median' is shadowed:UserWarning",
+    "ignore:builtin type Swig.* has no __module__ attribute:DeprecationWarning",
+]
+
+# --strict-markers turns a typo'd marker into an error instead of silently
+# selecting nothing.
+addopts = "--strict-markers --strict-config"
+
+markers = [
+    "data: requires the downloaded reference dataset (deselect with -m 'not data')",
+    "slow: takes more than a few seconds",
+]
+
 log_cli = true
-log_cli_level = "INFO"
+log_cli_level = "WARNING"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"

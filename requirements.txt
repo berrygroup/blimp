@@ -5,6 +5,10 @@ itk-elastix>=0.18.0
 mahotas>=1.4.13
 matplotlib>=3.6.3
 nd2reader>=3.3.0
+# aicsimageio pulls zarr 2.x, which imports numcodecs.blosc.cbuffer_sizes.
+# That symbol was removed in numcodecs 0.16, so an unconstrained install breaks
+# every aicsimageio.writers import with an ImportError.
+numcodecs<0.16
 numpy>=1.23.0
 packaging>=23.0
 pandas>=1.5.2

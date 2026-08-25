@@ -8,6 +8,7 @@ from numbers import Integral
 from pathlib import Path
 import logging
 
+import itk
 from itk import ParameterObject, transformix_filter, elastix_registration_method
 from aicsimageio import AICSImage
 import numpy as np
@@ -16,6 +17,18 @@ import dask.array as da
 from blimp.utils import confirm_array_rank, check_uniform_dimension_sizes
 
 logger = logging.getLogger(__name__)
+
+def _as_itk_float_image(arr: Union[np.ndarray, "da.core.Array"]) -> "itk.Image":
+    """Convert an array to a float32 ``itk.Image``.
+
+    ``itk.elastix`` filters are only wrapped for ``itk.Image`` inputs; passing a
+    bare numpy array raises ``TemplateTypeError`` on current itk versions. Dask
+    arrays are materialised first, and a C-contiguous copy is made because
+    ``itk.image_from_array`` requires contiguous memory.
+    """
+    array = np.ascontiguousarray(np.asarray(arr), dtype=np.float32)
+    return itk.image_from_array(array)
+
 
 
 class TransformationParameters:
@@ -56,12 +69,12 @@ class TransformationParameters:
         specified in the file_name parameter. This file can be loaded using
         ``TranformationParameters(from_file = {file_name})``
         """
-        self.from_file = str(from_file)
-        self.from_resources = str(from_file)
+        self.from_file = str(from_file) if from_file is not None else None
+        self.from_resources = str(from_resources) if from_resources is not None else None
         self.transformation_mode = transformation_mode
         self.from_object = True if from_object is not None else False
 
-        if all([transformation_mode, from_resources, from_file, from_object]) is None:
+        if all(x is None for x in (transformation_mode, from_resources, from_file, from_object)):
             raise ValueError(
                 "TransformationParameters requires one of [transformation_mode, from_object, from_file, from_resources]"
             )
@@ -88,13 +101,13 @@ class TransformationParameters:
             if transformation_mode in ["translation", "rigid", "affine"]:
                 parameter_map = self.parameter_object.GetDefaultParameterMap(transformation_mode, resolutions)
             else:
-                logger.error("Unknown transformation mode {transformation_mode}")
+                logger.error(f"Unknown transformation mode {transformation_mode}")
                 raise ValueError(f"ITK transformation_mode {transformation_mode} unknown")
 
             self.parameter_object.AddParameterMap(parameter_map)
 
     def save(self, file_name: Union[str, Path]):
-        logger.debug("Saving transformation parameters as {file_name}")
+        logger.debug(f"Saving transformation parameters as {file_name}")
         ParameterObject.WriteParameterFile(self.parameter_object, str(file_name))
 
     def __str__(self):
@@ -182,8 +195,8 @@ def register_2D(
         raise TypeError("``settings`` is not a ``TransformationParameters`` object")
 
     registered, parameters = elastix_registration_method(
-        np.asarray(fixed, dtype=np.float32),
-        np.asarray(moving, dtype=np.float32),
+        _as_itk_float_image(fixed),
+        _as_itk_float_image(moving),
         parameter_object=settings.parameter_object,
     )
     if parameters_only:
@@ -241,7 +254,7 @@ def transform_2D(moving: Union[np.ndarray, da.core.Array], parameters: Transform
                 + f"while ``moving`` has size ({moving.shape[0]},{moving.shape[1]})"
             )
 
-    transformed = transformix_filter(np.asarray(moving, dtype=np.float32), parameters.parameter_object)
+    transformed = transformix_filter(_as_itk_float_image(moving), parameters.parameter_object)
 
     return np.asarray(transformed, dtype=moving.dtype)
 

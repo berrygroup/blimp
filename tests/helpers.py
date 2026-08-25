@@ -14,20 +14,17 @@ logger = logging.getLogger(__name__)
 
 
 # -- FIXTURES ---
-@pytest.fixture()
-def _ensure_test_data():
-    from blimp.constants import SCRIPTS_DIR
-
-    if os.path.isdir(os.path.join(SCRIPTS_DIR, "tests/_experiments")) and os.path.isdir(
-        os.path.join(SCRIPTS_DIR, "tests/_data")
-    ):
-        return
-    with zipfile.ZipFile(os.path.join(SCRIPTS_DIR, "tests/_data.zip"), "r") as zip_ref:
-        zip_ref.extractall(os.path.join(SCRIPTS_DIR, "tests/."))
 
 
 def _load_test_data(dataset: str) -> Union[List[AICSImage], None]:
+    """Load a named reference dataset.
+
+    Skips the calling test if the reference dataset has not been downloaded, so
+    that the suite remains runnable offline.
+    """
     testdata_config = blimp_config.get_data_config("testdata")
+    if testdata_config.DATASET_DIR is None or not Path(testdata_config.DATASET_DIR).is_dir():
+        pytest.skip(f"Reference dataset not available (needed for '{dataset}'). Use --download-test-data.")
     if dataset == "operetta_cls_multiplex":
         dataset_path = Path(testdata_config.DATASET_DIR) / "operetta_cls_multiplex"
         logger.info(f"Loading multiplexed images from {dataset_path}")

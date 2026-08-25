@@ -208,7 +208,7 @@ def _calculate_texture_features_single_object(
 
         # adjust feature names using object and scale
         haralick_full_names = [
-            "{object_name}_{channel_name}_Haralick-{name}-{scale}".format(
+            f"{object_name}_{channel_name}_Haralick-{name}-{scale}".format(
                 object_name=object_name, channel_name=channel_name, name=name, scale=scale
             )
             for name in HARALICK_BASE_NAMES
@@ -598,7 +598,11 @@ def _quantify_single_timepoint_2D(
     pd.DataFrame
         A DataFrame containing the quantified features.
     """
-    check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False)
+    if not check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False):
+        raise ValueError(
+            "``intensity_image`` and ``label_image`` must have matching dimension sizes "
+            f"(got {intensity_image.dims.shape} and {label_image.dims.shape}, ignoring C)."
+        )
 
     def intensity_sd(regionmask, intensity_image):
         return np.std(intensity_image[regionmask])
@@ -783,7 +787,11 @@ def _quantify_single_timepoint_3D(
     if physical_pixel_size_units != "micron":
         raise ValueError(f"Expected physical_pixel_size_units to be 'micron', but got '{physical_pixel_size_units}'")
 
-    check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False)
+    if not check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False):
+        raise ValueError(
+            "``intensity_image`` and ``label_image`` must have matching dimension sizes "
+            f"(got {intensity_image.dims.shape} and {label_image.dims.shape}, ignoring C)."
+        )
 
     intensity_channels_list = get_channel_names(intensity_image, intensity_channels)
     measure_object = get_channel_names(label_image, measure_object)[0]
@@ -1051,7 +1059,13 @@ def aggregate_and_merge_features(
     -----
     - The aggregation is performed on all numeric columns in the non-parent DataFrames, except for 'label',
       'TimepointID', and 'parent_label'.
-    - Aggregation functions include 'sum', 'mean', 'min', 'max', 'std', 'median' and 'count'
+    - Aggregation functions are 'sum', 'mean', 'min' and 'max', plus a
+      '<object>_count' column giving the number of child objects per parent.
+      NOTE: this docstring previously also listed 'std' and 'median', which have
+      never been computed. The list has been corrected to match the code rather
+      than adding the two functions, since adding columns would change the
+      output schema of existing analyses. If 'std'/'median' are wanted, add them
+      to ``aggregations`` deliberately as a feature change.
     - After aggregation, the result is merged with the parent DataFrame using the 'label' column from the parent
       and 'parent_label' from the aggregated data.
     """
@@ -1103,8 +1117,12 @@ def aggregate_and_merge_features(
         if "parent_label" in out.columns:
             out = out.drop(columns=["parent_label"])
 
-    # Replace NaN with 0 in columns that end with '_count'
-    out.loc[:, out.columns.str.endswith("_count")] = out.loc[:, out.columns.str.endswith("count")].fillna(0).astype(int)
+    # Replace NaN with 0 in columns that end with '_count'.
+    # Note: assigning through .loc preserves the existing float dtype, so the
+    # columns are rebuilt individually to get genuine integer counts.
+    count_cols = [c for c in out.columns if c.endswith("_count")]
+    for col in count_cols:
+        out[col] = out[col].fillna(0).astype(int)
 
     return out
 
@@ -1171,7 +1189,11 @@ def quantify(
     """
 
     # Check inputs
-    check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False)
+    if not check_uniform_dimension_sizes([label_image, intensity_image], omit="C", check_dtype=False):
+        raise ValueError(
+            "``intensity_image`` and ``label_image`` must have matching dimension sizes "
+            f"(got {intensity_image.dims.shape} and {label_image.dims.shape}, ignoring C)."
+        )
     label_image = make_channel_names_unique(label_image)
     intensity_image = make_channel_names_unique(intensity_image)
     measure_objects_list: List[str] = get_channel_names(image=label_image, input=measure_objects)

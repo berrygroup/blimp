@@ -9,7 +9,6 @@ import pytest
 from blimp.constants import blimp_config
 import blimp.processing.quantify
 
-from .helpers import _ensure_test_data  # noqa: F401, I252
 from .helpers import _load_test_data
 
 logger = logging.getLogger(__name__)

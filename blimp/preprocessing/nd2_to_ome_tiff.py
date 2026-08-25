@@ -54,7 +54,9 @@ def convert_individual_nd2_to_ome_tiff(
                 raise ValueError("Channel names must be strings.")
         logger.debug(f"Using channel names from input {channel_names}.")
     else:
-        ValueError("Unknown error in channel names.")
+        raise ValueError(
+            f"``channel_names`` must be a str or list of str, got {type(channel_names).__name__}."
+        )
 
     for s, scene in enumerate(images.scenes):
         if out_path is not None or out_path_mip is not None:
@@ -263,8 +265,7 @@ def nd2_to_ome_tiff(
         out_path_mip = None
 
     if in_path == out_path:
-        logger.error("Input and output paths are the same.")
-        os._exit(1)
+        raise ValueError("Input and output paths are the same.")
 
     # make output directories
     if not out_path.exists():

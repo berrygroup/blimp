@@ -328,8 +328,7 @@ def operetta_to_ome_tiff(
         out_path_mip = out_path.parent / (str(out_path.stem) + "-MIP")
 
     if in_path == out_path:
-        logger.error("Input and output paths are the same.")
-        os._exit(1)
+        raise ValueError("Input and output paths are the same.")
 
     plate_metadata_file = in_path / "plate_metadata.csv" if save_metadata_files else None
     image_metadata_file = in_path / "image_metadata.csv" if save_metadata_files else None

@@ -9,7 +9,6 @@ from blimp.utils import equal_dims
 from blimp.constants import blimp_config
 import blimp.preprocessing.illumination_correction
 
-from .helpers import _ensure_test_data  # noqa: F401, I252
 from .helpers import _load_test_data
 
 logger = logging.getLogger(__name__)

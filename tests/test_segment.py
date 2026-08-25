@@ -8,12 +8,11 @@ import pytest
 from blimp.constants import blimp_config
 from blimp.processing.segment import segment_nuclei_cellpose
 
-from .helpers import _ensure_test_data
 
 logger = logging.getLogger(__name__)
 
 
-def test_segment_nuclei_cellpose_basic(_ensure_test_data):
+def test_segment_nuclei_cellpose_basic(_ensure_test_data, cellpose_models):
     """Test basic segmentation with cellpose on operetta multiplex data."""
     testdata_config = blimp_config.get_data_config("testdata")
     dataset_path = Path(testdata_config.DATASET_DIR) / "operetta_cls_multiplex"
@@ -100,7 +99,7 @@ def test_segment_nuclei_cellpose_3d_raises_error(_ensure_test_data):
         )
 
 
-def test_segment_nuclei_cellpose_multiple_timepoints(_ensure_test_data):
+def test_segment_nuclei_cellpose_multiple_timepoints(_ensure_test_data, cellpose_models):
     """Test segmentation with multiple timepoints."""
     testdata_config = blimp_config.get_data_config("testdata")
     dataset_path = Path(testdata_config.DATASET_DIR) / "operetta_cls_multiplex"
