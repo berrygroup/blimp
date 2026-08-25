@@ -121,8 +121,9 @@ cache pretrained cellpose weights. The skip message names the cause; it is not a
 failure.
 
 **`tox -e lint` currently fails on pre-existing formatting.** As of this writing
-`main` does not satisfy the pinned hooks: 7 files fail `black==23.1.0` and 2 fail
-`isort==5.12.0`. The CI lint job is therefore marked `continue-on-error`. To
+this branch has 6 files failing `black==23.1.0` and 2 failing `isort==5.12.0`,
+all inherited from `main` (which has 7 and 2 respectively). The CI lint job is
+therefore marked `continue-on-error`. To
 clear it, run `pre-commit run --all-files`, commit the result as a
 formatting-only change, then remove `continue-on-error` from
 `.github/workflows/ci.yml`.

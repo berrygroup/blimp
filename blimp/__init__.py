@@ -10,8 +10,7 @@ __email__ = "scott.berry@unsw.edu.au"
 # (e.g. from a source checkout on sys.path, or by setup.py during its own
 # build). There is no metadata to read in that case, so fall back to a marker
 # that is a valid PEP 440 version but is obviously not a release.
-from importlib.metadata import version as _version
-from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _version, PackageNotFoundError
 
 try:
     __version__ = _version(__name__)
