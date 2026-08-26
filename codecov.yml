@@ -1,0 +1,59 @@
+# Codecov configuration.
+#
+# Validate before pushing -- a malformed file is silently ignored, which looks
+# exactly like Codecov not working:
+#
+#   curl -X POST --data-binary @codecov.yml https://api.codecov.io/validate
+
+codecov:
+    # Do not report until all six matrix legs have uploaded. Without this the
+    # first leg to finish sets the status, so the number moves as the remaining
+    # legs arrive and a PR can be marked failing on partial data.
+    notify:
+        after_n_builds: 6
+        wait_for_ci: true
+
+coverage:
+    precision: 2
+    round: down
+    # Current coverage is ~59%, so a 0-100 range renders as uniformly bad and
+    # tells you nothing. This makes the colour scale informative at the level
+    # the project is actually at.
+    range: 50...90
+
+    status:
+        # Enforcing: fails if total coverage drops more than 1% below the
+        # parent commit. This is the regression guard.
+        project:
+            default:
+                target: auto
+                threshold: 1%
+        # Informational for now: reports coverage on changed lines but never
+        # fails the check. Raising a 59% codebase to 80% patch coverage takes a
+        # while, and a check that always fails gets ignored. Set
+        # `informational: false` once new code routinely clears the target.
+        patch:
+            default:
+                target: 80%
+                informational: true
+
+# Six uploads per commit, one per matrix leg. carryforward means a leg that did
+# not upload (a cancelled run, a skipped OS) reuses its last known coverage
+# instead of being counted as zero.
+flag_management:
+    default_rules:
+        carryforward: true
+
+comment:
+    layout: reach, diff, flags, files
+    after_n_builds: 6
+    # Do not comment when coverage is unchanged.
+    require_changes: true
+
+# Coverage is measured with `source = blimp` (see [coverage:run] in tox.ini),
+# so these are already excluded from measurement. Listed here as well because
+# Codecov applies its own path handling to the uploaded report.
+ignore:
+    - tests/**
+    - docs/**
+    - setup.py

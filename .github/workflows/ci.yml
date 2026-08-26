@@ -108,12 +108,20 @@ jobs:
             env:
                 PYVER: ${{ matrix.python-version }}
 
+        # v5 (not v4): v4 required a token even for public repos, and its
+        # tokenless path for forked PRs was removed. v5 restores tokenless
+        # upload for public repos, so coverage still reports on PRs from forks
+        # where `secrets` is empty.
         -   name: Upload coverage to Codecov
-            uses: codecov/codecov-action@v4
+            uses: codecov/codecov-action@v5
             with:
                 files: ./tests/coverage/coverage.xml
                 flags: ${{ runner.os }}-py${{ matrix.python-version }}
                 token: ${{ secrets.CODECOV_TOKEN }}
+                # Deliberately false: a Codecov outage should not fail a run
+                # whose tests all passed. The cost is that a broken upload is
+                # silent, so check the PR comment appears -- codecov.yml waits
+                # for all six legs before commenting.
                 fail_ci_if_error: false
 
         # Makes failures diagnosable without re-running CI locally.

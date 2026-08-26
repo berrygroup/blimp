@@ -175,6 +175,64 @@ already on `PATH`.
 Note that the package declares no `python_requires`, so nothing but this matrix
 records which versions are supported.
 
+## Coverage and Codecov
+
+Every matrix leg writes `tests/coverage/coverage.xml` and CI uploads it with a
+per-leg flag (`Linux-py3.10`, `macOS-py3.12`, ...), so coverage is attributed by
+OS and version rather than merged blindly.
+
+Locally:
+
+```bash
+tox -e py311-macos              # writes tests/coverage/coverage.xml
+tox -e coverage                 # combined terminal + XML + HTML report
+open tests/coverage/html/index.html
+```
+
+`tox -e coverage` `depends` on the matrix legs, so a full `tox` run reports the
+combined figure across every leg that ran. `tox -e covclean` erases the data
+first — worth doing when switching branches, since `--cov-append` otherwise
+accumulates across runs.
+
+Two details that are easy to get wrong:
+
+- **`relative_files = True`** in `[coverage:run]`. Without it the XML records
+  `<source>/Users/you/src/blimp/blimp</source>`. That absolute path differs on
+  every machine and on each CI runner, so Codecov cannot reliably map files onto
+  the repo tree and the six uploads do not merge into one report. With it,
+  `<source>` is just `blimp`. Both code paths honour it — pytest-cov via
+  `--cov-config=tox.ini`, and the standalone `coverage` tool because it
+  auto-discovers `[coverage:*]` in `tox.ini`.
+- **`codecov.yml` is validated, not guessed.** A malformed file is silently
+  ignored, which is indistinguishable from Codecov being broken:
+  ```bash
+  curl -X POST --data-binary @codecov.yml https://api.codecov.io/validate
+  ```
+
+### Codecov account setup
+
+The badge has read `unknown` since it was added, because no upload has ever
+reached Codecov (`activated: false`, zero branches known). To finish the setup:
+
+1. Sign in at codecov.io with GitHub and grant access to the `berrygroup` org.
+2. Add `blimp`, copy the upload token, and store it as the repository secret
+   `CODECOV_TOKEN` (Settings → Secrets and variables → Actions).
+3. Merge to `main`. The badge only populates from a default-branch upload, so it
+   stays `unknown` until then even if PR runs upload successfully.
+
+The action is `codecov/codecov-action@v5`, which restores tokenless upload for
+public repos — so coverage still reports on PRs from forks, where `secrets` is
+empty. `fail_ci_if_error` is deliberately `false`: a Codecov outage should not
+fail a run whose tests passed. The trade-off is that a broken upload is silent,
+so confirm the PR comment appears.
+
+`codecov.yml` sets `after_n_builds: 6`, so Codecov waits for all six legs before
+setting a status or commenting. Without it the first leg to finish sets the
+status and the number moves as the rest arrive. The `project` status is
+enforcing (fails on a >1% drop); the `patch` status is `informational: true`
+because a 59% codebase cannot clear an 80% patch target immediately, and a check
+that always fails gets ignored. Flip it once new code routinely passes.
+
 ## Environment variables
 
 | Variable | Effect |
