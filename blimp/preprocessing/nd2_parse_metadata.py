@@ -1,7 +1,6 @@
 """Extract and parse metadata from Nikon nd2 files."""
 from typing import Tuple, Union
 from pathlib import Path
-import os
 import re
 import json
 import logging

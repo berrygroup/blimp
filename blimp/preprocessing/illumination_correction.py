@@ -13,9 +13,7 @@ from blimp.utils import (
     equal_dims,
     safe_log10,
     smooth_image,
-    average_images,
     mean_std_welford,
-    concatenate_images,
     convert_array_dtype,
     check_uniform_dimension_sizes,
 )

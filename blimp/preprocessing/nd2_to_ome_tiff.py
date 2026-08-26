@@ -2,7 +2,6 @@
 from glob import glob
 from typing import List, Union
 from pathlib import Path
-import os
 import logging
 
 from aicsimageio import AICSImage

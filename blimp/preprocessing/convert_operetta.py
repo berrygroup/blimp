@@ -2,7 +2,6 @@
 environment formats."""
 from typing import Union
 from pathlib import Path
-import os
 import re
 import glob
 import logging

@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import mahotas as mh
 import SimpleITK as sitk
-import scipy.ndimage
 import skimage.measure
 
 from blimp.utils import (

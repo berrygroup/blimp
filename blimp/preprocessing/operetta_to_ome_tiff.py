@@ -1,7 +1,6 @@
 """Extract and parse metadata from Perkin-Elmer Operetta metadata files."""
 from typing import List, Union, Pattern
 from pathlib import Path
-import os
 import re
 import logging
 

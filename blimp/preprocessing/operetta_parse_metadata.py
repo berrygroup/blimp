@@ -4,7 +4,6 @@ Scott Berry <scott.berry@unsw.edu.au>
 """
 from typing import Union
 from pathlib import Path
-import os
 import logging
 import xml.etree.ElementTree as ET
 

@@ -63,7 +63,7 @@ def test_xml_to_df_returns_one_row_per_element():
     df = _xml_to_df(plates, "harmony", NS)
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 3
-    assert set(["Name", "PlateTypeName", "PlateRows", "PlateColumns"]).issubset(df.columns)
+    assert {"Name", "PlateTypeName", "PlateRows", "PlateColumns"}.issubset(df.columns)
     assert list(df["Name"]) == ["plate-0", "plate-1", "plate-2"]
 
 

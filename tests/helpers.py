@@ -1,8 +1,6 @@
 from typing import List, Union
 from pathlib import Path
-import os
 import logging
-import zipfile
 
 from aicsimageio import AICSImage
 import numpy as np
