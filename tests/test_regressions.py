@@ -13,7 +13,7 @@ from aicsimageio import AICSImage
 import numpy as np
 import pytest
 
-from blimp.data import get_filename_from_content_disposition
+from blimp.data import _get_filename_from_content_disposition
 from blimp.utils import safe_log10
 from blimp.constants import blimp_config
 from blimp.processing.quantify import border_objects
@@ -465,7 +465,7 @@ def test_config_dirs_are_absolute(tmp_path, monkeypatch):
     ],
 )
 def test_get_filename_from_content_disposition(header, expected):
-    assert get_filename_from_content_disposition(header) == expected
+    assert _get_filename_from_content_disposition(header) == expected
 
 
 # image.BLImage: fs kwargs must not be a shared mutable default, and pickle.load

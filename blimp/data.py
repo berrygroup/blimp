@@ -200,7 +200,7 @@ def load_dataset(dataset_path: Path_t, fname: str, backup_url: str) -> Path_t:
     return unpacked_dir
 
 
-def get_filename_from_content_disposition(cd):
+def _get_filename_from_content_disposition(cd):
     """
     Get filename from content-disposition or url request.
     """
@@ -242,7 +242,7 @@ def download(
 
     response = requests.get(url, stream=True)
     response.raise_for_status()
-    filename = get_filename_from_content_disposition(response.headers.get("content-disposition"))
+    filename = _get_filename_from_content_disposition(response.headers.get("content-disposition"))
     if filename is None:
         # fall back to the last path segment of the URL
         filename = Path(urlparse(url).path).name
