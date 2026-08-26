@@ -6,19 +6,12 @@
 #   pre-commit install                  # optional: run hooks on commit
 #   tox -e offline                      # fast check, no network or reference data
 #
-# Why the split between conda and pip:
-#   - conda-forge supplies the compiled scientific stack (numpy/scipy/scikit-image/
-#     SimpleITK/mahotas). These are the packages where a wheel/BLAS mismatch is
-#     painful, so let the solver handle them.
-#   - The remaining blimp dependencies (aicsimageio[nd2], itk-elastix, cellpose,
-#     nd2reader, pystackreg, welford) are pip-only or their extras are not
-#     expressible in conda, so they arrive via `pip install -e .` from
-#     requirements.txt. Do not duplicate them here -- listing a dependency in
-#     both places is how you end up with two copies and an import that resolves
-#     to the wrong one.
+# conda-forge supplies the compiled stack; the pip-only dependencies arrive via
+# `pip install -e .`. Do not duplicate a dependency in both places -- that is
+# how you get two copies and an import resolving to the wrong one.
 #
-# numcodecs is pinned <0.16 to match requirements.txt: aicsimageio pulls zarr 2.x,
-# which imports a numcodecs symbol removed in 0.16.
+# numcodecs is pinned <0.16 to match requirements.txt: aicsimageio pulls
+# zarr 2.x, which imports a numcodecs symbol removed in 0.16.
 name: blimp-dev
 channels:
 -   conda-forge
@@ -39,9 +32,8 @@ dependencies:
 -   packaging>=23.0
 -   typing_extensions>=4.4.0
 -   importlib_metadata>=5.1.0
-# Test and dev tooling. These duplicate the [test]/[dev] extras on purpose, so
-# that `conda env create` alone gives you a usable environment; `pip install -e
-# ".[test,dev]"` afterwards is then a no-op for them.
+# Duplicates the [test]/[dev] extras on purpose, so `conda env create` alone
+# gives a usable environment.
 -   tox
 -   pytest
 -   pytest-cov

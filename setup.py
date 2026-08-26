@@ -11,13 +11,9 @@ except ImportError:
 
 setup(
     name="blimp",
-    # Version comes from the git tags via setuptools_scm. Do not add an explicit
-    # version= here: it silently overrides use_scm_version, which is how this
-    # package came to report 0.1.0 while tagged v0.4.0.
-    #
-    # setuptools_scm is declared in [build-system] requires in pyproject.toml,
-    # which is the supported way to request a build-time dependency; the older
-    # setup_requires= is deprecated and was redundant with it.
+    # Do not add an explicit version= here: it silently overrides
+    # use_scm_version, which is how this package came to report 0.1.0 while
+    # tagged v0.4.0.
     use_scm_version=True,
     author=__author__,
     author_email=__email__,
@@ -52,9 +48,6 @@ setup(
             if not l.startswith("-r")
         ],
     ),
-    # Skip comments and blank lines explicitly. setuptools happens to filter
-    # them out anyway, but relying on that is fragile: a comment reaching
-    # install_requires is not a valid PEP 508 specifier.
     install_requires=[
         line.strip()
         for line in Path("requirements.txt").read_text("utf-8").splitlines()

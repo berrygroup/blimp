@@ -19,9 +19,7 @@ from blimp.processing.quantify import (
     _quantify_single_timepoint_3D,
 )
 
-# --------------------------------------------------------------------------
 # Synthetic image builders
-# --------------------------------------------------------------------------
 
 
 def _image_2D(arrays, channel_names):
@@ -64,9 +62,7 @@ def two_squares_2D():
     return _image_2D([intensity], ["DAPI"]), _image_2D([label], ["nuclei"])
 
 
-# --------------------------------------------------------------------------
 # border_objects
-# --------------------------------------------------------------------------
 
 
 def test_border_objects_returns_one_row_per_label():
@@ -107,9 +103,7 @@ def test_border_objects_XY_3D_ignores_z_edges():
     assert bool(out.loc[2, "is_border_XY"]) is True
 
 
-# --------------------------------------------------------------------------
 # 2D quantification: exact, analytically-known values
-# --------------------------------------------------------------------------
 
 
 def test_quantify_2D_areas_are_exact(two_squares_2D):
@@ -210,9 +204,7 @@ def test_quantify_2D_mismatched_shapes_raise():
         _quantify_single_timepoint_2D(intensity, label, measure_object="nuclei")
 
 
-# --------------------------------------------------------------------------
 # 3D quantification
-# --------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -269,9 +261,7 @@ def test_quantify_3D_mean_intensities_are_exact(two_cubes_3D):
     assert means[2] == pytest.approx(150.0)
 
 
-# --------------------------------------------------------------------------
 # aggregate_and_merge_features
-# --------------------------------------------------------------------------
 
 
 def _parent_and_child():
@@ -344,9 +334,7 @@ def test_aggregate_rejects_out_of_range_parent_index():
         aggregate_and_merge_features([parent, child], parent_index=5, object_names=["nuclei", "spots"])
 
 
-# --------------------------------------------------------------------------
 # quantify() end-to-end on synthetic data
-# --------------------------------------------------------------------------
 
 
 def _as_frame(result):

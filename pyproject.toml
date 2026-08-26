@@ -49,11 +49,9 @@ force_alphabetical_sort_within_sections = true
 lexicographical = true
 
 [tool.pytest.ini_options]
-# NOTE: this is the *only* pytest configuration in the project. pytest ignores
-# the [pytest] section of tox.ini whenever a [tool.pytest.ini_options] table
-# exists here (it emits "WARNING: ignoring pytest config in tox.ini"), so the
-# filterwarnings list and addopts that used to live in tox.ini were silently
-# dead. They have been moved here.
+# The only pytest config in the project: this table makes pytest ignore
+# [pytest] in tox.ini entirely, which silently killed the settings that used
+# to live there. Do not split pytest config across the two files.
 minversion = "7.0"
 testpaths = ["tests"]
 
@@ -72,8 +70,7 @@ filterwarnings = [
     "ignore:builtin type Swig.* has no __module__ attribute:DeprecationWarning",
 ]
 
-# --strict-markers turns a typo'd marker into an error instead of silently
-# selecting nothing.
+# --strict-markers: a typo'd marker errors rather than selecting nothing.
 addopts = "--strict-markers --strict-config"
 
 markers = [

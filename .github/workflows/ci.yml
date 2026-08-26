@@ -18,13 +18,7 @@ concurrency:
 
 jobs:
     lint:
-        # Cheap and fails fast, so run it as its own job rather than making
-        # every matrix leg wait on it.
-        #
-        # This job is enforcing: `pre-commit run --all-files` passes on every
-        # hook as of the commit that removed `continue-on-error`. The three that
-        # used to fail (mypy, autoflake, pyupgrade) have been fixed rather than
-        # excluded, so a new failure here is a real regression.
+        # Enforcing: all hooks pass, so a failure here is a real regression.
         runs-on: ubuntu-latest
         steps:
         -   uses: actions/checkout@v4
@@ -38,18 +32,15 @@ jobs:
     test:
         runs-on: ${{ matrix.os }}
         strategy:
-            # Do not cancel the whole matrix when one leg fails -- a failure
-            # specific to one OS or Python version is exactly what the matrix
-            # exists to reveal.
+            # A failure specific to one OS or version is what the matrix exists
+            # to reveal, so let the other legs finish.
             fail-fast: false
             matrix:
                 os: [ubuntu-latest, macos-latest]
                 python-version: ['3.10', '3.11', '3.12']
-                # The tox envs are named py{310,311,312}-{linux,macos}, so the
-                # runner OS has to be mapped to the factor tox expects. Without
-                # this the workflow can only invoke the factor-less `tox -e py`,
-                # which drops the `platform` guard and means the -linux/-macos
-                # envs are never actually exercised in CI.
+                # Maps runner OS to the tox factor. Without this only the
+                # factor-less `tox -e py` is callable, which drops the platform
+                # guard and leaves the -linux/-macos envs never exercised.
                 include:
                 -   os: ubuntu-latest
                     tox-platform: linux
@@ -66,17 +57,13 @@ jobs:
                 python-version: ${{ matrix.python-version }}
                 cache: pip
 
-        # The reference dataset is ~200 MB from Figshare. Without a cache every
-        # matrix leg re-downloads it (6 legs = ~1.2 GB per run), which is slow
-        # and impolite to Figshare. The key is pinned to the Figshare article
-        # id, so publishing a new dataset invalidates the cache.
+        # ~200 MB from Figshare, otherwise re-downloaded by all 6 legs. Key is
+        # pinned to the article id, so a new dataset invalidates the cache.
         -   name: Cache reference test dataset
             uses: actions/cache@v4
             with:
-                # The zip extracts to BOTH tests/_data and tests/_experiments,
-                # and blimp.data.load_test_data treats the dataset as present
-                # only when both exist. Caching just _data means the guard fails
-                # on a cache hit and the whole archive is downloaded again.
+                # Both paths are required: load_test_data treats the dataset as
+                # present only when both exist, so caching one re-downloads all.
                 path: |
                     tests/_data
                     tests/_experiments
@@ -95,12 +82,9 @@ jobs:
                 python -m pip install --upgrade pip
                 python -m pip install tox tox-uv
 
-        # tox's commands_pre downloads the dataset if the cache missed.
-        #
-        # The env name is explicit rather than `-e py` so the platform guard is
-        # exercised and the leg fails loudly if the interpreter is wrong. uv runs
-        # with --python-preference system, so this reuses the setup-python
-        # interpreter above rather than downloading its own.
+        # Explicit env name rather than `-e py` so the platform guard applies.
+        # uv defaults to --python-preference system, reusing setup-python's
+        # interpreter rather than downloading one.
         -   name: Run tests
             run: |
                 # 3.10 -> 310, matching the tox factor names.
@@ -108,20 +92,16 @@ jobs:
             env:
                 PYVER: ${{ matrix.python-version }}
 
-        # v5 (not v4): v4 required a token even for public repos, and its
-        # tokenless path for forked PRs was removed. v5 restores tokenless
-        # upload for public repos, so coverage still reports on PRs from forks
-        # where `secrets` is empty.
+        # v5, not v4: v4 dropped tokenless upload, so coverage stopped
+        # reporting on fork PRs where `secrets` is empty.
         -   name: Upload coverage to Codecov
             uses: codecov/codecov-action@v5
             with:
                 files: ./tests/coverage/coverage.xml
                 flags: ${{ runner.os }}-py${{ matrix.python-version }}
                 token: ${{ secrets.CODECOV_TOKEN }}
-                # Deliberately false: a Codecov outage should not fail a run
-                # whose tests all passed. The cost is that a broken upload is
-                # silent, so check the PR comment appears -- codecov.yml waits
-                # for all six legs before commenting.
+                # False so a Codecov outage cannot fail a passing run; the cost
+                # is that a broken upload is silent.
                 fail_ci_if_error: false
 
         # Makes failures diagnosable without re-running CI locally.
