@@ -1,9 +1,3 @@
-"""Regression tests pinning previously-fixed defects.
-
-Each test here corresponds to a specific bug found during the code audit. They
-are deliberately written against small in-memory arrays so the whole module runs
-offline in under a second. If one of these fails, a fixed bug has returned.
-"""
 from pathlib import Path
 import pickle
 import logging

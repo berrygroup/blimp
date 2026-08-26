@@ -1,9 +1,3 @@
-"""Tests for the command-line interface and archiving script generation.
-
-Neither module previously had any tests. The CLI tests parse arguments without
-executing the underlying conversion; the archive tests generate scripts into
-``tmp_path`` and assert on their content rather than running them.
-"""
 from pathlib import Path
 
 import pytest
@@ -15,8 +9,6 @@ from blimp.archive import (
     split_operetta_files_into_archiving_batches,
 )
 from blimp.cli.main import _get_full_parser
-
-# --- CLI parser ----------------------------------------------------------
 
 
 def _parse(argv):
@@ -102,9 +94,6 @@ def test_setup_namespace_exposes_everything_main_reads():
     assert hasattr(args, "quiet")
 
 
-# --- archiving batches ---------------------------------------------------
-
-
 def test_split_operetta_files_groups_by_row_column(tmp_path):
     names = [
         "r01c01f01p01-ch1sk1fk1fl1.tiff",
@@ -145,9 +134,6 @@ def test_write_archiving_batch_files_raises_for_unwritable_dir(tmp_path):
     groups = {"r01c01": ["a.tiff"]}
     with pytest.raises(FileNotFoundError):
         write_archiving_batch_files(tmp_path / "missing", tmp_path, groups)
-
-
-# --- archiving scripts ---------------------------------------------------
 
 
 def test_write_archiving_script_nd2_produces_runnable_header(tmp_path):

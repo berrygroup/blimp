@@ -1,8 +1,3 @@
-"""Tests for Operetta metadata parsing.
-
-These build synthetic Harmony-style XML in-memory, so they need no downloaded
-data and cover the parsers that previously had no unit tests at all.
-"""
 import xml.etree.ElementTree as ET
 
 import pandas as pd
@@ -18,9 +13,6 @@ from blimp.preprocessing.operetta_parse_metadata import (
 
 NS_URI = "http://www.perkinelmer.com/PEHH/HarmonyV5"
 NS = {"harmony": NS_URI}
-
-
-# --- pure helpers --------------------------------------------------------
 
 
 def test_remove_ns_strips_namespace():
@@ -41,9 +33,6 @@ def test_to_well_name(row, column, expected):
 
 def test_to_well_name_zero_pads_single_digit_columns():
     assert _to_well_name(3, 4) == "C04"
-
-
-# --- XML -> DataFrame ----------------------------------------------------
 
 
 def _plate_xml(n_plates=2):
@@ -71,9 +60,6 @@ def test_xml_to_df_handles_single_element():
     root = _plate_xml(n_plates=1)
     df = _xml_to_df(root.findall("harmony:Plate", namespaces=NS), "harmony", NS)
     assert len(df) == 1
-
-
-# --- malformed input must raise, not kill the interpreter ---------------
 
 
 def _write(tmp_path, text, name="Index.idx.xml"):
