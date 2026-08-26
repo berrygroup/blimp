@@ -271,6 +271,16 @@ rather than missing reference data.
 module leaves stale `.rst` files behind that then fail `check-docs` under `-W`.
 `clean-docs` removes both directories directly; run it after renaming a module.
 
+`docs` and `check-docs` pin `basepython = python3.12`, unlike the test matrix
+which spans 3.10-3.12. `sphinx-autodoc-typehints` stopped calling the
+deprecated `Parser.set_application` in 3.6.2, the same release that dropped
+Python 3.11 — so on 3.11 the newest installable version is 3.6.1, which still
+calls it. That is a `DeprecationWarning` under Sphinx 9 and an `AttributeError`
+once Sphinx 10 removes the method, i.e. a hard build failure rather than noise.
+Building the docs on 3.12 resolves `sphinx-autodoc-typehints` 3.13.4, where the
+call is gone. `tox-uv` fetches 3.12 if it is not on `PATH`, so no manual install
+is needed. `.readthedocs.yaml` pins the same version for the same reason.
+
 Two things to know if `check-docs` warns:
 
 - `intersphinx` fetches inventories over the network. Without it (offline, or
