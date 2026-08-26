@@ -37,8 +37,8 @@ The installation will make many functions externally accessible and will also in
 
 ### Development environment (conda)
 
-See [CONTRIBUTING_TESTING.md](CONTRIBUTING_TESTING.md) for the full recipe,
-including how to run the tests and the known caveats. In short:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full recipe, including how to run
+the tests and the known caveats. In short:
 
 ```bash
 git clone https://github.com/berrygroup/blimp.git
@@ -61,22 +61,17 @@ requirement and needs the git history.
 ### Running the tests
 
 ```bash
-tox -e offline      # ~140 tests, no network and no reference data needed
+tox -e offline      # 167 tests, no network and no reference data needed
 tox                 # full suite; downloads the reference dataset if absent
 tox -e coverage     # coverage report (terminal + XML + HTML)
 tox -l              # list all environments
 pytest tests/ -q    # run pytest directly, e.g. with -k to select tests
 ```
 
-The full suite needs a ~200 MB reference dataset from Figshare. `tox` fetches it
-automatically before running and skips the download when it is already present.
-If it cannot be obtained, the run fails rather than quietly omitting the 73
-tests that need it. To run only the tests that need no dataset, ask for that
-explicitly:
-
-```bash
-tox -e offline
-```
+The full suite needs a ~200 MB reference dataset from Figshare, which `tox`
+fetches automatically. If it cannot be obtained, the run fails rather than
+quietly omitting the 73 tests that need it — use `tox -e offline` to run only
+the tests that need no dataset.
 
 ## Documentation
 
