@@ -258,6 +258,34 @@ download so no test run pulls it silently, and the cellpose tests skip when the
 model cache under `~/.cellpose` is not writable, which is an environment fault
 rather than missing reference data.
 
+## Documentation environments
+
+| Command | Does |
+| --- | --- |
+| `tox -e docs` | Builds the HTML docs into `docs/_build/html`. |
+| `tox -e check-docs` | Runs `linkcheck` with `-W`, so any warning fails the run. |
+| `tox -e clean-docs` | Deletes `docs/_build` and `docs/api`. |
+
+`docs/api/` is `autosummary` output and is gitignored. It is **not** pruned by
+`sphinx-build -M clean`, which only removes `_build/`, so a renamed or deleted
+module leaves stale `.rst` files behind that then fail `check-docs` under `-W`.
+`clean-docs` removes both directories directly; run it after renaming a module.
+
+Two things to know if `check-docs` warns:
+
+- `intersphinx` fetches inventories over the network. Without it (offline, or
+  behind a proxy) you get one "failed to reach any of the inventories" warning
+  per mapping, which `-W` makes fatal. These are environmental, not docs faults.
+- Bullet continuation lines must be indented to align under the bullet text.
+  This applies to argparse `description` strings in `blimp/cli/main.py` as well
+  as docstrings, because `sphinx-argparse` renders them as RST. Unindented
+  continuations give "Bullet list ends without a blank line", attributed to a
+  line number with no filename, which is tedious to trace.
+
+There is no spelling check. It was configured but never functional: it needs the
+enchant C library (pip cannot supply it), and the wordlist and filter module its
+config named were absent from the repo. Reinstating it means providing all three.
+
 ## Environment variables
 
 | Variable | Effect |

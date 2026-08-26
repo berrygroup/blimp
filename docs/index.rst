@@ -21,6 +21,4 @@ For full source-code, see the `git repository
    installation
    overview
    api
-   classes
    cli
-   tutorials

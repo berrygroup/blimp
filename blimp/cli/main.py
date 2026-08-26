@@ -262,7 +262,7 @@ def _get_full_parser() -> argparse.ArgumentParser:
 
     convert_header = """
     * convert: Convert raw microscope files to standard
-    image formats such as OME-TIFF and OME-NGFF.
+      image formats such as OME-TIFF and OME-NGFF.
     """
     convert_parser = subparsers.add_parser(
         "convert",
@@ -273,7 +273,7 @@ def _get_full_parser() -> argparse.ArgumentParser:
 
     archive_header = """
     * archive: archive original files on UNSW's Data
-    Archive.
+      Archive.
     """
     archive_parser = subparsers.add_parser(
         "archive",

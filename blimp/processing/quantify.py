@@ -449,8 +449,8 @@ def _quantify_single_object(
     -----
     - Accepts 2D or 3D data as input.
     - For 3D data, textures are not calculated on 3D images, but rather on object-based
-    maximum-intensity projections, and on the 2D image extracted from the
-    "middle" (central-Z) plane of each object.
+      maximum-intensity projections, and on the 2D image extracted from the
+      "middle" (central-Z) plane of each object.
     """
 
     # Fast path: point objects being aggregated to parent
