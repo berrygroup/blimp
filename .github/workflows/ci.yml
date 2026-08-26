@@ -21,24 +21,10 @@ jobs:
         # Cheap and fails fast, so run it as its own job rather than making
         # every matrix leg wait on it.
         #
-        # NOTE: black and isort now pass cleanly across the tree (see the
-        # formatting-only commit that applied the pinned versions). Three hooks
-        # still fail, all pre-existing and all needing real code changes rather
-        # than reformatting, so `continue-on-error` stays for now:
-        #
-        #   mypy==1.7.1   5 errors. 4 are indexed assignment on an Optional in
-        #                 segment.py (needs a None check or an assert); 1 is a
-        #                 Path assigned to a str-annotated variable in
-        #                 convert_nd2.py, next to two existing `# type: ignore`
-        #                 comments on the same pattern.
-        #   autoflake     10 files with unused imports (mostly `import os`).
-        #                 The hook runs with --in-place --remove-all-unused-
-        #                 imports, i.e. it deletes code, so it wants review
-        #                 rather than a blind apply.
-        #   pyupgrade     1 file.
-        #
-        # Fix those three, then delete this line so lint becomes enforcing.
-        continue-on-error: true
+        # This job is enforcing: `pre-commit run --all-files` passes on every
+        # hook as of the commit that removed `continue-on-error`. The three that
+        # used to fail (mypy, autoflake, pyupgrade) have been fixed rather than
+        # excluded, so a new failure here is a real regression.
         runs-on: ubuntu-latest
         steps:
         -   uses: actions/checkout@v4
@@ -59,6 +45,16 @@ jobs:
             matrix:
                 os: [ubuntu-latest, macos-latest]
                 python-version: ['3.10', '3.11', '3.12']
+                # The tox envs are named py{310,311,312}-{linux,macos}, so the
+                # runner OS has to be mapped to the factor tox expects. Without
+                # this the workflow can only invoke the factor-less `tox -e py`,
+                # which drops the `platform` guard and means the -linux/-macos
+                # envs are never actually exercised in CI.
+                include:
+                -   os: ubuntu-latest
+                    tox-platform: linux
+                -   os: macos-latest
+                    tox-platform: macos
 
         steps:
         -   name: Checkout code
@@ -97,11 +93,20 @@ jobs:
         -   name: Install tox
             run: |
                 python -m pip install --upgrade pip
-                python -m pip install tox
+                python -m pip install tox tox-uv
 
         # tox's commands_pre downloads the dataset if the cache missed.
+        #
+        # The env name is explicit rather than `-e py` so the platform guard is
+        # exercised and the leg fails loudly if the interpreter is wrong. uv runs
+        # with --python-preference system, so this reuses the setup-python
+        # interpreter above rather than downloading its own.
         -   name: Run tests
-            run: tox -e py
+            run: |
+                # 3.10 -> 310, matching the tox factor names.
+                tox -e "py${PYVER//./}-${{ matrix.tox-platform }}"
+            env:
+                PYVER: ${{ matrix.python-version }}
 
         -   name: Upload coverage to Codecov
             uses: codecov/codecov-action@v4

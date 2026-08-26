@@ -114,62 +114,63 @@ pytest tests/ -k "registration" -v
 
 ## Testing against multiple Python versions
 
-`envlist` covers `py{310,311,312}` on both linux and macos, but tox can only run
-a leg whose interpreter it can find. Because `skip_missing_interpreters = true`,
-a missing interpreter is a **silent skip**, not an error:
-
-```
-py310-macos: skipped because could not find python interpreter with spec(s): py310
-```
-
-A full `tox` run on a machine with one Python therefore reports success having
-run one leg of six. Check what actually ran before trusting a green result:
+`envlist` covers `py{310,311,312}` on both linux and macos. Nothing needs to be
+installed by hand:
 
 ```bash
-tox -l                       # what is configured
-tox --notest -e py310-macos  # does this leg resolve an interpreter?
+pip install tox
+tox -e py310-macos    # or py311-macos, py312-macos
 ```
 
-tox finds interpreters via `PATH` (plus the `py` launcher on Windows). It does
-**not** search conda's environment directory, so conda-managed interpreters are
-invisible unless their `bin/` is on `PATH`.
+tox reads `requires = tox-uv` from `tox.ini` and provisions the plugin into
+`.tox/.tox/` on first use; uv then downloads any missing interpreter as a
+standalone CPython build. The system Python, conda, and your shell are all left
+alone. Verified from a clean state: with `tox-uv` absent and no `python3.10`
+anywhere on `PATH`, `tox -e py310-macos` provisioned the plugin, fetched 3.10.21
+and passed all 238 tests.
 
-### Getting the interpreters
+Two settings make this reliable, both deliberate:
 
-`uv` is the least invasive option: it downloads standalone CPython builds into
-its own directory, without touching the system Python, conda, or your shell.
+- **`skip_missing_interpreters = false`.** With `true` — the previous value — a
+  leg whose interpreter is missing reports `SKIP`, and a whole-envlist `tox` run
+  **still exits 0**. A machine with one Python reported success having run one
+  leg of six, which is how 3.10 and 3.12 went untested. Now a missing
+  interpreter is a `FAIL`. This does not affect the platform guard: the `-linux`
+  legs still skip cleanly on macOS, and a full `tox` still exits 0 with only
+  those skipping.
+- **`runner = uv-venv-runner`** in `[testenv]`. Builds an environment in ~50 s
+  rather than ~250 s, with an identical result (238 passed either way). Not
+  `uv-venv-lock-runner`, which runs `uv sync --locked` and fails without a
+  `uv.lock`.
 
-```bash
-pip install uv          # or: brew install uv
-uv python install 3.10 3.12
-uv python list          # shows what is now available
-```
+### Don't borrow a conda env for this
 
-Then `tox` finds all three legs. Adding `tox-uv` (`pip install tox-uv`;
-1.36.0 resolves cleanly alongside tox 4.60, though it is not yet used here)
-additionally lets tox provision interpreters on demand and builds the
-environments faster.
+Putting a conda env's `bin/` on `PATH` does let tox discover the interpreter,
+but the resulting build is contaminated by that env's headers. Concretely,
+`PATH="$HOME/anaconda3/envs/py310/bin:$PATH" tox -e py310-macos` fails compiling
+`lxml`, because it picks up `envs/py310/include/libxml2` and the vendored
+`libxml2` there is not the one `lxml` expects. The same leg passes against a
+clean uv-provided 3.10. The failure looks like a Python-version incompatibility
+and is not one, so it is worth recognising.
 
-The alternatives:
+`pyenv` also works but compiles from source and wants shell integration.
 
-- **`pyenv install 3.10 3.12`** — works, but compiles from source (slow) and
-  wants shell integration.
-- **Existing conda envs** — if you already have envs on other versions, putting
-  their `bin/` on `PATH` is enough for tox to discover them:
-  ```bash
-  PATH="$HOME/anaconda3/envs/py310/bin:$PATH" tox -e py310-macos
-  ```
-  tox builds its own virtualenv and uses the conda env only as a template, so
-  the conda env itself is not modified. This is fine for a one-off check, but it
-  is fragile as a routine: it depends on which envs happen to exist, and their
-  patch versions drift independently of what CI uses.
+### What CI covers
 
-### What CI already covers
+`.github/workflows/ci.yml` runs `ubuntu-latest` and `macos-latest` × Python
+3.10, 3.11, 3.12 with `fail-fast: false`, so Linux coverage comes free on every
+push.
 
-`.github/workflows/ci.yml` runs the full matrix — `ubuntu-latest` and
-`macos-latest` × Python 3.10, 3.11, 3.12 — with `fail-fast: false`. Linux
-coverage comes free on every push, so local multi-version testing is mainly for
-catching a version-specific break before it reaches CI, not a substitute for it.
+CI invokes the fully-qualified env (`tox -e py310-linux` and so on) rather than
+the factor-less `tox -e py`. `-e py` runs on whatever interpreter invoked tox
+and drops the `platform` guard, which meant the `-linux`/`-macos` envs were
+never actually exercised in CI — the OS factor is mapped from the runner in the
+matrix `include:` block.
+
+CI installs `tox-uv` explicitly and does **not** download interpreters: uv is
+invoked with `--python-preference system`, so each leg reuses the interpreter
+`actions/setup-python` provides. Verified — no download occurs for a version
+already on `PATH`.
 
 Note that the package declares no `python_requires`, so nothing but this matrix
 records which versions are supported.
@@ -189,6 +190,15 @@ re-fetch rather than re-extract).
 **Two tests skip if `~/.cellpose` is not writable.** `test_segment.py` needs to
 cache pretrained cellpose weights. The skip message names the cause; it is not a
 failure.
+
+**~430,000 warnings on the py312 leg.** Cosmetic today, a real break later, and
+not a Python-version problem despite only appearing on that leg. The legs
+resolve different NumPy versions (3.10 → 2.2.6, 3.11 → 2.4.6, 3.12 → 2.5.2), and
+NumPy 2.5 deprecated in-place `arr.shape = ...` assignment. The call is in
+`mahotas`, not in blimp — nothing in `blimp/` assigns to `.shape` — so it is
+upstream's to fix, but it will become an error in a future NumPy and take
+`quantify` with it. `tests/test_quantify.py` alone accounts for 425,534 of them.
+Worth an upstream check before pinning anything.
 
 ## Install the hooks
 
