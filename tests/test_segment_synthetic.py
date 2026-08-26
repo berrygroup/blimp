@@ -1,14 +1,3 @@
-"""Tests for the parent/child label-resolution helpers in ``blimp.processing.segment``.
-
-``resolve_multi_parent_objects`` had no test coverage at all, and the coverage
-report showed its per-channel helper ``_resolve_single_measure_object`` as
-never entered. Both it and ``mask_child_objects_by_parent`` write their result
-through an indexed assignment whose target depends on ``in_place``, so the two
-branches are exercised separately here.
-
-These build small ``AICSImage`` objects in memory, so they need neither the
-downloaded reference dataset nor network access.
-"""
 from aicsimageio import AICSImage
 import numpy as np
 import pytest
@@ -32,9 +21,6 @@ def _label_image_3D(parent, child):
     return AICSImage(stack, channel_names=["Parent", "Child"])
 
 
-#: Columns of the child object that survive resolution in the fixtures below:
-#: the child spans columns 3-9, of which 3-7 (5 columns) lie in parent 1 and
-#: 8-9 (2 columns) in parent 2, so parent 1 wins on overlap.
 EXPECTED_KEPT_COLUMNS = [3, 4, 5, 6, 7]
 
 

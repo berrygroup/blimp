@@ -1,10 +1,3 @@
-"""Quantification tests built on synthetic images.
-
-The existing ``test_quantify.py`` requires the downloaded reference dataset, so
-none of it can run offline. These tests construct small ``AICSImage`` objects
-with analytically known properties, which makes the expected feature values
-exact rather than regression-recorded.
-"""
 from aicsimageio import AICSImage
 import numpy as np
 import pandas as pd
@@ -18,8 +11,6 @@ from blimp.processing.quantify import (
     _quantify_single_timepoint_2D,
     _quantify_single_timepoint_3D,
 )
-
-# Synthetic image builders
 
 
 def _image_2D(arrays, channel_names):
@@ -62,9 +53,6 @@ def two_squares_2D():
     return _image_2D([intensity], ["DAPI"]), _image_2D([label], ["nuclei"])
 
 
-# border_objects
-
-
 def test_border_objects_returns_one_row_per_label():
     label = np.zeros((10, 10), dtype=np.uint16)
     label[0:2, 0:2] = 1
@@ -101,9 +89,6 @@ def test_border_objects_XY_3D_ignores_z_edges():
     out = border_objects_XY_3D(label_image).set_index("label")
     assert bool(out.loc[1, "is_border_XY"]) is False
     assert bool(out.loc[2, "is_border_XY"]) is True
-
-
-# 2D quantification: exact, analytically-known values
 
 
 def test_quantify_2D_areas_are_exact(two_squares_2D):
@@ -204,9 +189,6 @@ def test_quantify_2D_mismatched_shapes_raise():
         _quantify_single_timepoint_2D(intensity, label, measure_object="nuclei")
 
 
-# 3D quantification
-
-
 @pytest.fixture
 def two_cubes_3D():
     """Two 3x3x3 labelled cubes (27 voxels each) at intensities 50 and 150."""
@@ -259,9 +241,6 @@ def test_quantify_3D_mean_intensities_are_exact(two_cubes_3D):
     means = dict(zip(df["label"], df["nuclei_3D_intensity_mean_DAPI"]))
     assert means[1] == pytest.approx(50.0)
     assert means[2] == pytest.approx(150.0)
-
-
-# aggregate_and_merge_features
 
 
 def _parent_and_child():
@@ -332,9 +311,6 @@ def test_aggregate_rejects_out_of_range_parent_index():
     parent, child = _parent_and_child()
     with pytest.raises(ValueError, match="parent_index"):
         aggregate_and_merge_features([parent, child], parent_index=5, object_names=["nuclei", "spots"])
-
-
-# quantify() end-to-end on synthetic data
 
 
 def _as_frame(result):
