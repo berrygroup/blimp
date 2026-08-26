@@ -25,7 +25,6 @@ from blimp.preprocessing.registration import (
 from blimp.preprocessing.illumination_correction import (
     pixel_z_score,
     _floor_zero_std,
-    _ZERO_STD_WARNED,
 )
 import blimp.utils as utils
 
@@ -239,10 +238,6 @@ def test_floor_zero_std_all_zero_is_left_alone():
 def test_floor_zero_std_warns_with_affected_fraction(caplog):
     """The substitution is an assumption, so it must be visible in the log."""
     std_image = np.array([[0.0, 1.0], [2.0, 3.0]])
-    # The warning is deduplicated per distinct (n_zero, size, floor) signature so
-    # that a timelapse does not emit thousands of copies. Clear the cache, or this
-    # assertion depends on whether an earlier test already logged this signature.
-    _ZERO_STD_WARNED.clear()
     with caplog.at_level(logging.WARNING):
         _floor_zero_std(std_image)
     assert "25.00%" in caplog.text
@@ -325,15 +320,14 @@ def test_pixel_z_score_zero_pixels_agree_with_reference_convention():
     assert out[0, 0] == 1
 
 
-def test_floor_zero_std_warns_only_once_per_signature(caplog):
-    """`pixel_z_score` runs per (T, C, Z) plane, so an undeduplicated warning
-    would flood the log on a timelapse."""
+def test_floor_zero_std_warns_on_every_call(caplog):
+    """`pixel_z_score` runs per (T, C, Z) plane and each one imputes its own
+    pixels, so every plane must be recorded rather than only the first."""
     std_image = np.array([[0.0, 1.0], [2.0, 3.0]])
-    _ZERO_STD_WARNED.clear()
     with caplog.at_level(logging.WARNING):
         for _ in range(5):
             _floor_zero_std(std_image)
-    assert caplog.text.count("Reference standard deviation is zero") == 1
+    assert caplog.text.count("Reference standard deviation is zero") == 5
 
 
 # registration.TransformationParameters: `from_file` and `from_resources` must

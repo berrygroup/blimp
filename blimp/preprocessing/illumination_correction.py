@@ -1,4 +1,4 @@
-from typing import Set, List, Tuple, Union, Literal, Optional
+from typing import List, Union, Literal, Optional
 from pathlib import Path
 import pickle
 import logging
@@ -306,9 +306,6 @@ class IlluminationCorrection:
         return correct_illumination(image, self, smooth)
 
 
-_ZERO_STD_WARNED: Set[Tuple[int, int, float]] = set()
-
-
 def _floor_zero_std(std_image: np.ndarray) -> np.ndarray:
     """Replace zero standard deviations with the median positive value.
 
@@ -366,18 +363,16 @@ def _floor_zero_std(std_image: np.ndarray) -> np.ndarray:
         return std_image
 
     floor = float(np.median(positive))
-    # This is called once per (T, C, Z) plane, so a timelapse would emit the
-    # identical warning thousands of times. Warn once per distinct signature.
-    signature = (n_zero, std_image.size, floor)
-    if signature not in _ZERO_STD_WARNED:
-        _ZERO_STD_WARNED.add(signature)
-        logger.warning(
-            f"Reference standard deviation is zero at {n_zero} of {std_image.size} pixels "
-            f"({100 * n_zero / std_image.size:.2f}%), where the z-score is undefined. "
-            f"Flooring these to the median positive standard deviation ({floor:.4g}). "
-            "This is an assumption, not a measurement: estimate the correction from more "
-            "reference images to reduce the affected fraction."
-        )
+    # Warned on every call rather than deduplicated: the fraction below is an
+    # imputed quantity entering the corrected image, and a per-plane record of
+    # it is what makes that auditable afterwards.
+    logger.warning(
+        f"Reference standard deviation is zero at {n_zero} of {std_image.size} pixels "
+        f"({100 * n_zero / std_image.size:.2f}%), where the z-score is undefined. "
+        f"Flooring these to the median positive standard deviation ({floor:.4g}). "
+        "This is an assumption, not a measurement: estimate the correction from more "
+        "reference images to reduce the affected fraction."
+    )
     std_image = std_image.copy()
     std_image[zero] = floor
     return std_image
