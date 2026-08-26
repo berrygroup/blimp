@@ -7,19 +7,15 @@ usable standalone::
     python tests/fetch_test_data.py
 
 The download is skipped when the dataset is already extracted, so repeat runs
-cost nothing. Set ``BLIMP_SKIP_TEST_DATA=1`` to skip the fetch entirely; the
-data-dependent tests will then skip rather than fail, which is the right
-behaviour for an offline or air-gapped machine.
+cost nothing.
 
-Exits 0 even when the download fails, so that a network outage degrades the
-run to the offline subset instead of breaking the whole build.
+Exits non-zero if the dataset cannot be obtained. This is deliberate: the
+dataset is required by 73 of 240 tests, and a run that quietly omits them is
+indistinguishable from a passing run. To run only the tests that need no
+dataset, ask for that explicitly with ``tox -e offline``.
 """
-import os
 import sys
 import pathlib
-
-# The dataset ships as a zip of ~200 MB from Figshare.
-_SKIP_ENV = "BLIMP_SKIP_TEST_DATA"
 
 # Allow running from an uninstalled checkout (tox installs the package, but a
 # bare `python tests/fetch_test_data.py` should work too).
@@ -29,27 +25,23 @@ if str(_REPO_ROOT) not in sys.path:
 
 
 def main() -> int:
-    if os.environ.get(_SKIP_ENV, "").strip() not in ("", "0", "false", "False"):
-        print(f"{_SKIP_ENV} is set: skipping reference dataset download.")
-        print("Data-dependent tests will be skipped. Run with -m 'not data' to select them explicitly.")
-        return 0
-
-    # Imported here so that --help and the skip path work without the package
-    # being importable.
     try:
         from blimp.data import load_test_data
-    except ImportError as exc:  # pragma: no cover - environment problem
-        print(f"Could not import blimp ({exc}); skipping dataset download.", file=sys.stderr)
-        return 0
+    except ImportError as exc:
+        print(f"Could not import blimp: {exc}", file=sys.stderr)
+        print("Install the package first (`pip install -e .`), or run via `tox`.", file=sys.stderr)
+        return 1
 
     try:
         path = load_test_data()
     except Exception as exc:
-        # A failed download must not break the build: the suite degrades to the
-        # offline subset.
         print(f"Reference dataset download failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-        print("Continuing without it -- data-dependent tests will be skipped.", file=sys.stderr)
-        return 0
+        print(
+            "The dataset is required by the data-marked tests. Run `tox -e offline`"
+            " to run only the tests that do not need it.",
+            file=sys.stderr,
+        )
+        return 1
 
     print(f"Reference dataset available at: {path}")
     return 0

@@ -70,8 +70,13 @@ pytest tests/ -q    # run pytest directly, e.g. with -k to select tests
 
 The full suite needs a ~200 MB reference dataset from Figshare. `tox` fetches it
 automatically before running and skips the download when it is already present.
-Set `BLIMP_SKIP_TEST_DATA=1` to skip the download entirely; the tests that need
-the dataset are then deselected rather than failing.
+If it cannot be obtained, the run fails rather than quietly omitting the 73
+tests that need it. To run only the tests that need no dataset, ask for that
+explicitly:
+
+```bash
+tox -e offline
+```
 
 ## Documentation
 

@@ -64,8 +64,12 @@ a symbol removed there. Both `requirements.txt` and `environment-dev.yml` pin
 tox -e offline
 ```
 
-Start here: 142 tests, no network access and no reference dataset needed. About
+Start here: 167 tests, no network access and no reference dataset needed. About
 90 s, plus a one-off ~100 s the first time while tox builds its virtualenv.
+
+This is the only supported way to run without the dataset -- a missing dataset
+otherwise fails the run. See [Why a missing dataset
+fails](#why-a-missing-dataset-fails).
 
 For the fast inner loop while developing, call pytest directly in the activated
 conda environment and skip both the tox virtualenv and the coverage pass:
@@ -233,12 +237,36 @@ enforcing (fails on a >1% drop); the `patch` status is `informational: true`
 because a 59% codebase cannot clear an 80% patch target immediately, and a check
 that always fails gets ignored. Flip it once new code routinely passes.
 
+## Why a missing dataset fails
+
+73 of the 240 tests are marked `data` and need the reference dataset. If it
+cannot be obtained, both the fetch script and the `test_data` fixture fail
+rather than skip:
+
+- `tests/fetch_test_data.py` exits non-zero, so `tox` stops at `commands_pre`.
+- the `test_data` fixture calls `pytest.fail`, naming the three ways forward.
+
+The alternative -- skipping -- makes a run that exercises 70% of the suite
+report the same green as a full one. That is the same failure mode as
+`skip_missing_interpreters = true`: a real problem that reads as success. A
+Figshare outage is therefore on the critical path for a PR, which is the
+intended trade: a blocked PR is recoverable, a false pass is not.
+
+To run without the dataset, say so explicitly with `tox -e offline`. Two skips
+remain legitimate and are unaffected: `--download-test-data` gates the ~200 MB
+download so no test run pulls it silently, and the cellpose tests skip when the
+model cache under `~/.cellpose` is not writable, which is an environment fault
+rather than missing reference data.
+
 ## Environment variables
 
 | Variable | Effect |
 | --- | --- |
-| `BLIMP_SKIP_TEST_DATA=1` | Skip the dataset download entirely. Data-dependent tests are then skipped rather than failing. Useful offline or on a metered connection. Read by `tests/fetch_test_data.py`, which `tox` runs before the suite. |
-| `BLIMP_DOWNLOAD_TEST_DATA=1` | Opt in to downloading the dataset when running `pytest` directly. Equivalent to passing `--download-test-data`. `tox` sets this for you, so it is only needed outside tox. |
+| `BLIMP_DOWNLOAD_TEST_DATA=1` | Opt in to downloading the dataset when running `pytest` directly. Equivalent to passing `--download-test-data`. Not needed under `tox`, which fetches the dataset in `commands_pre` before pytest starts. |
+
+There is deliberately no variable for running without the dataset. A missing
+dataset fails; `tox -e offline` selects the data-free subset explicitly. See
+[Why a missing dataset fails](#why-a-missing-dataset-fails).
 
 To force a fresh download, delete `tests/_data` (or `tests/_data.zip` to
 re-fetch rather than re-extract).

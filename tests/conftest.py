@@ -126,7 +126,8 @@ def test_data(request):
     """Session-scoped access to the reference dataset.
 
     Extracts a local ``_data.zip`` if present; downloads only when explicitly
-    permitted via ``--download-test-data``. Otherwise skips the test.
+    permitted via ``--download-test-data``. Otherwise fails the test -- see the
+    message below for why this is not a skip.
     """
     from blimp.constants import SCRIPTS_DIR
 
@@ -149,9 +150,15 @@ def test_data(request):
             return os.path.join(base, "_data")
         pytest.fail("Test data download completed but the dataset is still incomplete.")
 
-    pytest.skip(
-        "Reference dataset not available locally. Run with --download-test-data to fetch it from Figshare.",
-        allow_module_level=False,
+    # Deliberately a failure, not a skip: a missing dataset silently removing
+    # 73 of 240 tests is indistinguishable from a passing run. To select the
+    # data-free subset, say so explicitly with `tox -e offline`.
+    pytest.fail(
+        "Reference dataset not available locally, so this test cannot run.\n"
+        "  - `tox` fetches it automatically before the suite\n"
+        "  - `pytest --download-test-data` fetches it now (~200 MB from Figshare)\n"
+        "  - `tox -e offline` runs only the tests that need no dataset",
+        pytrace=False,
     )
 
 
