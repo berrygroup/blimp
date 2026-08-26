@@ -12,8 +12,7 @@ except ImportError:
 setup(
     name="blimp",
     # Do not add an explicit version= here: it silently overrides
-    # use_scm_version, which is how this package came to report 0.1.0 while
-    # tagged v0.4.0.
+    # use_scm_version, so the package reports a version unrelated to its tag.
     use_scm_version=True,
     author=__author__,
     author_email=__email__,

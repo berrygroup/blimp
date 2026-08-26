@@ -395,10 +395,10 @@ def pixel_z_score(
 
     if log_transform:
         logger.debug("Log-transforming input image for pixel-wise z-score correction")
-        # Zeros map to log10(1) == 0, the same convention used when the reference
-        # statistics were built by ``mean_std_welford``. The previous clamp to
-        # 1e-10 mapped them to -10 instead, disagreeing with the reference path
-        # by ten decades and producing z-scores of order -3000.
+        # Zeros must map to log10(1) == 0, the convention ``mean_std_welford``
+        # uses when building the reference statistics. Clamping to 1e-10 instead
+        # puts them at -10, ten decades from the reference path, which makes the
+        # z-score of a zero pixel arbitrarily large and negative.
         original = safe_log10(original)
     else:
         original = original.astype(np.float64)

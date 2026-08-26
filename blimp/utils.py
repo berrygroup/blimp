@@ -425,10 +425,8 @@ def mean_std_welford(images: List[AICSImage], log_transform: bool = False) -> tu
             array_lazy = image.get_image_dask_data("YX", C=c, T=0, Z=0)
             array = array_lazy.compute()
             if log_transform:
-                # Maps zeros to log10(1) == 0, matching the previous behaviour
-                # here exactly, but without emitting a log10(0) warning and
-                # while rejecting float and negative input rather than
-                # silently producing NaN. See ``safe_log10``.
+                # Maps zeros to log10(1) == 0 and rejects float and negative
+                # input rather than producing NaN. See ``safe_log10``.
                 array = safe_log10(array)
             if np.any(~np.isfinite(array)):
                 # NaN as well as +/-inf: NaN is not caught by ``isinf`` and would

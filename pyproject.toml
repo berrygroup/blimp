@@ -49,9 +49,9 @@ force_alphabetical_sort_within_sections = true
 lexicographical = true
 
 [tool.pytest.ini_options]
-# The only pytest config in the project: this table makes pytest ignore
-# [pytest] in tox.ini entirely, which silently killed the settings that used
-# to live there. Do not split pytest config across the two files.
+# The only pytest config in the project. While this table exists pytest ignores
+# a [pytest] section in tox.ini entirely, so do not split settings across both
+# files -- the tox.ini ones would be silently inert.
 minversion = "7.0"
 testpaths = ["tests"]
 

@@ -460,10 +460,9 @@ def _resolve_single_measure_object(
         f"Resolved {conflicts_resolved} multi-parent conflicts for {label_image.channel_names[measure_object_index]} objects"
     )
 
-    # The caller passes new_label_stack only when in_place is False. Bind the
-    # target once so the invariant is checked in a single place: without this,
-    # a None slips through to the indexed assignments below and fails with an
-    # opaque "TypeError: 'NoneType' object does not support item assignment".
+    # new_label_stack is passed only when in_place is False. Bind the target
+    # once so None is rejected here, rather than reaching the indexed
+    # assignments below and raising an opaque TypeError.
     if in_place:
         target = label_image.data
     elif new_label_stack is None:
@@ -652,9 +651,8 @@ def _mask_single_measure_object_by_parent(
         f"{initial_objects} -> {final_objects} objects, removed {removed_pixels} pixels outside parent"
     )
 
-    # See the note in _resolve_single_measure_object: new_label_stack is only
-    # passed when in_place is False, and the indexed assignments below would
-    # otherwise fail on None with an opaque TypeError.
+    # As in _resolve_single_measure_object: bind the target once so None is
+    # rejected here rather than at the indexed assignments below.
     if in_place:
         target = label_image.data
     elif new_label_stack is None:

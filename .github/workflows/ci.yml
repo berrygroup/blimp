@@ -92,8 +92,8 @@ jobs:
             env:
                 PYVER: ${{ matrix.python-version }}
 
-        # v5, not v4: v4 dropped tokenless upload, so coverage stopped
-        # reporting on fork PRs where `secrets` is empty.
+        # Keep at v5 or later: v4 has no tokenless upload, so coverage does not
+        # report on fork PRs, where `secrets` is empty.
         -   name: Upload coverage to Codecov
             uses: codecov/codecov-action@v5
             with:
