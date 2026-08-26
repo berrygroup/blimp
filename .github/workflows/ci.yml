@@ -84,7 +84,41 @@ jobs:
                 path: docs/_build/html
                 if-no-files-found: ignore
 
+    # actions/cache writes its entry when a job ends, and the six test legs
+    # start together, so without this they would all miss on the first run and
+    # pull ~200 MB from Figshare at once. This job populates the cache once and
+    # the legs restore from it. It needs no compiled dependencies: blimp.data
+    # imports with requests and tqdm alone, so the package is not installed.
+    testdata:
+        runs-on: ubuntu-latest
+        steps:
+        -   uses: actions/checkout@v4
+        -   uses: actions/setup-python@v5
+            with:
+                python-version: '3.12'
+                cache: pip
+
+            # Same key and paths as the test job; keep the three in step.
+        -   name: Cache reference test dataset
+            id: cache
+            uses: actions/cache@v4
+            with:
+                path: |
+                    tests/_data
+                    tests/_experiments
+                    tests/_data.zip
+                key: blimp-testdata-23972244
+
+        -   name: Download reference dataset
+            if: steps.cache.outputs.cache-hit != 'true'
+            run: |
+                python -m pip install --upgrade pip
+                python -m pip install requests tqdm
+                python tests/fetch_test_data.py
+
     test:
+        # Wait for the dataset cache to exist rather than racing to fill it.
+        needs: testdata
         runs-on: ${{ matrix.os }}
         strategy:
             # A failure specific to one OS or version is what the matrix exists
@@ -112,8 +146,9 @@ jobs:
                 python-version: ${{ matrix.python-version }}
                 cache: pip
 
-        # ~200 MB from Figshare, otherwise re-downloaded by all 6 legs. Key is
-        # pinned to the article id, so a new dataset invalidates the cache.
+        # Restores the entry the testdata job populated; the key is not
+        # OS-scoped, so all six legs share one copy. Key is pinned to the
+        # article id, so a new dataset invalidates the cache.
         -   name: Cache reference test dataset
             uses: actions/cache@v4
             with:
