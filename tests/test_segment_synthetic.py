@@ -43,6 +43,27 @@ def straddling_child_2D():
     return _label_image_2D(parent, child)
 
 
+EXPECTED_KEPT_COLUMNS_SECOND_PARENT = [8, 9, 10, 11, 12]
+
+
+@pytest.fixture
+def straddling_child_2D_second_parent_wins():
+    """As above, but the larger overlap is with parent 2 rather than parent 1.
+
+    The child spans columns 6-12: 2 columns in parent 1 and 5 in parent 2. The
+    winning parent is therefore neither the first label nor the first column,
+    so an implementation that picks the lowest-numbered overlapping parent is
+    distinguishable from one that picks the largest overlap.
+    """
+    parent = np.zeros((16, 16), dtype=np.uint16)
+    parent[:, 0:8] = 1
+    parent[:, 8:16] = 2
+
+    child = np.zeros((16, 16), dtype=np.uint16)
+    child[4:8, 6:13] = 1
+    return _label_image_2D(parent, child)
+
+
 def _child_columns(image, timepoint=0):
     """Columns in which the child channel has any labelled pixel."""
     child = image.data[timepoint, 1, 0, :, :]
@@ -72,6 +93,21 @@ def test_resolve_multi_parent_in_place_modifies_input(straddling_child_2D):
 
     assert result is None
     assert _child_columns(straddling_child_2D) == EXPECTED_KEPT_COLUMNS
+
+
+def test_resolve_multi_parent_keeps_largest_overlap_not_lowest_label(
+    straddling_child_2D_second_parent_wins,
+):
+    """The child is assigned by overlap area, not by parent label order."""
+    result = resolve_multi_parent_objects(
+        straddling_child_2D_second_parent_wins,
+        measure_object="Child",
+        parent_object="Parent",
+        in_place=False,
+    )
+
+    assert result is not None
+    assert _child_columns(result) == EXPECTED_KEPT_COLUMNS_SECOND_PARENT
 
 
 def test_resolve_multi_parent_3D(straddling_child_2D):

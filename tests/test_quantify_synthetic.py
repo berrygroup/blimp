@@ -37,18 +37,20 @@ def _image_3D(arrays, channel_names, pixel_sizes=(1.0, 1.0, 1.0)):
 
 @pytest.fixture
 def two_squares_2D():
-    """Two labelled 4x4 squares with known areas and uniform intensities.
+    """Two labelled squares with known areas and uniform intensities.
 
-    Object 1: 16 px at intensity 100. Object 2: 16 px at intensity 300.
-    Neither touches the image border.
+    Object 1: 4x4 = 16 px at intensity 100. Object 2: 5x5 = 25 px at intensity
+    300. Areas and intensities both differ between the objects, so a test that
+    associates a row with the wrong label fails rather than passing by
+    coincidence. Neither touches the image border.
     """
     label = np.zeros((32, 32), dtype=np.uint16)
     label[4:8, 4:8] = 1
-    label[20:24, 20:24] = 2
+    label[20:25, 20:25] = 2
 
     intensity = np.zeros((32, 32), dtype=np.uint16)
     intensity[4:8, 4:8] = 100
-    intensity[20:24, 20:24] = 300
+    intensity[20:25, 20:25] = 300
 
     return _image_2D([intensity], ["DAPI"]), _image_2D([label], ["nuclei"])
 
@@ -97,7 +99,7 @@ def test_quantify_2D_areas_are_exact(two_squares_2D):
     assert len(df) == 2
     areas = dict(zip(df["label"], df["nuclei_area"]))
     assert areas[1] == 16
-    assert areas[2] == 16
+    assert areas[2] == 25
 
 
 def test_quantify_2D_mean_intensities_are_exact(two_squares_2D):
@@ -117,7 +119,7 @@ def test_quantify_2D_sum_intensity_is_area_times_value(two_squares_2D):
     assert sum_col
     sums = dict(zip(df["label"], df[sum_col[0]]))
     assert sums[1] == pytest.approx(16 * 100)
-    assert sums[2] == pytest.approx(16 * 300)
+    assert sums[2] == pytest.approx(25 * 300)
 
 
 def test_quantify_2D_sd_of_uniform_object_is_zero(two_squares_2D):
@@ -191,13 +193,17 @@ def test_quantify_2D_mismatched_shapes_raise():
 
 @pytest.fixture
 def two_cubes_3D():
-    """Two 3x3x3 labelled cubes (27 voxels each) at intensities 50 and 150."""
+    """A 3x3x3 cube (27 voxels, intensity 50) and a 4x4x4 cube (64, 150).
+
+    The two objects differ in size as well as intensity so that a row
+    associated with the wrong label fails rather than passing by coincidence.
+    """
     label = np.zeros((7, 24, 24), dtype=np.uint16)
     label[1:4, 4:7, 4:7] = 1
-    label[3:6, 14:17, 14:17] = 2
+    label[2:6, 14:18, 14:18] = 2
     intensity = np.zeros((7, 24, 24), dtype=np.uint16)
     intensity[1:4, 4:7, 4:7] = 50
-    intensity[3:6, 14:17, 14:17] = 150
+    intensity[2:6, 14:18, 14:18] = 150
     return _image_3D([intensity], ["DAPI"]), _image_3D([label], ["nuclei"])
 
 
@@ -207,22 +213,25 @@ def test_quantify_3D_voxel_counts_are_exact(two_cubes_3D):
     assert len(df) == 2
     counts = dict(zip(df["label"], df["nuclei_3D_number_of_voxels"]))
     assert counts[1] == 27
-    assert counts[2] == 27
+    assert counts[2] == 64
 
 
 def test_quantify_3D_physical_volume_scales_with_pixel_size(two_cubes_3D):
-    """With 1 um isotropic spacing, 27 voxels = 27 um^3 = 0.027 pL."""
+    """With 1 um isotropic spacing, N voxels = N um^3 = N/1000 pL."""
     intensity, label = two_cubes_3D
     df = _quantify_single_timepoint_3D(intensity, label, measure_object="nuclei")
     volumes = dict(zip(df["label"], df["nuclei_3D_physical_volume_pL"]))
     assert volumes[1] == pytest.approx(0.027)
+    assert volumes[2] == pytest.approx(0.064)
 
 
 def test_quantify_3D_MIP_area_is_projected_footprint(two_cubes_3D):
-    """A 3x3x3 cube projects to a 3x3 = 9 px footprint."""
+    """A cube of side N projects to an N x N footprint, independent of depth."""
     intensity, label = two_cubes_3D
     df = _quantify_single_timepoint_3D(intensity, label, measure_object="nuclei")
-    assert np.allclose(df["nuclei_3D_MIP_area"].to_numpy(), 9.0)
+    areas = dict(zip(df["label"], df["nuclei_3D_MIP_area"]))
+    assert areas[1] == pytest.approx(9.0)
+    assert areas[2] == pytest.approx(16.0)
 
 
 def test_quantify_3D_requires_physical_pixel_sizes():
