@@ -218,10 +218,12 @@ def test_safe_log10_maps_zero_to_zero():
     assert out[1, 1] == 0.0
 
 
-def test_safe_log10_matches_old_welford_behaviour():
-    """The reference path previously log10'd then patched -inf back to 0. The
-    new form must be numerically identical, so saved correction objects stay
-    valid -- only the spurious log10(0) warning goes away."""
+def test_safe_log10_matches_log10_with_zeros_patched():
+    """safe_log10 must equal log10-then-patch-(-inf)-to-0 exactly.
+
+    Saved correction objects were computed with that expression, so any
+    numerical difference would invalidate them.
+    """
     array = np.array([[0, 1, 100], [200, 0, 300]], dtype=np.uint16)
     with np.errstate(divide="ignore"):
         old = np.log10(array.astype(np.float64))

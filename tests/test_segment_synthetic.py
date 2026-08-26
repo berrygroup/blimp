@@ -92,12 +92,7 @@ def test_resolve_multi_parent_3D(straddling_child_2D):
 
 
 def test_resolve_single_measure_object_requires_stack_when_not_in_place(straddling_child_2D):
-    """The helper's in_place/new_label_stack invariant is enforced explicitly.
-
-    Passing in_place=False without a destination array used to reach an indexed
-    assignment on None and fail with an opaque
-    ``TypeError: 'NoneType' object does not support item assignment``.
-    """
+    """in_place=False without a destination array must raise ValueError."""
     with pytest.raises(ValueError, match="new_label_stack must be provided"):
         _resolve_single_measure_object(
             straddling_child_2D,

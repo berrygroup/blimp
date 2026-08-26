@@ -69,8 +69,6 @@ def _write(tmp_path, text, name="Index.idx.xml"):
 
 
 def test_get_plate_metadata_raises_on_malformed_xml(tmp_path):
-    """Regression: this previously called os._exit(1), killing the interpreter
-    (and any pytest run or batch job) instead of raising."""
     bad = _write(tmp_path, f'<?xml version="1.0"?><Root xmlns="{NS_URI}"><NotPlates/></Root>')
     with pytest.raises((ValueError, AttributeError, TypeError)):
         get_plate_metadata(bad)

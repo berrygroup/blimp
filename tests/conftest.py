@@ -51,15 +51,14 @@ def _download_permitted(config) -> bool:
 def _seed_global_rng():
     """Seed the legacy global numpy RNG before every test.
 
-    The existing tests call ``np.random.rand`` etc. without seeding, which makes
-    failures unreproducible: ``test_register_2D_preserve_dtype`` registers two
-    10x10 pure-noise images with elastix, and on some draws the optimiser fails
-    to converge and raises, so the test failed intermittently depending on how
-    many random numbers earlier tests had consumed.
+    Several tests draw from ``np.random`` without seeding, and elastix fails to
+    converge on some draws of pure noise: ``test_register_2D_preserve_dtype``
+    registers two 10x10 noise images, so without this it passes or fails
+    depending on how many random numbers earlier tests consumed. Seeding per
+    test makes each test independent of execution order.
 
-    Seeding per test makes each test independent of execution order and of the
-    rest of the suite. New tests should prefer an explicit
-    ``np.random.default_rng(seed)`` generator over the global state.
+    New tests should prefer an explicit ``np.random.default_rng(seed)``
+    generator over the global state.
     """
     np.random.seed(42)
 
