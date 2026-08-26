@@ -112,6 +112,68 @@ pytest tests/test_quantify_synthetic.py -v
 pytest tests/ -k "registration" -v
 ```
 
+## Testing against multiple Python versions
+
+`envlist` covers `py{310,311,312}` on both linux and macos, but tox can only run
+a leg whose interpreter it can find. Because `skip_missing_interpreters = true`,
+a missing interpreter is a **silent skip**, not an error:
+
+```
+py310-macos: skipped because could not find python interpreter with spec(s): py310
+```
+
+A full `tox` run on a machine with one Python therefore reports success having
+run one leg of six. Check what actually ran before trusting a green result:
+
+```bash
+tox -l                       # what is configured
+tox --notest -e py310-macos  # does this leg resolve an interpreter?
+```
+
+tox finds interpreters via `PATH` (plus the `py` launcher on Windows). It does
+**not** search conda's environment directory, so conda-managed interpreters are
+invisible unless their `bin/` is on `PATH`.
+
+### Getting the interpreters
+
+`uv` is the least invasive option: it downloads standalone CPython builds into
+its own directory, without touching the system Python, conda, or your shell.
+
+```bash
+pip install uv          # or: brew install uv
+uv python install 3.10 3.12
+uv python list          # shows what is now available
+```
+
+Then `tox` finds all three legs. Adding `tox-uv` (`pip install tox-uv`;
+1.36.0 resolves cleanly alongside tox 4.60, though it is not yet used here)
+additionally lets tox provision interpreters on demand and builds the
+environments faster.
+
+The alternatives:
+
+- **`pyenv install 3.10 3.12`** — works, but compiles from source (slow) and
+  wants shell integration.
+- **Existing conda envs** — if you already have envs on other versions, putting
+  their `bin/` on `PATH` is enough for tox to discover them:
+  ```bash
+  PATH="$HOME/anaconda3/envs/py310/bin:$PATH" tox -e py310-macos
+  ```
+  tox builds its own virtualenv and uses the conda env only as a template, so
+  the conda env itself is not modified. This is fine for a one-off check, but it
+  is fragile as a routine: it depends on which envs happen to exist, and their
+  patch versions drift independently of what CI uses.
+
+### What CI already covers
+
+`.github/workflows/ci.yml` runs the full matrix — `ubuntu-latest` and
+`macos-latest` × Python 3.10, 3.11, 3.12 — with `fail-fast: false`. Linux
+coverage comes free on every push, so local multi-version testing is mainly for
+catching a version-specific break before it reaches CI, not a substitute for it.
+
+Note that the package declares no `python_requires`, so nothing but this matrix
+records which versions are supported.
+
 ## Environment variables
 
 | Variable | Effect |
