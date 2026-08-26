@@ -1,7 +1,9 @@
 aicsimageio[nd2]>=4.12.1
 cellpose>=4.0.0
 importlib_metadata>=5.1.0
-itk-elastix>=0.18.0
+# 0.18.0 has no abi3 or arm64 wheels, so it cannot install on Python >=3.12 or
+# Apple Silicon. 0.19.2 is the first release with both.
+itk-elastix>=0.19.2
 mahotas>=1.4.13
 matplotlib>=3.6.3
 nd2reader>=3.3.0
