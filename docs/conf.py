@@ -14,6 +14,7 @@ from datetime import datetime
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
+import os
 import sys
 
 HERE = Path(__file__).parent
@@ -81,6 +82,17 @@ intersphinx_mapping = dict(  # noqa: C408
         "https://github.com/GPflow/tensorflow-intersphinx/raw/master/tf2_py_objects.inv",
     ),
 )
+
+# Escape hatch for strict builds. Sphinx emits one warning per mapping target
+# whose inventories all fail to fetch, and that warning carries no
+# `[type.subtype]` tag, so `suppress_warnings` cannot single it out. Under `-W`
+# that makes any of the 15 hosts above a single point of failure for an
+# unrelated build. CI sets this so the gate tests our documentation rather than
+# third-party uptime; link reachability is check-docs' job (`-b linkcheck`).
+# Nothing is lost by dropping the mappings: unresolved external references are
+# only warnings when nitpicky is on, and it is off.
+if os.environ.get("BLIMP_DOCS_OFFLINE"):
+    intersphinx_mapping = {}
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]

@@ -29,6 +29,61 @@ jobs:
         -   name: Run pre-commit
             uses: pre-commit/action@v3.0.1
 
+    docs:
+        # Read the Docs publishes the docs, but has no fail_on_warning, so it
+        # ships warning-laden output with a green badge. This job is the gate:
+        # -W turns any Sphinx warning into a PR failure. It caught nothing at
+        # the time of writing only because the stale-autosummary and RST faults
+        # were just fixed -- that class of break is silent otherwise.
+        #
+        # Build only, no linkcheck: linkcheck resolves every external URL in the
+        # docs, so it reddens PRs for link rot the author did not cause. Run
+        # `tox -e check-docs` by hand for link coverage.
+        #
+        # Deliberately not a separate workflow: a job here is covered by the
+        # existing CI badge, whereas a docs.yml would need its own.
+        runs-on: ubuntu-latest
+        steps:
+        -   uses: actions/checkout@v4
+
+            # 3.12 is required, not preference: on 3.11 the newest installable
+            # sphinx-autodoc-typehints still calls Parser.set_application, which
+            # Sphinx 10 removes. See [testenv:docs] in tox.ini.
+        -   uses: actions/setup-python@v5
+            with:
+                python-version: '3.12'
+                cache: pip
+
+        -   name: Install tox
+            run: |
+                python -m pip install --upgrade pip
+                python -m pip install tox tox-uv
+
+            # clean-docs first is load-bearing: docs/api is autosummary output
+            # written into the source tree, so a stale entry from a renamed
+            # module becomes a fatal warning under -W. Ordinarily a fresh
+            # checkout has no docs/api, but the pip cache above means this
+            # cannot be assumed.
+        -   name: Build docs (warnings are errors)
+            run: tox -e clean-docs,docs -- -W --keep-going
+            env:
+                # Drops intersphinx_mapping (see docs/conf.py). Without this the
+                # gate depends on 15 third-party sites staying up, and Sphinx
+                # warns once per unreachable target with no [type.subtype] tag,
+                # so suppress_warnings cannot single those out -- one blip would
+                # fail an unrelated PR. Read the Docs builds with the mappings
+                # live, so cross-reference links are still exercised there.
+                BLIMP_DOCS_OFFLINE: '1'
+
+            # The built HTML, so a failure is inspectable without a local build.
+        -   name: Upload built docs
+            if: always()
+            uses: actions/upload-artifact@v4
+            with:
+                name: docs-html
+                path: docs/_build/html
+                if-no-files-found: ignore
+
     test:
         runs-on: ${{ matrix.os }}
         strategy:

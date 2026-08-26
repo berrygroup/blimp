@@ -281,6 +281,34 @@ Building the docs on 3.12 resolves `sphinx-autodoc-typehints` 3.13.4, where the
 call is gone. `tox-uv` fetches 3.12 if it is not on `PATH`, so no manual install
 is needed. `.readthedocs.yaml` pins the same version for the same reason.
 
+### The docs CI gate
+
+Read the Docs publishes the documentation, but `.readthedocs.yaml` sets no
+`fail_on_warning`, so a warning-laden build still publishes with a green badge —
+the stale-`docs/api` fault fixed in this branch was exactly that, silent. The
+`docs` job in `ci.yml` is the gate: it runs `tox -e clean-docs,docs -- -W
+--keep-going`, so any Sphinx warning fails the PR.
+
+`{posargs}` carries the `-W`, rather than baking it into `[testenv:docs]`, so
+local builds stay lenient. A permanent `-W` would fail the env for anyone
+building without network, since unreachable intersphinx inventories are
+warnings.
+
+The job is a job in `ci.yml`, not a `docs.yml` workflow, because a workflow
+badge reflects the whole workflow's conclusion — so the existing CI badge covers
+it and no new badge is needed.
+
+It sets `BLIMP_DOCS_OFFLINE=1`. Under `-W`, each of the 15 `intersphinx_mapping`
+targets is a single point of failure: Sphinx warns once per target whose
+inventories all fail, and that warning carries no `[type.subtype]` tag, so
+`suppress_warnings` cannot single it out. Without the flag, one third-party
+outage fails an unrelated PR. Cross-reference links are still exercised where it
+matters, since Read the Docs builds with the mappings live.
+
+`linkcheck` is deliberately not part of the gate — it resolves every external
+URL, so it reddens PRs for link rot the author did not cause. Run `tox -e
+check-docs` by hand for that.
+
 Two things to know if `check-docs` warns:
 
 - `intersphinx` fetches inventories over the network. Without it (offline, or
@@ -301,6 +329,7 @@ config named were absent from the repo. Reinstating it means providing all three
 | Variable | Effect |
 | --- | --- |
 | `BLIMP_DOWNLOAD_TEST_DATA=1` | Opt in to downloading the dataset when running `pytest` directly. Equivalent to passing `--download-test-data`. Not needed under `tox`, which fetches the dataset in `commands_pre` before pytest starts. |
+| `BLIMP_DOCS_OFFLINE=1` | Empty `intersphinx_mapping` in `docs/conf.py`, so `tox -e docs` makes no external requests. Useful offline, and set by the CI docs job — see [Documentation environments](#documentation-environments). Only `docs` declares it in `passenv`; `check-docs` ignores it, since resolving links is the point of that env. |
 
 There is deliberately no variable for running without the dataset. A missing
 dataset fails; `tox -e offline` selects the data-free subset explicitly. See
