@@ -19,9 +19,6 @@ from blimp.preprocessing.registration import (
 from blimp.preprocessing.illumination_correction import pixel_z_score, _floor_zero_std
 import blimp.utils as utils
 
-# utils.estimate_focus_plane must accept every documented input type: the guard
-# has to check ``image`` and ``crop`` against their own types, not one twice.
-
 
 def _blobs(size: int = 96, n_blobs: int = 12, seed: int = 0) -> np.ndarray:
     """A synthetic field of Gaussian 'nuclei' -- structured, not pure noise."""
@@ -59,11 +56,6 @@ def test_estimate_focus_plane_accepts_valid_image():
 def test_estimate_focus_plane_finds_sharpest_plane(focus_z):
     image = _zstack_with_focus_at(focus_z)
     assert utils.estimate_focus_plane(image, C=0) == focus_z
-
-
-# utils._vollath_f4 must accumulate in float64, not the input dtype: uint16
-# products reach ~4.3e9 and wrap modulo 65536, which silently selects the wrong
-# focus plane on ordinary 16-bit camera data.
 
 
 def test_vollath_f4_is_dtype_independent():
@@ -112,10 +104,6 @@ def test_estimate_focus_plane_without_sliding_window():
     assert isinstance(utils.estimate_focus_plane(image, C=0, sliding_window=None), int)
 
 
-# utils.convert_array_dtype must handle dask input: converting requires
-# np.asarray/.astype, not the np.ndarray constructor.
-
-
 def test_convert_array_dtype_accepts_dask():
     da = pytest.importorskip("dask.array")
     arr = da.from_array(np.arange(12, dtype=np.uint8).reshape(3, 4), chunks=2)
@@ -128,12 +116,6 @@ def test_convert_array_dtype_accepts_dask():
 def test_convert_array_dtype_rejects_bad_dtype():
     with pytest.raises(TypeError, match="not recognised|not allowed"):
         utils.convert_array_dtype(np.zeros((2, 2)), np.complex128)
-
-
-# illumination_correction.pixel_z_score: zeros must be masked before the log
-# transform (testing `== 0` after clamping them to 1e-10 cannot detect them),
-# and the integer-rounding branch must test the dtype captured on entry, since
-# `original` is rebound to float64 along the way.
 
 
 def test_pixel_z_score_preserves_integer_dtype():
@@ -166,12 +148,6 @@ def test_pixel_z_score_float_input_unchanged_dtype():
     ones = np.ones((2, 2))
     out = pixel_z_score(original, ones, ones, 1.0, 1.0, log_transform=False)
     assert out.dtype == np.float32
-
-
-# illumination_correction: a per-pixel reference std of exactly 0 must not reach
-# the z-score division, where it yields +/-inf (or NaN for 0/0) and casts to a
-# dead or saturated uint16 pixel -- a plausible-looking image that neither fails
-# nor warns. 3.95% of pixels on the packaged two-image reference dataset.
 
 
 def test_pixel_z_score_zero_std_does_not_produce_nonfinite():
@@ -232,14 +208,6 @@ def test_floor_zero_std_warns_with_affected_fraction(caplog):
     with caplog.at_level(logging.WARNING):
         _floor_zero_std(std_image)
     assert "25.00%" in caplog.text
-
-
-# utils.safe_log10 is the single path for zeros and negatives entering a log
-# transform, so `mean_std_welford` and `pixel_z_score` cannot disagree about
-# them: handling zeros independently put the two ten decades apart (log-space
-# 0.0 vs -10). Negatives matter more than zeros: log10 of a negative is NaN, an
-# `isinf` check does not catch NaN, and one NaN poisons that pixel in the
-# Welford accumulator for every subsequent reference image.
 
 
 def test_safe_log10_maps_zero_to_zero():
@@ -321,11 +289,6 @@ def test_floor_zero_std_warns_on_every_call(caplog):
     assert caplog.text.count("Reference standard deviation is zero") == 5
 
 
-# registration.TransformationParameters: `from_file` and `from_resources` must
-# record provenance independently, and the no-arguments case must raise its own
-# error -- note `if all([...]) is None` can never be True.
-
-
 def test_transformation_parameters_records_provenance_separately():
     params = TransformationParameters(transformation_mode="rigid")
     assert params.from_file is None
@@ -340,10 +303,6 @@ def test_transformation_parameters_requires_an_argument():
 def test_transformation_parameters_unknown_mode_is_reported():
     with pytest.raises((ValueError, KeyError)):
         TransformationParameters(transformation_mode="not-a-real-mode")
-
-
-# registration.register_2D / transform_2D must convert to itk.Image: the elastix
-# filters are only wrapped for that type and reject bare numpy arrays.
 
 
 def test_register_2D_parameters_only_returns_parameters():
@@ -412,10 +371,6 @@ def test_transform_2D_roundtrip():
     np.testing.assert_allclose(transformed, registered, atol=1e-5)
 
 
-# quantify: both sides of the `_count` fill must test the same suffix, or the
-# two column sets diverge.
-
-
 def test_border_objects_flags_edge_touching_labels():
     label = np.zeros((16, 16), dtype=np.int32)
     label[0:3, 0:3] = 1  # touches border
@@ -424,10 +379,6 @@ def test_border_objects_flags_edge_touching_labels():
     flags = dict(zip(out["label"], out["is_border"]))
     assert flags[1]
     assert not flags[2]
-
-
-# constants: the setters must accept None, which the getters explicitly warn
-# about, so os.path.abspath() cannot be called unconditionally.
 
 
 def test_config_dirs_accept_none(monkeypatch):
@@ -442,10 +393,6 @@ def test_config_dirs_are_absolute(tmp_path, monkeypatch):
     assert Path(blimp_config.BASE_DATA_DIR).is_absolute()
 
 
-# data: content-disposition parsing must not hand None to the caller, which
-# passes it straight to Path().
-
-
 @pytest.mark.parametrize(
     "header,expected",
     [
@@ -457,10 +404,6 @@ def test_config_dirs_are_absolute(tmp_path, monkeypatch):
 )
 def test_get_filename_from_content_disposition(header, expected):
     assert _get_filename_from_content_disposition(header) == expected
-
-
-# image.BLImage: fs kwargs must not be a shared mutable default, and pickle.load
-# takes a file handle rather than a path.
 
 
 def test_blimage_fs_kwargs_not_shared_between_instances():

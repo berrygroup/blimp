@@ -9,11 +9,6 @@ Tests are split into two classes:
 * **data tests** -- tests that need the reference microscopy dataset. These are
   marked ``@pytest.mark.data`` and are skipped automatically when the dataset
   is not present locally, unless ``--download-test-data`` is passed.
-
-Previously a single ``autouse`` fixture called ``load_test_data()`` (a Figshare
-download) before *every* test, so the whole suite -- including pure unit tests
--- failed without network access. The dataset fixture is now opt-in and
-session-scoped.
 """
 import os
 import shutil
