@@ -460,19 +460,24 @@ def _resolve_single_measure_object(
         f"Resolved {conflicts_resolved} multi-parent conflicts for {label_image.channel_names[measure_object_index]} objects"
     )
 
+    # The caller passes new_label_stack only when in_place is False. Bind the
+    # target once so the invariant is checked in a single place: without this,
+    # a None slips through to the indexed assignments below and fails with an
+    # opaque "TypeError: 'NoneType' object does not support item assignment".
+    if in_place:
+        target = label_image.data
+    elif new_label_stack is None:
+        raise ValueError("new_label_stack must be provided when in_place is False")
+    else:
+        target = new_label_stack
+
     # Update the label image data
     if is_2d:
         # For 2D, update the specific slice
-        if in_place:
-            label_image.data[timepoint, measure_object_index, 0, :, :] = label_array
-        else:
-            new_label_stack[timepoint, measure_object_index, 0, :, :] = label_array
+        target[timepoint, measure_object_index, 0, :, :] = label_array
     else:
         # For 3D, update the entire volume
-        if in_place:
-            label_image.data[timepoint, measure_object_index, :, :, :] = label_array
-        else:
-            new_label_stack[timepoint, measure_object_index, :, :, :] = label_array
+        target[timepoint, measure_object_index, :, :, :] = label_array
 
 
 def mask_child_objects_by_parent(
@@ -647,16 +652,20 @@ def _mask_single_measure_object_by_parent(
         f"{initial_objects} -> {final_objects} objects, removed {removed_pixels} pixels outside parent"
     )
 
+    # See the note in _resolve_single_measure_object: new_label_stack is only
+    # passed when in_place is False, and the indexed assignments below would
+    # otherwise fail on None with an opaque TypeError.
+    if in_place:
+        target = label_image.data
+    elif new_label_stack is None:
+        raise ValueError("new_label_stack must be provided when in_place is False")
+    else:
+        target = new_label_stack
+
     # Update the label image data
     if is_2d:
         # For 2D, update the specific slice
-        if in_place:
-            label_image.data[timepoint, measure_object_index, 0, :, :] = label_array
-        else:
-            new_label_stack[timepoint, measure_object_index, 0, :, :] = label_array
+        target[timepoint, measure_object_index, 0, :, :] = label_array
     else:
         # For 3D, update the entire volume
-        if in_place:
-            label_image.data[timepoint, measure_object_index, :, :, :] = label_array
-        else:
-            new_label_stack[timepoint, measure_object_index, :, :, :] = label_array
+        target[timepoint, measure_object_index, :, :, :] = label_array

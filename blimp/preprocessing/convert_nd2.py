@@ -1,7 +1,6 @@
 """Convert Nikon nd2 files to standard open microscopy environment formats."""
 from typing import List, Union
 from pathlib import Path
-import os
 import re
 import glob
 import logging
@@ -170,25 +169,23 @@ def convert_nd2(
     job_paths = [job_path / ("batch_convert_nd2_" + str(p.stem) + ".pbs") for p in nd2_parent_paths]
 
     # check that zID of input path matches user's zID (otherwise no write access for output)
-    out_paths = []
+    out_paths: List[Path] = []
     # find the zID in the path
     pattern = re.compile(r"/z\d{7}")
     for path in nd2_parent_paths:
         path_str = str(path)
-        if pattern.search(path_str):
+        match = pattern.search(path_str)
+        if match is not None:
             # Replace the zID in input folder name with the user's
             # zID (and append OME-TIFF)
-            input_user = pattern.search(path_str).group()  # type: ignore
-            out_path = path_str.replace(input_user, f"/{user}")
-            out_path = Path(out_path) / "OME-TIFF"  # type: ignore
+            out_path = Path(path_str.replace(match.group(), f"/{user}")) / "OME-TIFF"
             logger.info(f"zID in input path does not match user's zID, adjusting output path to {str(out_path)}")
-            out_paths.append(out_path)
         else:
             # Or if zIDs match, just add the original path
             # to the output path list (appending OME-TIFF)
             out_path = path / "OME-TIFF"
             logger.debug(f"zID in input path matches user's zID, output path is {str(out_path)}")
-            out_paths.append(out_path)  # type: ignore
+        out_paths.append(out_path)
 
     # read template from file
     if template_path is None:
