@@ -99,6 +99,26 @@ single leg is named in full:
     tox -e py311-macos
     tox -e py311-macos --recreate    # if the environment needs rebuilding
 
+In CI the `linux` legs run inside a Rocky Linux 8.10 container rather than
+on Ubuntu, because that is the lab's deployment target. This is not
+cosmetic: el8 ships glibc 2.28 where current Ubuntu has 2.39, and the
+glibc version selects which `manylinux` wheels pip may install. A
+dependency can therefore resolve on an Ubuntu runner and be unavailable on
+the server — a class of breakage Ubuntu-only CI cannot see.
+
+Practical consequences if you edit the workflow:
+
+- `actions/setup-python` does not work on el8 images (no RHEL builds in its
+  versions manifest), and Rocky 8's AppStream has no `python3.10` at all.
+  Both matrix interpreters come from `tox-uv` instead, with
+  `UV_PYTHON_PREFERENCE=only-managed` so uv fetches the requested version
+  rather than falling back to the container's system Python — without it
+  the 3.10 and 3.11 legs would silently run on 3.12.
+- `python` is unversioned on el8; only `python3.N` exists.
+- The container image is minimal: `git`, `tar`, `gzip` and a compiler are
+  installed before checkout. `gcc` is needed because `welford` publishes an
+  sdist only, so it is compiled at install time.
+
 No interpreter needs installing by hand: `tox-uv` downloads a standalone
 CPython for any version missing from `PATH`. Do not put a
 conda environment's `bin/` on `PATH` to supply one: the build then picks
