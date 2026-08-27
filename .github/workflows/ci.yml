@@ -1,14 +1,25 @@
 name: CI
 
+# `dev` is the integration branch: feature branches are merged there and
+# promoted to main as releases, so it needs the same gating as main. Listing it
+# under both events is deliberate -- `pull_request` gates merges into dev, and
+# `push` re-runs the suite on the merge commit, which is the first time the
+# combined state of two independently-green PRs is ever tested.
+#
+# A branch listed under `push` but not `pull_request` would run CI twice per PR
+# (once for the branch push, once for the PR); feature branches are in neither,
+# so they are tested by their PR only.
 on:
     push:
         branches:
         -   main
         -   master
+        -   dev
     pull_request:
         branches:
         -   main
         -   master
+        -   dev
 
 # Superseded runs on the same branch are pointless: cancel them so a busy
 # afternoon of pushes does not queue up hours of duplicated CI.

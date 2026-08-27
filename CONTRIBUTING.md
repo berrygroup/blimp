@@ -46,6 +46,28 @@ This is highly recommended, since it will help you to pass the linting
 step (see [Code style guide](#code-style-guide)). If you are unable to
 decipher some flags, you can still commit using `--no-verify`.
 
+## Branching model
+
+`main` is the release branch and `dev` is the integration branch. Work is
+merged into `dev` first and promoted to `main` as a release, so `dev` is
+where features accumulate and get tested together.
+
+    feature branch  ->  dev  ->  main
+                        (staging)  (releases)
+
+Open pull requests against `dev`, not `main`. Reserve `main` for release
+promotions from `dev`.
+
+CI runs the full matrix on pull requests into `main` and `dev`, and again
+on pushes to those branches. The second run is not redundant: a push to
+`dev` is a merge commit, and it is the first time the combined state of
+two independently-green pull requests is tested together.
+
+Read the Docs builds both branches, so `dev` documentation is published
+alongside the released version and selectable from the flyout menu at the
+bottom of any docs page. `latest` tracks `main`; the `dev` version tracks
+`dev`.
+
 ## Code style guide
 
 We rely on `black` and `isort` to do the most of the formatting - both
