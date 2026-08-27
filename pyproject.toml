@@ -49,7 +49,36 @@ force_alphabetical_sort_within_sections = true
 lexicographical = true
 
 [tool.pytest.ini_options]
+# The only pytest config in the project. While this table exists pytest ignores
+# a [pytest] section in tox.ini entirely, so do not split settings across both
+# files -- the tox.ini ones would be silently inert.
+minversion = "7.0"
+testpaths = ["tests"]
+
+# Warnings are printed rather than raised: the imaging stack is warning-heavy
+# and -W error would make the suite unusable. Known-noisy warnings are muted.
+filterwarnings = [
+    "ignore:the imp module is deprecated:DeprecationWarning",
+    "ignore:'contextfilter':DeprecationWarning",
+    "ignore:distutils:DeprecationWarning",
+    "ignore:Please use `spmatrix`:DeprecationWarning",
+    "ignore:Passing a schema to Validator.iter_errors:DeprecationWarning",
+    "ignore:Please use:DeprecationWarning",
+    "ignore:'plotting' is not a valid key!:SyntaxWarning",
+    # skimage >= 0.22 shadows the custom intensity_median extra property
+    "ignore:Extra property 'intensity_median' is shadowed:UserWarning",
+    "ignore:builtin type Swig.* has no __module__ attribute:DeprecationWarning",
+]
+
+# --strict-markers: a typo'd marker errors rather than selecting nothing.
+addopts = "--strict-markers --strict-config"
+
+markers = [
+    "data: requires the downloaded reference dataset (deselect with -m 'not data')",
+    "slow: takes more than a few seconds",
+]
+
 log_cli = true
-log_cli_level = "INFO"
+log_cli_level = "WARNING"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"

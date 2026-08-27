@@ -1,5 +1,6 @@
 from typing import Union, Optional
 from pathlib import Path
+from urllib.parse import urlparse
 import os
 import shutil
 import logging
@@ -106,13 +107,22 @@ def download_figshare_file(repository_id: str, output_filename: str) -> str:
     return str(output_path)
 
 
-def load_test_data():
+def load_test_data() -> str:
     """
-    Download test data to ``SCRIPTS_DIR/tests``.
+    Download the reference test dataset to ``SCRIPTS_DIR/tests``.
+
+    Extracts an existing ``_data.zip`` if present, otherwise downloads it from
+    Figshare. Does nothing when the dataset is already extracted, so this is
+    cheap to call repeatedly.
+
+    Returns
+    -------
+    str
+        Path to the extracted ``_data`` directory.
     """
     repository_id = "23972244"
     base_dir = os.path.join(SCRIPTS_DIR, "tests")
-    print(f"base_dir = {base_dir}")
+    logger.debug(f"Test data base_dir = {base_dir}")
     archive_path = os.path.join(base_dir, "_data.zip")
     # check if is downloaded already
     if os.path.exists(os.path.join(base_dir, "_data")) and os.path.exists(os.path.join(base_dir, "_experiments")):
@@ -121,7 +131,7 @@ def load_test_data():
             logger.info(
                 f"Using previously downloaded/extracted test data. Delete {os.path.join(base_dir, '_data')} directory to force re-download."
             )
-            return
+            return os.path.join(base_dir, "_data")
     # have to unpack/redownload
     if os.path.exists(archive_path):
         logger.info(f"Extracting test data. Delete {archive_path} directory to force re-download.")
@@ -130,7 +140,7 @@ def load_test_data():
         logger.info(f"{archive_path} or dataset does not yet exist. Attempting to download from Figshare...")
         archive_path = download_figshare_file(repository_id, output_filename=archive_path)
         shutil.unpack_archive(archive_path, base_dir)
-    return
+    return os.path.join(base_dir, "_data")
 
 
 def load_dataset(dataset_path: Path_t, fname: str, backup_url: str) -> Path_t:
@@ -190,7 +200,7 @@ def load_dataset(dataset_path: Path_t, fname: str, backup_url: str) -> Path_t:
     return unpacked_dir
 
 
-def getFilename_fromCd(cd):
+def _get_filename_from_content_disposition(cd):
     """
     Get filename from content-disposition or url request.
     """
@@ -231,15 +241,21 @@ def download(
         output_path = tempfile.gettempdir()
 
     response = requests.get(url, stream=True)
-    filename = getFilename_fromCd(response.headers.get("content-disposition"))
+    response.raise_for_status()
+    filename = _get_filename_from_content_disposition(response.headers.get("content-disposition"))
+    if filename is None:
+        # fall back to the last path segment of the URL
+        filename = Path(urlparse(url).path).name
+    if not filename:
+        raise ValueError(f"Could not determine a filename for download from {url}")
 
     # currently supports zip, tar, gztar, bztar, xztar
     download_to_folder = Path(output_path).parent
     os.makedirs(download_to_folder, exist_ok=True)
 
     archive_formats, _ = zip(*shutil.get_archive_formats())
-    is_archived = str(Path(filename).suffix)[1:] in archive_formats
-    assert is_archived
+    if str(Path(filename).suffix)[1:] not in archive_formats:
+        raise ValueError(f"Downloaded file {filename} is not a supported archive format {archive_formats}")
 
     download_to_path = os.path.join(download_to_folder, filename)
 

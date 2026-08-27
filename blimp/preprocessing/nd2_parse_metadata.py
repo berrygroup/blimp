@@ -1,7 +1,6 @@
 """Extract and parse metadata from Nikon nd2 files."""
 from typing import Tuple, Union
 from pathlib import Path
-import os
 import re
 import json
 import logging
@@ -103,13 +102,13 @@ def get_start_time_abs(raw_metadata: dict, acq_metadata: dict) -> datetime.datet
     if start_time_abs is None:
         logger.info("Checking ND2Reader.parser._raw_metadata.image_text_info for absolute start time")
         time_str = acq_metadata["TextInfoItem_9"]
-        
+
         # Try different date formats (Nikon software changed format between versions)
         date_formats = [
             "%d/%m/%Y  %I:%M:%S %p",  # Format used in 2025: "21/11/2025  4:47:13 PM"
             "%d-%b-%y  %I:%M:%S %p",  # Format used in 2026: "05-Feb-26  9:54:21 PM"
         ]
-        
+
         for date_format in date_formats:
             try:
                 start_time_abs = datetime.datetime.strptime(time_str, date_format)
@@ -117,7 +116,7 @@ def get_start_time_abs(raw_metadata: dict, acq_metadata: dict) -> datetime.datet
                 break
             except ValueError:
                 continue
-        
+
         if start_time_abs is None:
             logger.warning(f"Could not parse start time string: '{time_str}' with any known format")
 
@@ -147,8 +146,7 @@ def get_standard_field_id_mapping(df: pd.DataFrame, y_direction: str = "down") -
     logger.debug("Getting standard_field_id from stage coordinates")
     logger.debug(f"Y-axis direction : {y_direction}")
     if y_direction not in {"up", "down"}:
-        logger.error(f'Y-axis direction : {y_direction}, only "up" or "down" are possible')
-        os._exit(1)
+        raise ValueError(f'Y-axis direction : {y_direction}, only "up" or "down" are possible')
 
     df = df[["field_id", "stage_x_abs", "stage_y_abs"]].groupby("field_id").mean()
     df[["stage_x_abs", "stage_y_abs"]] = df[["stage_x_abs", "stage_y_abs"]].round()
@@ -209,16 +207,9 @@ def nd2_extract_metadata_and_save(
 
     logger.info(f"Acquisition_increment_order specified as {acquisition_increment_order}")
     if acquisition_increment_order != "TFZ":
-        logger.error(
-            """
-        acquisition_increment_order is {}.
-        Only 'TFZ' is currently supported.
-        Please implement others if necessary.
-        """.format(
-                acquisition_increment_order
-            )
+        raise NotImplementedError(
+            f"acquisition_increment_order is {acquisition_increment_order}. " "Only 'TFZ' is currently supported."
         )
-        os._exit(1)
 
     nd2_file = ND2Reader(str(in_file_path))
     acquisition_times = [t for t in nd2_file.parser._raw_metadata.acquisition_times]

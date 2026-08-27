@@ -3,18 +3,17 @@ from pathlib import Path
 from setuptools import setup, find_packages
 
 try:
-    from blimp import __email__, __author__, __version__, __maintainer__
+    from blimp import __email__, __author__, __maintainer__
 except ImportError:
     __author__ = __maintainer__ = "Scott Berry"
     __email__ = "scott.berry@unsw.edu.au"
-    __version__ = "0.1.0"
 
 
 setup(
     name="blimp",
+    # Do not add an explicit version= here: it silently overrides
+    # use_scm_version, so the package reports a version unrelated to its tag.
     use_scm_version=True,
-    setup_requires=["setuptools_scm"],
-    version=__version__,
     author=__author__,
     author_email=__email__,
     maintainer=__author__,
@@ -48,7 +47,11 @@ setup(
             if not l.startswith("-r")
         ],
     ),
-    install_requires=[line.strip() for line in Path("requirements.txt").read_text("utf-8").splitlines()],
+    install_requires=[
+        line.strip()
+        for line in Path("requirements.txt").read_text("utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ],
     entry_points={
         "console_scripts": ["blimp=blimp.cli.main:main"],
     },

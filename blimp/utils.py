@@ -35,12 +35,12 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
     uint_types = [np.uint8, np.uint16, np.uint32, np.uint64]
     float_types = [np.float16, np.float32, np.float64]
     allowed_types = int_types + uint_types + float_types
-    if not dtype in allowed_types:
-        raise TypeError("``dtype`` = {dtype} is either not recognised or not allowed")
+    if dtype not in allowed_types:
+        raise TypeError(f"``dtype`` = {dtype} is either not recognised or not allowed")
 
     # convert input to a numpy array
     if isinstance(arr, da.core.Array):
-        arr = np.ndarray(arr)
+        arr = np.asarray(arr)
     if not isinstance(arr, np.ndarray):
         raise TypeError("``arr`` is not a ``numpy.ndarray``")
 
@@ -56,21 +56,21 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
     if old_dtype == new_dtype:
         pass
 
-    elif old_dtype.kind == 'u':  # unsigned integer
+    elif old_dtype.kind == "u":  # unsigned integer
         # convert from uint
         if np.can_cast(old_dtype, new_dtype):
             new = new.astype(new_dtype)
         else:
             raise TypeError(f"Cannot cast {old_dtype} to {new_dtype}")
 
-    elif old_dtype.kind == 'i':  # signed integer
+    elif old_dtype.kind == "i":  # signed integer
         # convert from int
         if np.can_cast(old_dtype, new_dtype):
             new = new.astype(new_dtype)
         else:
             raise TypeError(f"Cannot cast {old_dtype} to {new_dtype}")
 
-    elif old_dtype.kind == 'f':  # float
+    elif old_dtype.kind == "f":  # float
         # convert from float
         if not round_floats_if_necessary:
             if np.can_cast(old_dtype, new_dtype):
@@ -355,6 +355,68 @@ def check_uniform_dimension_sizes(
     return result
 
 
+def safe_log10(array: np.ndarray) -> np.ndarray:
+    """Base-10 logarithm of an integer intensity image, with zeros mapped to 0.
+
+    ``log10(0)`` is ``-inf``, which propagates into any statistic computed from
+    it and, after a cast back to an integer dtype, silently becomes ``0`` or the
+    dtype maximum. Zero-valued pixels are therefore replaced by ``1`` before the
+    transform, so they map to ``log10(1) == 0``.
+
+    Restricted to unsigned and signed integer arrays deliberately. Substituting
+    ``1`` is only meaningful when ``1`` is the smallest representable non-zero
+    intensity, i.e. one detector count. On a float array -- normalised to
+    ``[0, 1]``, background-subtracted, or already log-scaled -- ``1`` may be the
+    maximum of the data or well outside its range, so the substitution would
+    corrupt rather than protect. Such input is rejected rather than silently
+    mishandled.
+
+    Negative values are also rejected. ``log10`` of a negative number is
+    ``NaN``, and ``NaN`` is not caught by an ``isinf`` check, so it passes
+    silently into a running accumulator and poisons that pixel for every
+    subsequent image. Negatives in raw intensity data indicate a prior
+    background subtraction or an out-of-range cast, which the caller should
+    resolve rather than have this function guess at.
+
+    Parameters
+    ----------
+    array
+        Integer intensity image. Not modified.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``float64`` array of base-10 logarithms, with zero-valued pixels mapped
+        to ``0.0``.
+
+    Raises
+    ------
+    TypeError
+        If ``array`` does not have an integer dtype.
+    ValueError
+        If ``array`` contains negative values.
+    """
+    if array.dtype.kind not in ("u", "i"):
+        raise TypeError(
+            f"``safe_log10`` requires an integer intensity array, got dtype {array.dtype}. "
+            "Zeros are replaced by 1 before the log transform, which is only meaningful "
+            "when 1 is one detector count. For float input (normalised, background-"
+            "subtracted, or already log-scaled) rescale to integer counts first."
+        )
+    if array.dtype.kind == "i" and array.min() < 0:
+        raise ValueError(
+            f"``safe_log10`` requires non-negative intensities, found minimum {array.min()}. "
+            "``log10`` of a negative value is NaN, which is not caught by ``isinf`` checks "
+            "and would silently corrupt any statistic computed from it."
+        )
+
+    n_zero = int(np.count_nonzero(array == 0))
+    if n_zero:
+        logger.debug(f"Replacing {n_zero} zero-valued pixels with 1 before log10 transform")
+    # np.where builds a new array, so the caller's input is never modified.
+    return np.log10(np.where(array == 0, 1, array).astype(np.float64))
+
+
 def mean_std_welford(images: List[AICSImage], log_transform: bool = False) -> tuple:
     n_c = images[0].dims.C
     w = [Welford() for i in range(n_c)]
@@ -363,14 +425,14 @@ def mean_std_welford(images: List[AICSImage], log_transform: bool = False) -> tu
             array_lazy = image.get_image_dask_data("YX", C=c, T=0, Z=0)
             array = array_lazy.compute()
             if log_transform:
-                is_zero = array == 0
-                if np.any(is_zero):
-                    logger.warning("image contains zero values")
-                array = np.log10(array)
-                # The log10 transform sets zero pixel values to -inf
-                array[is_zero] = 0
-            if np.any(np.isinf(array)):
-                logger.warning("skip image because it contains infinite values")
+                # Maps zeros to log10(1) == 0 and rejects float and negative
+                # input rather than producing NaN. See ``safe_log10``.
+                array = safe_log10(array)
+            if np.any(~np.isfinite(array)):
+                # NaN as well as +/-inf: NaN is not caught by ``isinf`` and would
+                # otherwise enter the accumulator and poison that pixel for every
+                # subsequent image.
+                logger.warning("skip image because it contains non-finite values")
             else:
                 w[c].add(array)
 
@@ -686,30 +748,28 @@ def translate_array(img: np.ndarray, y: int, x: int):
     return shifted_img
 
 
-def _vollath_f4(arr: np.ndarray):
-    """Vollath's F4 function.
+def _vollath_f4(arr: np.ndarray) -> float:
+    """Vollath's F4 autocorrelation-based focus measure.
 
     Described in https://doi.org/10.1002/jemt.24035
 
-    Code adapted from
-    https://github.com/aquimb/Autofocus-URJC/blob/d3b83382a82315e27e248d09519e3da4dbac40f6/Code/algorithms.py#L200
+    Notes
+    -----
+    The accumulation is performed in ``float64``. Computing this metric in the
+    input's native dtype silently overflows for integer images: for ``uint16``
+    microscopy data, products reach ~4.3e9 and wrap modulo 65536, which can
+    change the selected focus plane. The result is therefore a Python float,
+    independent of input dtype.
     """
-    sum1 = 0
-    sum2 = 0
-    rows = arr.shape[0]
-    cols = arr.shape[1]
-    for i in range(rows - 1):
-        sum1 = sum1 + (arr[i] * arr[i + 1])
+    a = np.asarray(arr, dtype=np.float64)
+    if a.ndim != 2:
+        raise ValueError(f"``arr`` must be rank 2, got rank {a.ndim}")
+    if a.shape[0] < 3:
+        raise ValueError(f"``arr`` must have at least 3 rows, got {a.shape[0]}")
 
-    for i in range(rows - 2):
-        sum2 = sum2 + (arr[i] * arr[i + 2])
-
-    sum3 = sum1 - sum2
-    res = 0
-    for i in range(cols):
-        res = res + sum3[i]  # type: ignore
-
-    return res
+    sum1 = (a[:-1] * a[1:]).sum()
+    sum2 = (a[:-2] * a[2:]).sum()
+    return float(sum1 - sum2)
 
 
 def estimate_focus_plane(
@@ -744,10 +804,10 @@ def estimate_focus_plane(
         If `crop` is not less than 1.
     """
 
+    if not isinstance(image, AICSImage):
+        raise TypeError("``image`` must be an ``aicsimageio.AICSImage``")
     if not isinstance(crop, float):
         raise TypeError("``crop`` must be of type float")
-    if not isinstance(crop, AICSImage):
-        raise TypeError("``image`` must be an ``aicsimageio.AICSImage``")
 
     if C is None:
         logger.warning("Using default channel (C = 0) to calculate focus_plane")
@@ -769,7 +829,9 @@ def estimate_focus_plane(
     # out-of-focus images from stack
     # e.g. intensity = [np.mean(arr) for arr in arrays]
 
-    if sliding_window is not None:
+    if sliding_window is None:
+        max_pos = np.argmax(f4)
+    else:
         if sliding_window > 0:
             logger.debug(f"cropping image with window size {crop}")
             # average using sliding window

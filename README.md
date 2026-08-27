@@ -1,12 +1,11 @@
 # blimp
 
-![CI](https://github.com/berrygroup/blimp/actions/workflows/ci.yml/badge.svg)
-![Tests](tests/coverage/tests.svg)
-![Coverage](tests/coverage/coverage.svg)
-![Read the docs](https://readthedocs.org/projects/blimp/badge/?version=latest)
-![DOI](https://zenodo.org/badge/508656801.svg)
-![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)
-![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)
+[![CI](https://github.com/berrygroup/blimp/actions/workflows/ci.yml/badge.svg)](https://github.com/berrygroup/blimp/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/berrygroup/blimp/branch/main/graph/badge.svg)](https://codecov.io/gh/berrygroup/blimp)
+[![Documentation Status](https://readthedocs.org/projects/blimp/badge/?version=latest)](https://blimp.readthedocs.io/en/latest/)
+[![DOI](https://zenodo.org/badge/508656801.svg)](https://zenodo.org/badge/latestdoi/508656801)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 **B**erry **L**ab **IM**age **P**rocessing
 
@@ -35,6 +34,44 @@ pip install -e '.[dev,test]'
 for the development tools.
 
 The installation will make many functions externally accessible and will also install the `blimp` command line interface (CLI) in the `bin` directory of the installation environment. This should be accessible in your path.
+
+### Development environment (conda)
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full recipe, including how to run
+the tests and the known caveats. In short:
+
+```bash
+git clone https://github.com/berrygroup/blimp.git
+cd blimp
+conda env create -f environment-dev.yml
+conda activate blimp-dev
+pip install -e ".[test,dev]"
+pre-commit install          # optional: run the hooks on every commit
+```
+
+`environment-dev.yml` installs the compiled scientific stack (numpy, pandas,
+scikit-image, SimpleITK, mahotas) from conda-forge, plus `tox`, `pytest` and
+`pre-commit`. The `pip install -e` step then adds blimp itself in editable mode
+along with the pip-only dependencies (`aicsimageio[nd2]`, `cellpose`,
+`itk-elastix`, `nd2reader`, `pystackreg`, `welford`).
+
+Clone rather than downloading a source zip: `setuptools_scm` is a build
+requirement and needs the git history.
+
+### Running the tests
+
+```bash
+tox -e offline      # 167 tests, no network and no reference data needed
+tox                 # full suite; downloads the reference dataset if absent
+tox -e coverage     # coverage report (terminal + XML + HTML)
+tox -l              # list all environments
+pytest tests/ -q    # run pytest directly, e.g. with -k to select tests
+```
+
+The full suite needs a ~200 MB reference dataset from Figshare, which `tox`
+fetches automatically. If it cannot be obtained, the run fails rather than
+quietly omitting the 73 tests that need it — use `tox -e offline` to run only
+the tests that need no dataset.
 
 ## Documentation
 

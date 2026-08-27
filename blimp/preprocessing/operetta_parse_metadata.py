@@ -4,7 +4,6 @@ Scott Berry <scott.berry@unsw.edu.au>
 """
 from typing import Union
 from pathlib import Path
-import os
 import logging
 import xml.etree.ElementTree as ET
 
@@ -157,8 +156,7 @@ def get_plate_metadata(metadata_file: Union[str, Path], out_file: Union[str, Pat
     if isinstance(plates_xml, ET.Element):
         plates_xml = plates_xml.findall("harmony:Plate", namespaces=ns)
     else:
-        logger.error("Operetta plate metadata XML not parsed correctly")
-        os._exit(1)
+        raise ValueError("Operetta plate metadata XML not parsed correctly")
 
     # convert to dataframe
     plate_metadata = _xml_to_df(plates_xml, "harmony", ns)
@@ -199,8 +197,7 @@ def get_image_metadata(metadata_file: Union[str, Path], out_file: Union[str, Pat
     if isinstance(images_xml, ET.Element):
         images_xml = images_xml.findall("harmony:Image", namespaces=ns)
     else:
-        logger.error("Operetta image metadata XML not parsed correctly")
-        os._exit(1)
+        raise ValueError("Operetta image metadata XML not parsed correctly")
 
     # convert to dataframe
     image_metadata = _xml_to_df(images_xml, "harmony", ns)

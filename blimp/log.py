@@ -63,9 +63,9 @@ def configure_logging(verbosity: int) -> None:
     are added:
 
         * "out" directs INFO & DEBUG messages to the
-        standard output stream
+          standard output stream
         * "err" directs WARN, WARNING, ERROR, & CRITICAL
-        messages to the standard error stream
+          messages to the standard error stream
 
     Parameters
     ----------

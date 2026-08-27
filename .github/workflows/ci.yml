@@ -1,36 +1,337 @@
 name: CI
 
+# `dev` is the integration branch: feature branches are merged there and
+# promoted to main as releases, so it needs the same gating as main. Listing it
+# under both events is deliberate -- `pull_request` gates merges into dev, and
+# `push` re-runs the suite on the merge commit, which is the first time the
+# combined state of two independently-green PRs is ever tested.
+#
+# A branch listed under `push` but not `pull_request` would run CI twice per PR
+# (once for the branch push, once for the PR); feature branches are in neither,
+# so they are tested by their PR only.
 on:
     push:
         branches:
         -   main
         -   master
+        -   dev
     pull_request:
         branches:
         -   main
         -   master
+        -   dev
+
+# Superseded runs on the same branch are pointless: cancel them so a busy
+# afternoon of pushes does not queue up hours of duplicated CI.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
-    test:
-        runs-on: ${{ matrix.os }}
-        strategy:
-            matrix:
-                os: [ubuntu-latest, macos-latest]
-                python-version: ['3.10']
-
+    lint:
+        # Enforcing: all hooks pass, so a failure here is a real regression.
+        runs-on: ubuntu-latest
         steps:
-        -   name: Checkout code
-            uses: actions/checkout@v3
-
-        -   name: Set up Python ${{ matrix.python-version }}
-            uses: actions/setup-python@v4
+        -   uses: actions/checkout@v7
+        -   uses: actions/setup-python@v7
             with:
-                python-version: ${{ matrix.python-version }}
+                python-version: '3.11'
+                cache: pip
+        -   name: Run pre-commit
+            uses: pre-commit/action@v3.0.1
 
-        -   name: Install dependencies
+    docs:
+        # Read the Docs publishes the docs, but has no fail_on_warning, so it
+        # ships warning-laden output with a green badge. This job is the gate:
+        # -W turns any Sphinx warning into a PR failure. It caught nothing at
+        # the time of writing only because the stale-autosummary and RST faults
+        # were just fixed -- that class of break is silent otherwise.
+        #
+        # Build only, no linkcheck: linkcheck resolves every external URL in the
+        # docs, so it reddens PRs for link rot the author did not cause. Run
+        # `tox -e check-docs` by hand for link coverage.
+        #
+        # Deliberately not a separate workflow: a job here is covered by the
+        # existing CI badge, whereas a docs.yml would need its own.
+        runs-on: ubuntu-latest
+        steps:
+        -   uses: actions/checkout@v7
+
+            # 3.12 is required, not preference: on 3.11 the newest installable
+            # sphinx-autodoc-typehints still calls Parser.set_application, which
+            # Sphinx 10 removes. See [testenv:docs] in tox.ini.
+        -   uses: actions/setup-python@v7
+            with:
+                python-version: '3.12'
+                cache: pip
+
+        -   name: Install tox
             run: |
                 python -m pip install --upgrade pip
-                pip install tox
+                python -m pip install tox tox-uv
 
+            # clean-docs first is load-bearing: docs/api is autosummary output
+            # written into the source tree, so a stale entry from a renamed
+            # module becomes a fatal warning under -W. Ordinarily a fresh
+            # checkout has no docs/api, but the pip cache above means this
+            # cannot be assumed.
+        -   name: Build docs (warnings are errors)
+            run: tox -e clean-docs,docs -- -W --keep-going
+            env:
+                # Drops intersphinx_mapping (see docs/conf.py). Without this the
+                # gate depends on 15 third-party sites staying up, and Sphinx
+                # warns once per unreachable target with no [type.subtype] tag,
+                # so suppress_warnings cannot single those out -- one blip would
+                # fail an unrelated PR. Read the Docs builds with the mappings
+                # live, so cross-reference links are still exercised there.
+                BLIMP_DOCS_OFFLINE: '1'
+
+            # The built HTML, so a failure is inspectable without a local build.
+        -   name: Upload built docs
+            if: always()
+            uses: actions/upload-artifact@v7
+            with:
+                name: docs-html
+                path: docs/_build/html
+                if-no-files-found: ignore
+
+    # actions/cache writes its entry when a job ends, and the six test legs
+    # start together, so without this they would all miss on the first run and
+    # pull ~200 MB from Figshare at once. This job populates the cache once and
+    # the legs restore from it. It needs no compiled dependencies: blimp.data
+    # imports with requests and tqdm alone, so the package is not installed.
+    testdata:
+        runs-on: ubuntu-latest
+        steps:
+        -   uses: actions/checkout@v7
+        -   uses: actions/setup-python@v7
+            with:
+                python-version: '3.12'
+                cache: pip
+
+            # Same key and paths as the test job; keep the three in step.
+        -   name: Cache reference test dataset
+            id: cache
+            uses: actions/cache@v6
+            with:
+                path: |
+                    tests/_data
+                    tests/_experiments
+                    tests/_data.zip
+                key: blimp-testdata-23972244
+
+        -   name: Download reference dataset
+            if: steps.cache.outputs.cache-hit != 'true'
+            run: |
+                python -m pip install --upgrade pip
+                python -m pip install requests tqdm
+                python tests/fetch_test_data.py
+
+    test:
+        # Wait for the dataset cache to exist rather than racing to fill it.
+        needs: testdata
+        runs-on: ${{ matrix.os }}
+        strategy:
+            # A failure specific to one OS or version is what the matrix exists
+            # to reveal, so let the other legs finish.
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest]
+                python-version: ['3.10', '3.11', '3.12']
+                # Maps runner OS to the tox factor. Without this only the
+                # factor-less `tox -e py` is callable, which drops the platform
+                # guard and leaves the -linux/-macos envs never exercised.
+                #
+                # The Linux legs run inside a Rocky 8.10 container because that
+                # is the lab's deployment target: el8 ships glibc 2.28, where
+                # ubuntu-latest has 2.39. That gap is not cosmetic -- it selects
+                # which manylinux wheels pip is allowed to install, so a
+                # dependency can resolve on the runner and be unavailable on the
+                # server. Testing on Ubuntu alone cannot see that class of break.
+                #
+                # The container runs on GitHub's Ubuntu runner, so the kernel is
+                # still theirs; what is being tested is userspace -- glibc,
+                # libstdc++, and the resolved wheel set.
+                include:
+                -   os: ubuntu-latest
+                    tox-platform: linux
+                    container: quay.io/rockylinux/rockylinux:8.10
+                    # `os` still reads ubuntu-latest (it is the host runner), so
+                    # without this the check name would claim Ubuntu while
+                    # running Rocky. Used for the check name, the uploaded
+                    # artifact and the coverage flag.
+                    label: rocky8
+                -   os: macos-latest
+                    tox-platform: macos
+                    label: macos
+
+        name: test (${{ matrix.label }}, py${{ matrix.python-version }})
+
+        # Empty string on macOS, which GitHub treats as "no container".
+        container: ${{ matrix.container }}
+
+        steps:
+        # Rocky 8's minimal image has no git, no tar and no compiler. git is
+        # required before checkout (actions/checkout falls back to a slower
+        # REST download without it, losing the tags setuptools_scm needs for
+        # the version). Installed before checkout so the action can use git.
+        #
+        # gcc is insurance, not a known requirement: every declared dependency
+        # either ships a pure-Python wheel or a manylinux wheel compatible with
+        # el8's glibc 2.28. The two sdist-only ones (welford, pytest-dependency)
+        # are pure Python and build without a compiler. A transitive sdist could
+        # still need one, and a missing compiler is an obscure failure deep in a
+        # dependency resolve, so the toolchain stays.
+        #
+        # dnf, not the setup-python action: that action has no CentOS/RHEL
+        # builds in its versions manifest and fails on el8 images.
+        -   name: Install system packages (Rocky only)
+            if: matrix.container != ''
+            run: |
+                dnf -y install git tar gzip gcc gcc-c++ make findutils which
+                git --version
+                cat /etc/os-release | head -2
+                ldd --version | head -1
+
+        -   name: Checkout code
+            uses: actions/checkout@v7
+
+        # Rocky 8's AppStream has no python3.10, so setup-python cannot supply
+        # the matrix versions even where it works. uv can: tox-uv fetches a
+        # standalone build for whichever factor is requested. `git config` is
+        # needed because checkout inside a container leaves the tree owned by a
+        # different uid than the running user, and setuptools_scm shells out to
+        # git for the version.
+        -   name: Set up Python ${{ matrix.python-version }}
+            if: matrix.container == ''
+            uses: actions/setup-python@v7
+            with:
+                python-version: ${{ matrix.python-version }}
+                cache: pip
+
+        -   name: Mark workspace safe for git (Rocky)
+            if: matrix.container != ''
+            run: |
+                # Checkout inside a container leaves the tree owned by a uid the
+                # running user does not match, and setuptools_scm shells out to
+                # git for the version.
+                git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        # No distro Python in the container legs, deliberately. The obvious
+        # route -- `dnf install python3.12` and pip-install tox with it -- fails
+        # on this image: el8's python3.12 links against the system expat (2.2.5),
+        # while its pyexpat extension was built against a newer one, so importing
+        # xml.parsers.expat dies with
+        #
+        #   undefined symbol: XML_SetBillionLaughsAttackProtectionMaximumAmplification
+        #
+        # (added in expat 2.4.0). pip reaches xmlrpc.client via its vendored
+        # distlib, so *any* `pip install` aborts. That is a defect in the image's
+        # package set, not something this workflow can pin around.
+        #
+        # uv needs no ambient Python: it is a static binary (max GLIBC_2.17, well
+        # under el8's 2.28) and fetches its own standalone CPython (also 2.17).
+        # So it both sidesteps the broken interpreter and supplies 3.10, which
+        # el8 AppStream does not package at all.
+        -   name: Set up uv (Rocky)
+            if: matrix.container != ''
+            uses: astral-sh/setup-uv@v7
+            with:
+                enable-cache: true
+                cache-suffix: ${{ matrix.label }}-py${{ matrix.python-version }}
+
+        # Restores the entry the testdata job populated; the key is not
+        # OS-scoped, so all six legs share one copy. Key is pinned to the
+        # article id, so a new dataset invalidates the cache.
+        -   name: Cache reference test dataset
+            uses: actions/cache@v6
+            with:
+                # Both paths are required: load_test_data treats the dataset as
+                # present only when both exist, so caching one re-downloads all.
+                path: |
+                    tests/_data
+                    tests/_experiments
+                    tests/_data.zip
+                key: blimp-testdata-23972244
+
+        # cellpose fetches pretrained weights on first use; cache them too.
+        -   name: Cache cellpose models
+            uses: actions/cache@v6
+            with:
+                path: ~/.cellpose
+                key: cellpose-models-${{ runner.os }}
+
+        -   name: Install tox (hosted runners)
+            if: matrix.container == ''
+            run: |
+                python -m pip install --upgrade pip
+                python -m pip install tox tox-uv
+
+        # `uv tool install` rather than pip: there is no usable ambient Python in
+        # the container (see the Set up uv step). uv builds tox its own
+        # environment on a standalone interpreter it fetches itself.
+        #
+        # UV_TOOL_BIN_DIR is set explicitly and added to PATH here rather than
+        # relying on setup-uv having already put uv's default tool dir on PATH:
+        # that default is derived from HOME/XDG_DATA_HOME, which differ between
+        # the runner and the container (root), so leaving it implicit makes the
+        # next step depend on an assumption this workflow cannot see.
+        -   name: Install tox (Rocky)
+            if: matrix.container != ''
+            run: |
+                export UV_TOOL_BIN_DIR=/usr/local/bin
+                # --managed-python --python 3.12: run tox itself on an interpreter
+                # uv fetches, not on whatever the image happens to provide. Left
+                # implicit, uv could pick el8's system python3 (3.6, too old for
+                # tox) or its broken python3.12. This is the tox runner only --
+                # the interpreter under test is set by the tox factor.
+                uv tool install --managed-python --python 3.12 tox --with tox-uv
+                echo /usr/local/bin >> "$GITHUB_PATH"
+                tox --version
+
+        # Explicit env name rather than `-e py` so the platform guard applies.
+        #
+        # UV_PYTHON_PREFERENCE differs by leg deliberately. On the hosted
+        # runners uv defaults to `system` and reuses setup-python's interpreter.
+        # In the Rocky container the only system interpreter is 3.12, so `system`
+        # would silently run the 3.10 and 3.11 legs on 3.12 -- three legs
+        # claiming versions they never tested. `only-managed` forces uv to fetch
+        # the requested standalone build instead, which is also what makes 3.10
+        # testable at all, since el8 AppStream has no python3.10 package.
         -   name: Run tests
-            run: tox -e py
+            run: |
+                # 3.10 -> 310, matching the tox factor names. `tr` rather than
+                # ${PYVER//./}: the container legs run under `sh`, not bash, and
+                # that expansion is a bashism.
+                FACTOR="py$(echo "$PYVER" | tr -d .)-${{ matrix.tox-platform }}"
+                echo "tox env: $FACTOR"
+                tox -e "$FACTOR"
+            env:
+                PYVER: ${{ matrix.python-version }}
+                UV_PYTHON_PREFERENCE: ${{ matrix.container != '' && 'only-managed' || 'system' }}
+
+        # Keep at v5 or later: v4 has no tokenless upload, so coverage does not
+        # report on fork PRs, where `secrets` is empty.
+        -   name: Upload coverage to Codecov
+            uses: codecov/codecov-action@v5
+            with:
+                files: ./tests/coverage/coverage.xml
+                # matrix.label, not runner.os: inside the container runner.os is
+                # "Linux", which does not distinguish Rocky from the Ubuntu host
+                # and would silently merge with any future Ubuntu leg's flag.
+                flags: ${{ matrix.label }}-py${{ matrix.python-version }}
+                token: ${{ secrets.CODECOV_TOKEN }}
+                # False so a Codecov outage cannot fail a passing run; the cost
+                # is that a broken upload is silent.
+                fail_ci_if_error: false
+
+        # Makes failures diagnosable without re-running CI locally.
+        -   name: Upload test results
+            if: always()
+            uses: actions/upload-artifact@v7
+            with:
+                name: test-results-${{ matrix.label }}-py${{ matrix.python-version }}
+                path: |
+                    tests/coverage/junit.xml
+                    tests/coverage/coverage.xml
+                if-no-files-found: ignore

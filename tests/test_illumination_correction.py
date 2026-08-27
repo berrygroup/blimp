@@ -9,7 +9,6 @@ from blimp.utils import equal_dims
 from blimp.constants import blimp_config
 import blimp.preprocessing.illumination_correction
 
-from .helpers import _ensure_test_data  # noqa: F401, I252
 from .helpers import _load_test_data
 
 logger = logging.getLogger(__name__)
@@ -102,15 +101,48 @@ def test_correct_illumination_invalid_dimension_order():
 
 
 def test_pixel_z_score():
-    images = [np.random.rand(10, 10) for _ in range(5)]
+    """Integer intensity input with log-space reference statistics.
+
+    This previously used ``np.random.rand``, i.e. floats in [0, 1). Those are not
+    intensities: the reference statistics were computed on the raw values while
+    the image itself was log-transformed, so the function was comparing log-space
+    data against linear-space statistics. Only shape and dtype were asserted, so
+    nothing caught it. Integer counts with consistently log-transformed
+    statistics are what the function actually receives in the package.
+    """
+    rng = np.random.default_rng(42)
+    images = [rng.integers(100, 10000, size=(10, 10), dtype=np.uint16) for _ in range(5)]
     original = images[0]
-    mean_image = np.mean(images, axis=0)
-    std_image = np.std(images, axis=0)
+    log_images = [np.log10(im.astype(np.float64)) for im in images]
+    mean_image = np.mean(log_images, axis=0)
+    std_image = np.std(log_images, axis=0)
     mean_mean_image = np.mean(mean_image)
     mean_std_image = np.mean(std_image)
 
     corrected = blimp.preprocessing.illumination_correction.pixel_z_score(
         original, mean_image, std_image, mean_mean_image, mean_std_image
+    )
+    assert corrected.shape == original.shape
+    assert corrected.dtype == original.dtype
+    assert np.all(np.isfinite(corrected.astype(np.float64)))
+
+
+def test_pixel_z_score_float_input_rejected_when_log_transforming():
+    """Float input cannot be log-transformed safely: zeros are replaced by 1,
+    which is only meaningful when 1 is one detector count."""
+    original = np.random.rand(10, 10)
+    ones = np.ones((10, 10))
+    with pytest.raises(TypeError, match="integer intensity array"):
+        blimp.preprocessing.illumination_correction.pixel_z_score(original, ones, ones, 1.0, 1.0, log_transform=True)
+
+
+def test_pixel_z_score_float_input_allowed_without_log_transform():
+    """Float data is legitimate when no log transform is requested, so the
+    integer restriction must not leak into that path."""
+    original = np.random.rand(10, 10)
+    ones = np.ones((10, 10))
+    corrected = blimp.preprocessing.illumination_correction.pixel_z_score(
+        original, ones, ones, 1.0, 1.0, log_transform=False
     )
     assert corrected.shape == original.shape
     assert corrected.dtype == original.dtype

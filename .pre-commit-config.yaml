@@ -2,9 +2,9 @@ fail_fast: false
 default_language_version:
     python: python3
 default_stages:
--   commit
--   push
-minimum_pre_commit_version: 2.16.0
+-   pre-commit
+-   pre-push
+minimum_pre_commit_version: 3.2.0
 repos:
 -   repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.7.1
@@ -68,7 +68,10 @@ repos:
         types: [shell, executable]
 # YAML files
 -   repo: https://github.com/macisamuele/language-formatters-pre-commit-hooks
-    rev: v2.4.0
+    # >= v2.5.0 required: v2.4.0 imports pkg_resources at module scope, which
+    # setuptools removed in 82.0.0, so the hook dies on import in any freshly
+    # built environment.
+    rev: v2.16.0
     hooks:
     -   id: pretty-format-yaml
         args: [--autofix, --indent, '4']
@@ -97,7 +100,9 @@ repos:
     -   id: rst-directive-colons
     -   id: rst-inline-touching-normal
 -   repo: https://github.com/PyCQA/doc8
-    rev: v1.0.0
+    # v1.0.0 reached pkg_resources via pbr; both are absent from a modern
+    # setuptools, so the hook died on import. v2.0.0 drops pbr entirely.
+    rev: v2.0.0
     hooks:
     -   id: doc8
 # jupyter notebooks

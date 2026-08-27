@@ -25,10 +25,10 @@ class BLImage(AICSImage):
         image: types.ImageLike,
         reader: Optional[Type[Reader]] = None,
         reconstruct_mosaic: bool = True,
-        fs_kwargs: Dict[str, Any] = {},
+        fs_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ):
-        super().__init__(image, reader, reconstruct_mosaic, fs_kwargs, **kwargs)
+        super().__init__(image, reader, reconstruct_mosaic, {} if fs_kwargs is None else fs_kwargs, **kwargs)
         self._illumination_correction_reference_image_files = None
         self._illumination_correction_objects = None
         self._illumination_correction_file = None
@@ -99,7 +99,7 @@ class BLImage(AICSImage):
             reference_image_paths = []
             for path in paths:
                 if isinstance(path, str):
-                    reference_image_paths.append(Path(str))
+                    reference_image_paths.append(Path(path))
                 elif isinstance(path, Path):
                     reference_image_paths.append(path)
                 else:
@@ -138,7 +138,8 @@ class BLImage(AICSImage):
     def _load_illumination_correction_objects(self):
         if self._illumination_correction_objects is None:
             if self._illumination_correction_file.exists():
-                obj_list = pickle.load(self._illumination_correction_file)
+                with open(self._illumination_correction_file, "rb") as f:
+                    obj_list = pickle.load(f)
                 if len(obj_list) == self.dims.C:
                     self._illumination_correction_objects = obj_list
                 else:
