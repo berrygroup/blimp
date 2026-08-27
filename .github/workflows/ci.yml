@@ -32,8 +32,8 @@ jobs:
         # Enforcing: all hooks pass, so a failure here is a real regression.
         runs-on: ubuntu-latest
         steps:
-        -   uses: actions/checkout@v4
-        -   uses: actions/setup-python@v5
+        -   uses: actions/checkout@v7
+        -   uses: actions/setup-python@v7
             with:
                 python-version: '3.11'
                 cache: pip
@@ -55,12 +55,12 @@ jobs:
         # existing CI badge, whereas a docs.yml would need its own.
         runs-on: ubuntu-latest
         steps:
-        -   uses: actions/checkout@v4
+        -   uses: actions/checkout@v7
 
             # 3.12 is required, not preference: on 3.11 the newest installable
             # sphinx-autodoc-typehints still calls Parser.set_application, which
             # Sphinx 10 removes. See [testenv:docs] in tox.ini.
-        -   uses: actions/setup-python@v5
+        -   uses: actions/setup-python@v7
             with:
                 python-version: '3.12'
                 cache: pip
@@ -89,7 +89,7 @@ jobs:
             # The built HTML, so a failure is inspectable without a local build.
         -   name: Upload built docs
             if: always()
-            uses: actions/upload-artifact@v4
+            uses: actions/upload-artifact@v7
             with:
                 name: docs-html
                 path: docs/_build/html
@@ -103,8 +103,8 @@ jobs:
     testdata:
         runs-on: ubuntu-latest
         steps:
-        -   uses: actions/checkout@v4
-        -   uses: actions/setup-python@v5
+        -   uses: actions/checkout@v7
+        -   uses: actions/setup-python@v7
             with:
                 python-version: '3.12'
                 cache: pip
@@ -112,7 +112,7 @@ jobs:
             # Same key and paths as the test job; keep the three in step.
         -   name: Cache reference test dataset
             id: cache
-            uses: actions/cache@v4
+            uses: actions/cache@v6
             with:
                 path: |
                     tests/_data
@@ -188,7 +188,7 @@ jobs:
                 ldd --version | head -1
 
         -   name: Checkout code
-            uses: actions/checkout@v4
+            uses: actions/checkout@v7
 
         # Rocky 8's AppStream has no python3.10, so setup-python cannot supply
         # the matrix versions even where it works. uv can: tox-uv fetches a
@@ -198,7 +198,7 @@ jobs:
         # git for the version.
         -   name: Set up Python ${{ matrix.python-version }}
             if: matrix.container == ''
-            uses: actions/setup-python@v5
+            uses: actions/setup-python@v7
             with:
                 python-version: ${{ matrix.python-version }}
                 cache: pip
@@ -233,7 +233,7 @@ jobs:
         # OS-scoped, so all six legs share one copy. Key is pinned to the
         # article id, so a new dataset invalidates the cache.
         -   name: Cache reference test dataset
-            uses: actions/cache@v4
+            uses: actions/cache@v6
             with:
                 # Both paths are required: load_test_data treats the dataset as
                 # present only when both exist, so caching one re-downloads all.
@@ -245,7 +245,7 @@ jobs:
 
         # cellpose fetches pretrained weights on first use; cache them too.
         -   name: Cache cellpose models
-            uses: actions/cache@v4
+            uses: actions/cache@v6
             with:
                 path: ~/.cellpose
                 key: cellpose-models-${{ runner.os }}
@@ -297,7 +297,7 @@ jobs:
         # Makes failures diagnosable without re-running CI locally.
         -   name: Upload test results
             if: always()
-            uses: actions/upload-artifact@v4
+            uses: actions/upload-artifact@v7
             with:
                 name: test-results-${{ matrix.label }}-py${{ matrix.python-version }}
                 path: |

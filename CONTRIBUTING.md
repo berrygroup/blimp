@@ -119,6 +119,11 @@ Practical consequences if you edit the workflow:
   installed before checkout. `gcc` is needed because `welford` publishes an
   sdist only, so it is compiled at install time.
 
+The `actions/*` steps are pinned to majors that run on the Node 24 runtime,
+since GitHub has deprecated Node 20 on its runners. These majors require
+Actions Runner >= 2.327.1, which is automatic on GitHub-hosted runners but
+would need checking on a self-hosted one.
+
 No interpreter needs installing by hand: `tox-uv` downloads a standalone
 CPython for any version missing from `PATH`. Do not put a
 conda environment's `bin/` on `PATH` to supply one: the build then picks
