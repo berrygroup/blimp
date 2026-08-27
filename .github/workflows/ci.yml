@@ -174,8 +174,14 @@ jobs:
         # Rocky 8's minimal image has no git, no tar and no compiler. git is
         # required before checkout (actions/checkout falls back to a slower
         # REST download without it, losing the tags setuptools_scm needs for
-        # the version), and gcc is required because `welford` ships an sdist
-        # only. Installed before checkout so the action can use git.
+        # the version). Installed before checkout so the action can use git.
+        #
+        # gcc is insurance, not a known requirement: every declared dependency
+        # either ships a pure-Python wheel or a manylinux wheel compatible with
+        # el8's glibc 2.28. The two sdist-only ones (welford, pytest-dependency)
+        # are pure Python and build without a compiler. A transitive sdist could
+        # still need one, and a missing compiler is an obscure failure deep in a
+        # dependency resolve, so the toolchain stays.
         #
         # dnf, not the setup-python action: that action has no CentOS/RHEL
         # builds in its versions manifest and fails on el8 images.
@@ -203,7 +209,7 @@ jobs:
                 python-version: ${{ matrix.python-version }}
                 cache: pip
 
-        -   name: Set up bootstrap Python (Rocky)
+        -   name: Mark workspace safe for git (Rocky)
             if: matrix.container != ''
             run: |
                 # Checkout inside a container leaves the tree owned by a uid the
@@ -211,23 +217,28 @@ jobs:
                 # git for the version.
                 git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-                # el8's default python3 is 3.6, too old to run modern tox, so a
-                # newer interpreter is needed just to bootstrap. Probed rather
-                # than hardcoded: which python3.N modules AppStream carries has
-                # changed across point releases, and a hardcoded name turns a
-                # missing package into a confusing failure three steps later.
-                for v in 3.12 3.11 3.9; do
-                    if dnf -y install "python$v" "python$v-pip" >/dev/null 2>&1; then
-                        echo "BOOTSTRAP_PYTHON=python$v" >> "$GITHUB_ENV"
-                        echo "bootstrap interpreter: $(python$v --version)"
-                        break
-                    fi
-                done
-                if ! grep -q BOOTSTRAP_PYTHON "$GITHUB_ENV"; then
-                    echo "::error::no python3.9+ package available in this image"
-                    dnf -y module list python39 python311 python312 || true
-                    exit 1
-                fi
+        # No distro Python in the container legs, deliberately. The obvious
+        # route -- `dnf install python3.12` and pip-install tox with it -- fails
+        # on this image: el8's python3.12 links against the system expat (2.2.5),
+        # while its pyexpat extension was built against a newer one, so importing
+        # xml.parsers.expat dies with
+        #
+        #   undefined symbol: XML_SetBillionLaughsAttackProtectionMaximumAmplification
+        #
+        # (added in expat 2.4.0). pip reaches xmlrpc.client via its vendored
+        # distlib, so *any* `pip install` aborts. That is a defect in the image's
+        # package set, not something this workflow can pin around.
+        #
+        # uv needs no ambient Python: it is a static binary (max GLIBC_2.17, well
+        # under el8's 2.28) and fetches its own standalone CPython (also 2.17).
+        # So it both sidesteps the broken interpreter and supplies 3.10, which
+        # el8 AppStream does not package at all.
+        -   name: Set up uv (Rocky)
+            if: matrix.container != ''
+            uses: astral-sh/setup-uv@v7
+            with:
+                enable-cache: true
+                cache-suffix: ${{ matrix.label }}-py${{ matrix.python-version }}
 
         # Restores the entry the testdata job populated; the key is not
         # OS-scoped, so all six legs share one copy. Key is pinned to the
@@ -250,16 +261,33 @@ jobs:
                 path: ~/.cellpose
                 key: cellpose-models-${{ runner.os }}
 
-        # `python` is unversioned on Rocky 8 -- only python3.N exists -- so the
-        # bootstrap interpreter is named explicitly. It only has to run tox;
-        # the interpreter under test is chosen by the tox factor below.
-        -   name: Install tox
+        -   name: Install tox (hosted runners)
+            if: matrix.container == ''
             run: |
-                # BOOTSTRAP_PYTHON is set via GITHUB_ENV by the Rocky step above
-                # and unset on macOS, where setup-python puts `python` on PATH.
-                PY="${BOOTSTRAP_PYTHON:-python}"
-                "$PY" -m pip install --upgrade pip
-                "$PY" -m pip install tox tox-uv
+                python -m pip install --upgrade pip
+                python -m pip install tox tox-uv
+
+        # `uv tool install` rather than pip: there is no usable ambient Python in
+        # the container (see the Set up uv step). uv builds tox its own
+        # environment on a standalone interpreter it fetches itself.
+        #
+        # UV_TOOL_BIN_DIR is set explicitly and added to PATH here rather than
+        # relying on setup-uv having already put uv's default tool dir on PATH:
+        # that default is derived from HOME/XDG_DATA_HOME, which differ between
+        # the runner and the container (root), so leaving it implicit makes the
+        # next step depend on an assumption this workflow cannot see.
+        -   name: Install tox (Rocky)
+            if: matrix.container != ''
+            run: |
+                export UV_TOOL_BIN_DIR=/usr/local/bin
+                # --managed-python --python 3.12: run tox itself on an interpreter
+                # uv fetches, not on whatever the image happens to provide. Left
+                # implicit, uv could pick el8's system python3 (3.6, too old for
+                # tox) or its broken python3.12. This is the tox runner only --
+                # the interpreter under test is set by the tox factor.
+                uv tool install --managed-python --python 3.12 tox --with tox-uv
+                echo /usr/local/bin >> "$GITHUB_PATH"
+                tox --version
 
         # Explicit env name rather than `-e py` so the platform guard applies.
         #
@@ -272,9 +300,12 @@ jobs:
         # testable at all, since el8 AppStream has no python3.10 package.
         -   name: Run tests
             run: |
-                # 3.10 -> 310, matching the tox factor names.
-                PY="${BOOTSTRAP_PYTHON:-python}"
-                "$PY" -m tox -e "py${PYVER//./}-${{ matrix.tox-platform }}"
+                # 3.10 -> 310, matching the tox factor names. `tr` rather than
+                # ${PYVER//./}: the container legs run under `sh`, not bash, and
+                # that expansion is a bashism.
+                FACTOR="py$(echo "$PYVER" | tr -d .)-${{ matrix.tox-platform }}"
+                echo "tox env: $FACTOR"
+                tox -e "$FACTOR"
             env:
                 PYVER: ${{ matrix.python-version }}
                 UV_PYTHON_PREFERENCE: ${{ matrix.container != '' && 'only-managed' || 'system' }}

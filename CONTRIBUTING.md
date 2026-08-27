@@ -113,11 +113,27 @@ Practical consequences if you edit the workflow:
   Both matrix interpreters come from `tox-uv` instead, with
   `UV_PYTHON_PREFERENCE=only-managed` so uv fetches the requested version
   rather than falling back to the container's system Python — without it
-  the 3.10 and 3.11 legs would silently run on 3.12.
-- `python` is unversioned on el8; only `python3.N` exists.
+  the 3.10 and 3.11 legs would silently run on whatever the image provides.
+- **The container legs use no distro Python at all.** This is deliberate.
+  el8's `python3.12` package is broken on this image: its `pyexpat`
+  extension was built against a newer expat than the system library, so
+  `import xml.parsers.expat` fails with an undefined symbol, and because
+  `pip` reaches `xmlrpc.client` through its vendored `distlib`, *every*
+  `pip install` aborts. `uv` avoids the problem entirely — it is a static
+  binary (max `GLIBC_2.17`, under el8's 2.28) and fetches its own
+  standalone CPython, also built to 2.17. Do not "simplify" this back to
+  `dnf install python3.N && pip install tox`.
+- `python` is unversioned on el8; only `python3.N` exists. The container
+  legs invoke `tox` directly, installed via `uv tool install` into
+  `/usr/local/bin`.
+- The container legs run under `sh`, not `bash`. Bash-only syntax in a
+  `run:` block (`${VAR//x/y}`, `[[ ]]`, `<<<`) fails there.
 - The container image is minimal: `git`, `tar`, `gzip` and a compiler are
-  installed before checkout. `gcc` is needed because `welford` publishes an
-  sdist only, so it is compiled at install time.
+  installed before checkout. `gcc` is insurance rather than a known
+  requirement — every declared dependency has either a pure-Python wheel or
+  an el8-compatible `manylinux` wheel, and the two sdist-only ones
+  (`welford`, `pytest-dependency`) are pure Python. A transitive sdist could
+  still need a compiler, and its absence fails obscurely, so it stays.
 
 The `actions/*` steps are pinned to majors that run on the Node 24 runtime,
 since GitHub has deprecated Node 20 on its runners. These majors require
