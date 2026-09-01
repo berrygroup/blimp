@@ -135,6 +135,70 @@ def segment_nuclei_cellpose(
     return segmentation
 
 
+def compute_rescaling_limits(
+    images: Union[AICSImage, np.ndarray, str, Path, List[Union[AICSImage, np.ndarray, str, Path]]],
+    channel: int = 0,
+    percentile: Tuple[float, float] = (1.0, 99.0),
+    aggregation: str = "mean",
+) -> Tuple[float, float]:
+    """Compute stable (lower, upper) rescaling limits from a representative set of images.
+
+    Intended for `segment_nuclei_cellpose(rescale_limits=...)`, so segmentation uses a
+    fixed rescale window instead of cellpose's default per-image percentile normalization,
+    which is unstable (and can trigger phantom objects) on sparse images.
+
+    Parameters
+    ----------
+    images
+        one or more images, as AICSImage objects, numpy arrays, or paths to image files
+    channel
+        channel index to extract from AICSImage/path inputs; ignored for numpy arrays,
+        which are used as-is
+    percentile
+        (lower, upper) percentile pair, 0-100 scale, matching cellpose's own convention
+    aggregation
+        how to combine per-image percentiles across images: "mean" or "median"
+
+    Returns
+    -------
+    Tuple[float, float]
+        (lower, upper) rescaling limits
+
+    Raises
+    ------
+    ValueError
+        If `images` is empty, `percentile` is not a valid ascending 0-100 pair, or
+        `aggregation` is not "mean" or "median"
+    """
+    if not isinstance(images, list):
+        images = [images]
+    if len(images) == 0:
+        raise ValueError("images must not be empty")
+    if not (0 <= percentile[0] < percentile[1] <= 100):
+        raise ValueError(f"percentile must satisfy 0 <= low < high <= 100, got {percentile}")
+    if aggregation not in ("mean", "median"):
+        raise ValueError(f"aggregation must be 'mean' or 'median', got {aggregation!r}")
+
+    lowers = []
+    uppers = []
+    for image in images:
+        if isinstance(image, (str, Path)):
+            pixels = AICSImage(image).get_image_data("TZYX", C=channel)
+        elif isinstance(image, AICSImage):
+            pixels = image.get_image_data("TZYX", C=channel)
+        else:
+            pixels = image
+
+        low, high = np.percentile(pixels, [percentile[0], percentile[1]])
+        lowers.append(low)
+        uppers.append(high)
+
+    if aggregation == "mean":
+        return float(np.mean(lowers)), float(np.mean(uppers))
+    else:
+        return float(np.median(lowers)), float(np.median(uppers))
+
+
 def expand_objects_watershed(
     seeds_image: np.ndarray, background_image: np.ndarray, intensity_image: np.ndarray
 ) -> np.ndarray:
