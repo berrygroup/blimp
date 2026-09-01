@@ -1,4 +1,4 @@
-from typing import List, Union, Optional
+from typing import List, Tuple, Union, Optional
 from pathlib import Path
 import logging
 
@@ -19,6 +19,7 @@ def segment_nuclei_cellpose(
     threshold: float = 0,
     flow_threshold: float = 0.4,
     normalize: Union[bool, dict] = True,
+    rescale_limits: Optional[Tuple[float, float]] = None,
     gpu: bool = False,
 ) -> AICSImage:
     """Segment nuclei in 2D images across all timepoints using cellpose 4.
@@ -39,6 +40,9 @@ def segment_nuclei_cellpose(
         flow error threshold for filtering masks
     normalize
         normalization settings, can be bool or dict of parameters
+    rescale_limits
+        optional (lower, upper) absolute pixel intensity limits to rescale to instead
+        of cellpose's per-image percentile normalization; see `compute_rescaling_limits`
     gpu
         whether to use GPU acceleration, by default False
 
@@ -51,6 +55,8 @@ def segment_nuclei_cellpose(
     ------
     ValueError
         If input image has Z dimension > 1 (3D images not supported)
+    ValueError
+        If `rescale_limits` is given but `normalize` disables normalization
     """
     from cellpose import models
 
@@ -61,6 +67,24 @@ def segment_nuclei_cellpose(
             f"Input image has Z={intensity_image.dims.Z}. "
             f"For 3D segmentation, use cellpose with do_3D=True directly."
         )
+
+    # Resolve the effective `normalize` argument passed to cellpose. Explicit dicts
+    # (rather than a bare bool) avoid a cellpose-internal quirk where passing a bool
+    # mutates its shared module-level `normalize_default` dict across calls.
+    normalize_effective: Union[bool, dict]
+    if rescale_limits is not None:
+        normalize_disabled = normalize is False or (isinstance(normalize, dict) and normalize.get("normalize") is False)
+        if normalize_disabled:
+            raise ValueError(
+                "rescale_limits was provided but `normalize` disables normalization "
+                "entirely; set normalize=True (the default) or omit it."
+            )
+        base = normalize if isinstance(normalize, dict) else {}
+        normalize_effective = {**base, "lowhigh": list(rescale_limits)}
+    elif normalize is True:
+        normalize_effective = {"percentile": [1.0, 99.0], "normalize": True}
+    else:
+        normalize_effective = normalize
 
     # Initialize model once for all timepoints
     if pretrained_model is None:
@@ -92,7 +116,7 @@ def segment_nuclei_cellpose(
             diameter=diameter,
             flow_threshold=flow_threshold,
             cellprob_threshold=threshold,
-            normalize=normalize,
+            normalize=normalize_effective,
             do_3D=False,
         )
 
