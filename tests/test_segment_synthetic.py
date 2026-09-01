@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from blimp.processing.segment import (
+    compute_rescaling_limits,
     mask_child_objects_by_parent,
     resolve_multi_parent_objects,
     _resolve_single_measure_object,
@@ -138,6 +139,85 @@ def test_resolve_single_measure_object_requires_stack_when_not_in_place(straddli
             in_place=False,
             new_label_stack=None,
         )
+
+
+def _intensity_image_2D(array):
+    """Wrap a single 2D intensity array (YX) into a TCZYX AICSImage."""
+    stack = array[np.newaxis, np.newaxis, np.newaxis, :, :]
+    return AICSImage(stack, channel_names=["Nuclei"])
+
+
+# 101 evenly spaced integers 0..100: with n=101 points, np.percentile(_, p) == p
+# exactly for integer p, so percentile-based assertions below can use plain equality.
+_LINEAR_101 = np.arange(101, dtype=np.uint16)
+
+
+def test_compute_rescaling_limits_single_array():
+    """A bare (non-list) array input returns the expected percentile pair."""
+    assert compute_rescaling_limits(_LINEAR_101, percentile=(1.0, 99.0)) == (1.0, 99.0)
+
+
+def test_compute_rescaling_limits_single_element_list_matches_bare_input():
+    """Wrapping the same image in a 1-element list gives an identical result."""
+    assert compute_rescaling_limits([_LINEAR_101]) == compute_rescaling_limits(_LINEAR_101)
+
+
+def test_compute_rescaling_limits_aggregation_mean_vs_median():
+    """mean and median give different, individually correct results when images differ.
+
+    Three images with percentile pairs (1, 99), (101, 199), (1001, 1099): the mean is
+    pulled toward the high outlier while the median lands exactly on the middle image,
+    so a wrong aggregation choice is caught rather than masked by coincidentally equal
+    results.
+    """
+    low_image = _LINEAR_101
+    mid_image = _LINEAR_101 + 100
+    high_image = _LINEAR_101 + 1000
+    images = [low_image, mid_image, high_image]
+
+    mean_result = compute_rescaling_limits(images, aggregation="mean")
+    median_result = compute_rescaling_limits(images, aggregation="median")
+
+    assert mean_result == pytest.approx(((1 + 101 + 1001) / 3, (99 + 199 + 1099) / 3))
+    assert median_result == (101.0, 199.0)
+    assert mean_result != median_result
+
+
+def test_compute_rescaling_limits_input_types_agree(tmp_path):
+    """ndarray, AICSImage, and on-disk path inputs all give the same result for the same data.
+
+    Tiled to a (101, 3) shape (no singleton spatial dimension) since round-tripping a
+    Y=1 or X=1 image through an OME-TIFF write/read hits an unrelated aicsimageio
+    reshape quirk with singleton spatial dimensions.
+    """
+    array = np.tile(_LINEAR_101.reshape(101, 1), (1, 3))
+    array_result = compute_rescaling_limits(array)
+
+    image = _intensity_image_2D(array)
+    image_result = compute_rescaling_limits(image, channel=0)
+
+    image_path = tmp_path / "intensity.ome.tiff"
+    image.save(image_path)
+    path_result = compute_rescaling_limits(image_path, channel=0)
+
+    assert image_result == array_result
+    assert path_result == array_result
+
+
+def test_compute_rescaling_limits_empty_images_raises():
+    with pytest.raises(ValueError, match="must not be empty"):
+        compute_rescaling_limits([])
+
+
+@pytest.mark.parametrize("percentile", [(99.0, 1.0), (-5.0, 99.0), (1.0, 101.0), (50.0, 50.0)])
+def test_compute_rescaling_limits_invalid_percentile_raises(percentile):
+    with pytest.raises(ValueError, match="percentile"):
+        compute_rescaling_limits(_LINEAR_101, percentile=percentile)
+
+
+def test_compute_rescaling_limits_invalid_aggregation_raises():
+    with pytest.raises(ValueError, match="aggregation"):
+        compute_rescaling_limits(_LINEAR_101, aggregation="max")
 
 
 def test_mask_child_objects_by_parent_not_in_place():

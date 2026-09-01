@@ -30,4 +30,5 @@ Processing
     :toctree: api
 
     processing.segment.segment_nuclei_cellpose
+    processing.segment.compute_rescaling_limits
     processing.quantify.quantify

@@ -1,4 +1,4 @@
-from typing import List, Union, Optional
+from typing import List, Tuple, Union, Optional
 from pathlib import Path
 import logging
 
@@ -19,6 +19,7 @@ def segment_nuclei_cellpose(
     threshold: float = 0,
     flow_threshold: float = 0.4,
     normalize: Union[bool, dict] = True,
+    rescale_limits: Optional[Tuple[float, float]] = None,
     gpu: bool = False,
 ) -> AICSImage:
     """Segment nuclei in 2D images across all timepoints using cellpose 4.
@@ -39,6 +40,9 @@ def segment_nuclei_cellpose(
         flow error threshold for filtering masks
     normalize
         normalization settings, can be bool or dict of parameters
+    rescale_limits
+        optional (lower, upper) absolute pixel intensity limits to rescale to instead
+        of cellpose's per-image percentile normalization; see `compute_rescaling_limits`
     gpu
         whether to use GPU acceleration, by default False
 
@@ -51,6 +55,8 @@ def segment_nuclei_cellpose(
     ------
     ValueError
         If input image has Z dimension > 1 (3D images not supported)
+    ValueError
+        If `rescale_limits` is given but `normalize` disables normalization
     """
     from cellpose import models
 
@@ -61,6 +67,24 @@ def segment_nuclei_cellpose(
             f"Input image has Z={intensity_image.dims.Z}. "
             f"For 3D segmentation, use cellpose with do_3D=True directly."
         )
+
+    # Resolve the effective `normalize` argument passed to cellpose. Explicit dicts
+    # (rather than a bare bool) avoid a cellpose-internal quirk where passing a bool
+    # mutates its shared module-level `normalize_default` dict across calls.
+    normalize_effective: Union[bool, dict]
+    if rescale_limits is not None:
+        normalize_disabled = normalize is False or (isinstance(normalize, dict) and normalize.get("normalize") is False)
+        if normalize_disabled:
+            raise ValueError(
+                "rescale_limits was provided but `normalize` disables normalization "
+                "entirely; set normalize=True (the default) or omit it."
+            )
+        base = normalize if isinstance(normalize, dict) else {}
+        normalize_effective = {**base, "lowhigh": list(rescale_limits)}
+    elif normalize is True:
+        normalize_effective = {"percentile": [1.0, 99.0], "normalize": True}
+    else:
+        normalize_effective = normalize
 
     # Initialize model once for all timepoints
     if pretrained_model is None:
@@ -92,7 +116,7 @@ def segment_nuclei_cellpose(
             diameter=diameter,
             flow_threshold=flow_threshold,
             cellprob_threshold=threshold,
-            normalize=normalize,
+            normalize=normalize_effective,
             do_3D=False,
         )
 
@@ -109,6 +133,70 @@ def segment_nuclei_cellpose(
     )
 
     return segmentation
+
+
+def compute_rescaling_limits(
+    images: Union[AICSImage, np.ndarray, str, Path, List[Union[AICSImage, np.ndarray, str, Path]]],
+    channel: int = 0,
+    percentile: Tuple[float, float] = (1.0, 99.0),
+    aggregation: str = "mean",
+) -> Tuple[float, float]:
+    """Compute stable (lower, upper) rescaling limits from a representative set of images.
+
+    Intended for `segment_nuclei_cellpose(rescale_limits=...)`, so segmentation uses a
+    fixed rescale window instead of cellpose's default per-image percentile normalization,
+    which is unstable (and can trigger phantom objects) on sparse images.
+
+    Parameters
+    ----------
+    images
+        one or more images, as AICSImage objects, numpy arrays, or paths to image files
+    channel
+        channel index to extract from AICSImage/path inputs; ignored for numpy arrays,
+        which are used as-is
+    percentile
+        (lower, upper) percentile pair, 0-100 scale, matching cellpose's own convention
+    aggregation
+        how to combine per-image percentiles across images: "mean" or "median"
+
+    Returns
+    -------
+    Tuple[float, float]
+        (lower, upper) rescaling limits
+
+    Raises
+    ------
+    ValueError
+        If `images` is empty, `percentile` is not a valid ascending 0-100 pair, or
+        `aggregation` is not "mean" or "median"
+    """
+    if not isinstance(images, list):
+        images = [images]
+    if len(images) == 0:
+        raise ValueError("images must not be empty")
+    if not (0 <= percentile[0] < percentile[1] <= 100):
+        raise ValueError(f"percentile must satisfy 0 <= low < high <= 100, got {percentile}")
+    if aggregation not in ("mean", "median"):
+        raise ValueError(f"aggregation must be 'mean' or 'median', got {aggregation!r}")
+
+    lowers = []
+    uppers = []
+    for image in images:
+        if isinstance(image, (str, Path)):
+            pixels = AICSImage(image).get_image_data("TZYX", C=channel)
+        elif isinstance(image, AICSImage):
+            pixels = image.get_image_data("TZYX", C=channel)
+        else:
+            pixels = image
+
+        low, high = np.percentile(pixels, [percentile[0], percentile[1]])
+        lowers.append(low)
+        uppers.append(high)
+
+    if aggregation == "mean":
+        return float(np.mean(lowers)), float(np.mean(uppers))
+    else:
+        return float(np.median(lowers)), float(np.median(uppers))
 
 
 def expand_objects_watershed(
