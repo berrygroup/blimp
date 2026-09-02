@@ -4,9 +4,9 @@ from typing import List, Union
 from pathlib import Path
 import logging
 
-from aicsimageio import AICSImage
-from aicsimageio.types import PhysicalPixelSizes
-from aicsimageio.writers import OmeTiffWriter
+from bioio import BioImage
+from bioio_base.types import PhysicalPixelSizes
+from bioio_ome_tiff.writers import OmeTiffWriter
 import numpy as np
 
 from blimp.log import configure_logging
@@ -40,7 +40,7 @@ def convert_individual_nd2_to_ome_tiff(
     """
 
     logger.info(f"Reading individual ND2 file {in_file_path}")
-    images = AICSImage(str(in_file_path))
+    images = BioImage(str(in_file_path))
 
     if channel_names is None:
         channel_names = images.channel_names
@@ -69,7 +69,6 @@ def convert_individual_nd2_to_ome_tiff(
                 dim_order="TCZYX",
                 channel_names=channel_names,
                 physical_pixel_sizes=images.physical_pixel_sizes,
-                parser="lxml",
             )
 
         if out_path_mip is not None:
@@ -84,7 +83,6 @@ def convert_individual_nd2_to_ome_tiff(
                 dim_order="TCZYX",
                 channel_names=channel_names,
                 physical_pixel_sizes=images.physical_pixel_sizes,
-                parser="lxml",
             )
 
     return
@@ -132,7 +130,6 @@ def convert_individual_nd2_to_ome_tiff_nd2_reader(
                 dim_order="TCZYX",
                 channel_names=img.metadata["channels"],
                 physical_pixel_sizes=voxel_dimensions,
-                parser="lxml",
             )
 
         if out_path_mip is not None:
@@ -147,7 +144,6 @@ def convert_individual_nd2_to_ome_tiff_nd2_reader(
                 dim_order="TCZYX",
                 channel_names=img.metadata["channels"],
                 physical_pixel_sizes=voxel_dimensions,
-                parser="lxml",
             )
 
     return out_file_path
@@ -164,7 +160,7 @@ def _get_zyx_resolution(image_metadata: dict) -> PhysicalPixelSizes:
     Returns
     -------
     PhysicalPixelSizes
-        AICSImage object for containing pixel dimensions
+        BioImage object for containing pixel dimensions
     """
     logger.debug("Getting voxel dimensions")
     image_metadata["pixel_microns"]

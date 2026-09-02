@@ -2,7 +2,7 @@ from pathlib import Path
 import logging
 
 from itk import ParameterObject
-from aicsimageio import AICSImage
+from bioio import BioImage
 import numpy as np
 import pytest
 
@@ -94,7 +94,7 @@ def test_TransformationParameters_init_unknown_transformation_mode():
 def test_load_operetta_cls_multiplex_images(_ensure_test_data):
     images = _load_test_data("operetta_cls_multiplex")
     for image in images:
-        assert isinstance(image, AICSImage)
+        assert isinstance(image, BioImage)
         assert image.dims.order == "TCZYX"
     assert images[0].shape == (1, 2, 1, 2160, 2160)
     assert images[1].shape == (1, 3, 1, 2160, 2160)
@@ -352,13 +352,13 @@ def test_apply_shifts(_ensure_test_data):
     # crop False
     result = blimp.preprocessing.registration.apply_shifts(test_images, transformation_parameters, crop=False)
     assert isinstance(result, list)
-    assert all(isinstance(r, AICSImage) for r in result)
+    assert all(isinstance(r, BioImage) for r in result)
     assert result[0].dims.Z == 1
     assert result[0].shape == test_images[0].shape
     # crop True
     result = blimp.preprocessing.registration.apply_shifts(test_images, transformation_parameters, crop=True)
     assert isinstance(result, list)
-    assert all(isinstance(r, AICSImage) for r in result)
+    assert all(isinstance(r, BioImage) for r in result)
     assert result[0].dims.Z == 1
     assert result[0].shape != test_images[0].shape
 

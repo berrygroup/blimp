@@ -1,7 +1,7 @@
 from pathlib import Path
 import logging
 
-from aicsimageio import AICSImage
+from bioio import BioImage
 import numpy as np
 import pandas as pd
 import pytest
@@ -299,10 +299,10 @@ def test_quantify_single_timepoint_2D_one_border_object(_ensure_test_data):
     intensity_image_2D, label_image_2D = _load_test_data("synthetic_2D")
 
     res_border = blimp.processing.quantify._quantify_single_timepoint_2D(
-        intensity_image=AICSImage(
+        intensity_image=BioImage(
             intensity_image_2D.data[:, :, :, 52:, 52:], channel_names=intensity_image_2D.channel_names
         ),
-        label_image=AICSImage(label_image_2D.data[:, :, :, 52:, 52:], channel_names=label_image_2D.channel_names),
+        label_image=BioImage(label_image_2D.data[:, :, :, 52:, 52:], channel_names=label_image_2D.channel_names),
         measure_object=0,
         timepoint=0,
         intensity_channels="Channel1",
@@ -580,12 +580,12 @@ def test_quantify_single_timepoint_3D_one_border_object(_ensure_test_data):
 
     # test one border object (crop image to generate a border object)
     res_border_all = blimp.processing.quantify._quantify_single_timepoint_3D(
-        intensity_image=AICSImage(
+        intensity_image=BioImage(
             intensity_image_3D.data[:, :, :, 8:, 8:],
             channel_names=intensity_image_3D.channel_names,
             physical_pixel_sizes=intensity_image_3D.physical_pixel_sizes,
         ),
-        label_image=AICSImage(
+        label_image=BioImage(
             label_image_3D.data[:, :, :, 8:, 8:],
             channel_names=label_image_3D.channel_names,
             physical_pixel_sizes=label_image_3D.physical_pixel_sizes,
@@ -599,12 +599,12 @@ def test_quantify_single_timepoint_3D_one_border_object(_ensure_test_data):
     assert res_border_all.query("label==1")["Object1_3D_is_border_XY"].any()
 
     res_border_Z_only = blimp.processing.quantify._quantify_single_timepoint_3D(
-        intensity_image=AICSImage(
+        intensity_image=BioImage(
             intensity_image_3D.data[:, :, 8:, :, :],
             channel_names=intensity_image_3D.channel_names,
             physical_pixel_sizes=intensity_image_3D.physical_pixel_sizes,
         ),
-        label_image=AICSImage(
+        label_image=BioImage(
             label_image_3D.data[:, :, 8:, :, :],
             channel_names=label_image_3D.channel_names,
             physical_pixel_sizes=label_image_3D.physical_pixel_sizes,
@@ -1335,7 +1335,7 @@ def test_aggregate_mixed_point_and_regular_objects_3D(_ensure_test_data):
     label_data = label_image_3D.data.copy()
     new_label_data = np.concatenate([label_data, label_data[:, 1:2, :, :, :]], axis=1)
 
-    new_label_image = AICSImage(
+    new_label_image = BioImage(
         new_label_data,
         channel_names=["Object1", "Object2", "Object3", "Object2_dup"],
         physical_pixel_sizes=label_image_3D.physical_pixel_sizes,

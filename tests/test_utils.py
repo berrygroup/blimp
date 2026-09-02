@@ -1,5 +1,5 @@
-from aicsimageio import AICSImage
-from aicsimageio.types import PhysicalPixelSizes
+from bioio import BioImage
+from bioio_base.types import PhysicalPixelSizes
 import numpy as np
 import pytest
 import dask.array as da
@@ -113,68 +113,68 @@ def test_confirm_array_rank_invalid_input():
 
 def test_check_correct_dimension_order():
     # define input data
-    img1 = AICSImage(np.random.rand(100, 100))
-    # Test input of single AICSImage
+    img1 = BioImage(np.random.rand(100, 100))
+    # Test input of single BioImage
     assert blimp.utils.check_correct_dimension_order(img1) is True
-    # Test input of list of AICSImages
+    # Test input of list of BioImages
     assert blimp.utils.check_correct_dimension_order([img1, img1]) is True
-    # Test input of non-AICSImage or list of non-AICSImages
+    # Test input of non-BioImage or list of non-BioImages
     with pytest.raises(TypeError):
-        blimp.utils.check_correct_dimension_order("not an AICSImage")
+        blimp.utils.check_correct_dimension_order("not a BioImage")
     with pytest.raises(TypeError):
-        blimp.utils.check_correct_dimension_order([img1, "not an AICSImage"])
+        blimp.utils.check_correct_dimension_order([img1, "not a BioImage"])
 
 
 def test_check_uniform_dimension_sizes():
-    # Test case where all AICSImages in list have matching dimension sizes
-    images = [AICSImage(np.random.rand(2, 1, 10, 10, 10)) for _ in range(5)]
+    # Test case where all BioImages in list have matching dimension sizes
+    images = [BioImage(np.random.rand(2, 1, 10, 10, 10)) for _ in range(5)]
     assert blimp.utils.check_uniform_dimension_sizes(images) is True
 
-    # Test case where one AICSImage in list has different dimension sizes
-    images = [AICSImage(np.random.rand(2, 2, 9, 10, 10)), AICSImage(np.random.rand(2, 2, 10, 10, 10))]
+    # Test case where one BioImage in list has different dimension sizes
+    images = [BioImage(np.random.rand(2, 2, 9, 10, 10)), BioImage(np.random.rand(2, 2, 10, 10, 10))]
     assert blimp.utils.check_uniform_dimension_sizes(images) is False
 
-    # Test case where one AICSImage in list has different dimension sizes
+    # Test case where one BioImage in list has different dimension sizes
     # and this axis is omitted
     assert blimp.utils.check_uniform_dimension_sizes(images, omit="Z") is True
 
-    # Test case where one AICSImage in list has different dimension sizes
+    # Test case where one BioImage in list has different dimension sizes
     # and a different axis is omitted
     assert blimp.utils.check_uniform_dimension_sizes(images, omit="T") is False
 
-    # Test case where input is a single AICSImage
-    image = AICSImage(np.random.rand(10, 10, 10))
+    # Test case where input is a single BioImage
+    image = BioImage(np.random.rand(10, 10, 10))
     assert blimp.utils.check_uniform_dimension_sizes(image) is True
 
-    # Test case where input is not an AICSImage or list of AICSImages
+    # Test case where input is not a BioImage or list of BioImages
     with pytest.raises(TypeError):
-        blimp.utils.check_uniform_dimension_sizes("not an AICSImage or list of AICSImages")
+        blimp.utils.check_uniform_dimension_sizes("not a BioImage or list of BioImages")
     with pytest.raises(TypeError):
         blimp.utils.check_uniform_dimension_sizes(
-            [AICSImage(np.random.rand(10, 10, 10)), "not an AICSImage or list of AICSImages"]
+            [BioImage(np.random.rand(10, 10, 10)), "not a BioImage or list of BioImages"]
         )
 
-    # Test case where input AICSImages have different dtypes
+    # Test case where input BioImages have different dtypes
     with pytest.raises(TypeError):
         blimp.utils.check_uniform_dimension_sizes(
-            [AICSImage(np.random.rand(10, 10, 10)), AICSImage(np.random.rand(10.0, 10.0, 10.0))]
+            [BioImage(np.random.rand(10, 10, 10)), BioImage(np.random.rand(10.0, 10.0, 10.0))]
         )
 
 
 @pytest.fixture
 def image_list():
     return [
-        AICSImage(
+        BioImage(
             (65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.uint16),
             channel_names=["R", "G", "B"],
             physical_pixel_sizes=PhysicalPixelSizes(Z=1e-6, Y=0.65e-6, X=0.65e-6),
         ),
-        AICSImage(
+        BioImage(
             (65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.uint16),
             channel_names=["R", "G", "B"],
             physical_pixel_sizes=PhysicalPixelSizes(Z=1e-6, Y=0.65e-6, X=0.65e-6),
         ),
-        AICSImage(
+        BioImage(
             (65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.uint16),
             channel_names=["R", "G", "B"],
             physical_pixel_sizes=PhysicalPixelSizes(Z=1e-6, Y=0.65e-6, X=0.65e-6),
@@ -184,7 +184,7 @@ def image_list():
 
 def test_average_images_valid_input(image_list):
     result = blimp.utils.average_images(image_list)
-    assert isinstance(result, AICSImage)
+    assert isinstance(result, BioImage)
     assert result.dims.C == 3
     assert result.channel_names == ["R", "G", "B"]
     assert result.physical_pixel_sizes == PhysicalPixelSizes(Z=1e-6, Y=0.65e-6, X=0.65e-6)
@@ -198,17 +198,17 @@ def test_average_images_invalid_input_type():
 @pytest.fixture
 def image_list_invalid_channel_size():
     return [
-        AICSImage(
+        BioImage(
             (65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.uint16),
             channel_names=["R", "G", "B"],
             physical_pixel_sizes=PhysicalPixelSizes(Z=1e-6, Y=0.65e-6, X=0.65e-6),
         ),
-        AICSImage(
+        BioImage(
             (65536 * np.random.rand(2, 2, 4, 10, 10)).astype(np.uint16),
             channel_names=["R", "G"],
             physical_pixel_sizes=PhysicalPixelSizes(Z=1e-6, Y=0.65e-6, X=0.65e-6),
         ),
-        AICSImage(
+        BioImage(
             (65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.uint16),
             channel_names=["R", "G", "B"],
             physical_pixel_sizes=PhysicalPixelSizes(Z=1e-6, Y=0.65e-6, X=0.65e-6),
@@ -228,8 +228,8 @@ def test_average_images_dtypes(image_list):
 
     result = blimp.utils.average_images(
         [
-            AICSImage((65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.float64)),
-            AICSImage((65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.float64)),
+            BioImage((65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.float64)),
+            BioImage((65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.float64)),
         ]
     )
     assert result.dtype == np.float64
@@ -238,24 +238,24 @@ def test_average_images_dtypes(image_list):
     with pytest.raises(TypeError):
         blimp.utils.average_images(
             [
-                AICSImage((65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.uint16)),
-                AICSImage((65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.float64)),
+                BioImage((65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.uint16)),
+                BioImage((65536 * np.random.rand(2, 3, 4, 10, 10)).astype(np.float64)),
             ]
         )
 
 
 def test_average_images_accuracy():
-    zeros = AICSImage(
+    zeros = BioImage(
         np.zeros(shape=(1, 3, 1, 10, 10), dtype=np.uint16),
         channel_names=["R", "G", "B"],
         physical_pixel_sizes=PhysicalPixelSizes(Z=1e-6, Y=0.65e-6, X=0.65e-6),
     )
-    tens = AICSImage(
+    tens = BioImage(
         np.full(shape=(1, 3, 1, 10, 10), fill_value=10, dtype=np.uint16),
         channel_names=["R", "G", "B"],
         physical_pixel_sizes=PhysicalPixelSizes(Z=1e-6, Y=0.65e-6, X=0.65e-6),
     )
-    true = AICSImage(
+    true = BioImage(
         np.full(shape=(1, 3, 1, 10, 10), fill_value=5, dtype=np.uint16),
         channel_names=["R", "G", "B"],
         physical_pixel_sizes=PhysicalPixelSizes(Z=1e-6, Y=0.65e-6, X=0.65e-6),
@@ -312,8 +312,8 @@ def test_convert_array_dtype():
 
 
 def test_equal_dims():
-    a = AICSImage(np.random.random((1, 2, 3, 4, 5)))
-    b = AICSImage(np.random.random((1, 2, 3, 4, 5)))
+    a = BioImage(np.random.random((1, 2, 3, 4, 5)))
+    b = BioImage(np.random.random((1, 2, 3, 4, 5)))
     # invalid input
     with pytest.raises(AttributeError):
         blimp.utils.equal_dims(a, b.get_image_data("TCZYX"))
@@ -324,28 +324,28 @@ def test_equal_dims():
     assert blimp.utils.equal_dims(a, b, dimensions="TC") is True
     assert blimp.utils.equal_dims(a, b, dimensions="ZYX") is True
     # valid input (unequal)
-    b = AICSImage(np.random.random((1, 2, 3, 4, 6)))
+    b = BioImage(np.random.random((1, 2, 3, 4, 6)))
     assert blimp.utils.equal_dims(a, b) is False
     assert blimp.utils.equal_dims(a, b, dimensions="TC") is True
     assert blimp.utils.equal_dims(a, b, dimensions="ZYX") is False
 
 
 def test_concatenate_images():
-    # Single AICSImage instance passed as argument
-    img = AICSImage(np.random.random((3, 3)))
+    # Single BioImage instance passed as argument
+    img = BioImage(np.random.random((3, 3)))
     result = blimp.utils.concatenate_images(img)
     assert result == img
 
-    # List of AICSImage instances passed as argument
-    img1 = AICSImage(np.random.random((3, 3)))
-    img2 = AICSImage(np.random.random((3, 3)))
+    # List of BioImage instances passed as argument
+    img1 = BioImage(np.random.random((3, 3)))
+    img2 = BioImage(np.random.random((3, 3)))
     result = blimp.utils.concatenate_images([img1, img2], axis=0, order="append")
-    expected_result = AICSImage(np.concatenate([img1.get_image_data(), img2.get_image_data()], axis=0))
+    expected_result = BioImage(np.concatenate([img1.get_image_data(), img2.get_image_data()], axis=0))
     assert np.array_equal(result.get_image_data(), expected_result.get_image_data())
 
     # Sizes of the dimensions of the images passed in the `images` argument do not match
-    img1 = AICSImage(np.random.random((3, 3)))
-    img2 = AICSImage(np.random.random((4, 3)))
+    img1 = BioImage(np.random.random((3, 3)))
+    img2 = BioImage(np.random.random((4, 3)))
     with pytest.raises(TypeError):
         blimp.utils.concatenate_images([img1, img2], axis=0, order="interleave")
 
@@ -377,10 +377,10 @@ def test_translate_array():
 def test_smooth_image_gaussian_2d():
     # Create a sample 2D image
     image_data = np.random.rand(1, 1, 1, 10, 10)
-    image = AICSImage(image_data)
+    image = BioImage(image_data)
 
     smoothed_image = blimp.utils.smooth_image(image, sigma=1, method="gaussian", filter_3d=False)
-    assert isinstance(smoothed_image, AICSImage)
+    assert isinstance(smoothed_image, BioImage)
     assert smoothed_image.data.shape == image.data.shape
     assert smoothed_image.dtype == image.dtype
 
@@ -388,15 +388,15 @@ def test_smooth_image_gaussian_2d():
 def test_smooth_image_gaussian_3d():
     # Create a sample 3D image
     image_data = np.random.rand(1, 1, 10, 10, 10)
-    image = AICSImage(image_data)
+    image = BioImage(image_data)
     # 3D filtering
     smoothed_image = blimp.utils.smooth_image(image, sigma=1, method="gaussian", filter_3d=True)
-    assert isinstance(smoothed_image, AICSImage)
+    assert isinstance(smoothed_image, BioImage)
     assert smoothed_image.data.shape == image.data.shape
     assert smoothed_image.dtype == image.dtype
     # 2D filtering
     smoothed_image = blimp.utils.smooth_image(image, sigma=1, method="gaussian", filter_3d=False)
-    assert isinstance(smoothed_image, AICSImage)
+    assert isinstance(smoothed_image, BioImage)
     assert smoothed_image.data.shape == image.data.shape
     assert smoothed_image.dtype == image.dtype
 
@@ -404,10 +404,10 @@ def test_smooth_image_gaussian_3d():
 def test_smooth_image_median_2d():
     # Create a sample 2D image
     image_data = np.random.rand(1, 1, 1, 10, 10)
-    image = AICSImage(image_data)
+    image = BioImage(image_data)
 
     smoothed_image = blimp.utils.smooth_image(image, sigma=1, method="median", filter_3d=False)
-    assert isinstance(smoothed_image, AICSImage)
+    assert isinstance(smoothed_image, BioImage)
     assert smoothed_image.data.shape == image.data.shape
     assert smoothed_image.dtype == image.dtype
 
@@ -415,15 +415,15 @@ def test_smooth_image_median_2d():
 def test_smooth_image_median_3d():
     # Create a sample 3D image
     image_data = np.random.rand(1, 1, 10, 10, 10)
-    image = AICSImage(image_data)
+    image = BioImage(image_data)
     # 3D filtering
     smoothed_image = blimp.utils.smooth_image(image, sigma=1, method="median", filter_3d=True)
-    assert isinstance(smoothed_image, AICSImage)
+    assert isinstance(smoothed_image, BioImage)
     assert smoothed_image.data.shape == image.data.shape
     assert smoothed_image.dtype == image.dtype
     # 2D filtering
     smoothed_image = blimp.utils.smooth_image(image, sigma=1, method="median", filter_3d=False)
-    assert isinstance(smoothed_image, AICSImage)
+    assert isinstance(smoothed_image, BioImage)
     assert smoothed_image.data.shape == image.data.shape
     assert smoothed_image.dtype == image.dtype
 
@@ -431,7 +431,7 @@ def test_smooth_image_median_3d():
 def test_smooth_image_invalid_method():
     # Create a sample image
     image_data = np.random.rand(1, 1, 1, 10, 10)
-    image = AICSImage(image_data)
+    image = BioImage(image_data)
 
     # Check that an invalid method raises a ValueError
     with pytest.raises(ValueError):

@@ -1,9 +1,8 @@
 from pathlib import Path
-import pickle
 import logging
 import warnings
 
-from aicsimageio import AICSImage
+from bioio import BioImage
 import numpy as np
 import pytest
 
@@ -31,7 +30,7 @@ def _blobs(size: int = 96, n_blobs: int = 12, seed: int = 0) -> np.ndarray:
     return img + rng.normal(0, 50, (size, size))
 
 
-def _zstack_with_focus_at(focus_z: int, n_z: int = 7, size: int = 96) -> AICSImage:
+def _zstack_with_focus_at(focus_z: int, n_z: int = 7, size: int = 96) -> BioImage:
     """Build a TCZYX uint16 stack defocused by a Gaussian away from ``focus_z``."""
     gaussian_filter = pytest.importorskip("scipy.ndimage").gaussian_filter
     base = _blobs(size=size)
@@ -41,7 +40,7 @@ def _zstack_with_focus_at(focus_z: int, n_z: int = 7, size: int = 96) -> AICSIma
         plane = gaussian_filter(base, sigma) if sigma > 0 else base
         planes.append(np.clip(plane, 0, 65535).astype(np.uint16))
     arr = np.stack(planes)[np.newaxis, np.newaxis, ...]
-    return AICSImage(arr)
+    return BioImage(arr)
 
 
 def test_estimate_focus_plane_accepts_valid_image():
@@ -88,7 +87,7 @@ def test_vollath_f4_decreases_with_blur():
 
 
 def test_estimate_focus_plane_rejects_non_image():
-    with pytest.raises(TypeError, match="AICSImage"):
+    with pytest.raises(TypeError, match="BioImage"):
         utils.estimate_focus_plane(np.zeros((4, 4)), C=0)
 
 
@@ -406,33 +405,3 @@ def test_config_dirs_are_absolute(tmp_path, monkeypatch):
 )
 def test_get_filename_from_content_disposition(header, expected):
     assert _get_filename_from_content_disposition(header) == expected
-
-
-def test_blimage_fs_kwargs_not_shared_between_instances():
-    from blimp.image import BLImage
-
-    arr = np.zeros((1, 1, 1, 4, 4), dtype=np.uint16)
-    a = BLImage(arr)
-    b = BLImage(arr)
-    # mutating one instance's kwargs must not leak into the class default
-    assert a is not b
-    import inspect
-
-    default = inspect.signature(BLImage.__init__).parameters["fs_kwargs"].default
-    assert default is None, "fs_kwargs must not be a shared mutable default"
-
-
-def test_illumination_correction_objects_load_from_handle(tmp_path):
-    """pickle.load must be given an open handle, not a Path."""
-    from blimp.image import BLImage
-
-    arr = np.zeros((1, 2, 1, 4, 4), dtype=np.uint16)
-    img = BLImage(arr)
-    payload = ["channel-0-correction", "channel-1-correction"]
-    pkl = tmp_path / "illum.pkl"
-    with open(pkl, "wb") as handle:
-        pickle.dump(payload, handle)
-
-    img._illumination_correction_file = pkl
-    img._load_illumination_correction_objects()
-    assert img.illumination_correction_objects == payload

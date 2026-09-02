@@ -1,4 +1,4 @@
-from aicsimageio import AICSImage
+from bioio import BioImage
 import numpy as np
 import pandas as pd
 import pytest
@@ -14,21 +14,21 @@ from blimp.processing.quantify import (
 
 
 def _image_2D(arrays, channel_names):
-    """Stack 2D arrays (YX) into a TCZYX AICSImage with one T and one Z."""
+    """Stack 2D arrays (YX) into a TCZYX BioImage with one T and one Z."""
     stack = np.stack(arrays)[np.newaxis, :, np.newaxis, :, :]
-    return AICSImage(stack, channel_names=list(channel_names))
+    return BioImage(stack, channel_names=list(channel_names))
 
 
 def _image_3D(arrays, channel_names, pixel_sizes=(1.0, 1.0, 1.0)):
-    """Stack 3D arrays (ZYX) into a TCZYX AICSImage with one T.
+    """Stack 3D arrays (ZYX) into a TCZYX BioImage with one T.
 
     ``physical_pixel_sizes`` is required for 3D morphology features, so it is
     set to isotropic unit spacing to keep expected volumes in voxel units.
     """
-    from aicsimageio.types import PhysicalPixelSizes
+    from bioio_base.types import PhysicalPixelSizes
 
     stack = np.stack(arrays)[np.newaxis, ...]
-    return AICSImage(
+    return BioImage(
         stack,
         channel_names=list(channel_names),
         physical_pixel_sizes=PhysicalPixelSizes(*pixel_sizes),
@@ -239,7 +239,7 @@ def test_quantify_3D_requires_physical_pixel_sizes():
     rather than silently reporting volumes in the wrong units."""
     lab = np.zeros((5, 16, 16), dtype=np.uint16)
     lab[1:4, 4:7, 4:7] = 1
-    no_pps = AICSImage(lab[np.newaxis, ...], channel_names=["nuclei"])
+    no_pps = BioImage(lab[np.newaxis, ...], channel_names=["nuclei"])
     with pytest.raises(ValueError, match="physical_pixel_sizes"):
         _quantify_single_timepoint_3D(no_pps, no_pps, measure_object="nuclei")
 
@@ -345,8 +345,8 @@ def test_quantify_multiple_timepoints_are_all_present():
     # two timepoints, identical content
     stack_l = np.stack([label, label])[:, np.newaxis, np.newaxis, :, :]
     stack_i = np.stack([intensity, intensity])[:, np.newaxis, np.newaxis, :, :]
-    label_image = AICSImage(stack_l, channel_names=["nuclei"])
-    intensity_image = AICSImage(stack_i, channel_names=["DAPI"])
+    label_image = BioImage(stack_l, channel_names=["nuclei"])
+    intensity_image = BioImage(stack_i, channel_names=["DAPI"])
     df = _as_frame(quantify(intensity_image, label_image, measure_objects="nuclei"))
     # blimp numbers timepoints from 1 (``timepoint + 1``), not from 0
     assert sorted(df["TimepointID"].unique()) == [1, 2]
