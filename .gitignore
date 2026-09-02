@@ -148,3 +148,6 @@ notebooks/*.ini
 
 # Generated coverage/badge outputs (badges now come from GH Actions + Codecov)
 tests/coverage/
+
+# Local Claude Code project instructions (not part of the repository)
+CLAUDE.md
