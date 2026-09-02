@@ -1,4 +1,6 @@
-aicsimageio[nd2]>=4.12.1
+bioio>=3.5.0
+bioio-nd2>=2.4.0
+bioio-ome-tiff>=1.4.0
 cellpose>=4.0.0
 importlib_metadata>=5.1.0
 # 0.18.0 has no abi3 or arm64 wheels, so it cannot install on Python >=3.12 or
@@ -7,16 +9,16 @@ itk-elastix>=0.19.2
 mahotas>=1.4.13
 matplotlib>=3.6.3
 nd2reader>=3.3.0
-# aicsimageio pulls zarr 2.x, which imports numcodecs.blosc.cbuffer_sizes.
-# That symbol was removed in numcodecs 0.16, so an unconstrained install breaks
-# every aicsimageio.writers import with an ImportError.
-numcodecs<0.16
 numpy>=1.23.0
 packaging>=23.0
 pandas>=1.5.2
 pystackreg>=0.2.7
+# blimp/data.py imports requests and tqdm directly; declared explicitly
+# rather than relying on another dependency to happen to supply them.
+requests
 scikit_image>=0.21.0
 SimpleITK>=2.1.0
 tomli>=2.0.1
+tqdm
 typing_extensions>=4.4.0
 welford

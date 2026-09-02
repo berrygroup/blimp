@@ -1,7 +1,7 @@
 from pathlib import Path
 import logging
 
-from aicsimageio import AICSImage
+from bioio import BioImage
 import numpy as np
 import pytest
 
@@ -20,11 +20,11 @@ def test_segment_nuclei_cellpose_basic(_ensure_test_data, cellpose_models):
     test_image_path = dataset_path / "cycle_01" / "r05c03f15-fk1fl1-mip.ome.tiff"
     logger.info(f"Loading test image from {test_image_path}")
 
-    test_image = AICSImage(test_image_path)
+    test_image = BioImage(test_image_path)
 
     # Crop to 500x500 pixels to speed up test
     cropped_data = test_image.data[:, :, :, :500, :500]
-    test_image = AICSImage(
+    test_image = BioImage(
         cropped_data,
         channel_names=test_image.channel_names,
         physical_pixel_sizes=test_image.physical_pixel_sizes,
@@ -44,7 +44,7 @@ def test_segment_nuclei_cellpose_basic(_ensure_test_data, cellpose_models):
     )
 
     # Verify output format
-    assert isinstance(segmentation, AICSImage)
+    assert isinstance(segmentation, BioImage)
     assert segmentation.dims.order == "TCZYX"
     assert segmentation.dims.T == test_image.dims.T
     assert segmentation.dims.Z == 1
@@ -64,9 +64,9 @@ def test_segment_nuclei_cellpose_basic(_ensure_test_data, cellpose_models):
 
 
 def _intensity_image_2D(array):
-    """Wrap a single 2D intensity array (YX) into a TCZYX AICSImage."""
+    """Wrap a single 2D intensity array (YX) into a TCZYX BioImage."""
     stack = array[np.newaxis, np.newaxis, np.newaxis, :, :]
-    return AICSImage(stack, channel_names=["Nuclei"])
+    return BioImage(stack, channel_names=["Nuclei"])
 
 
 def test_segment_nuclei_cellpose_rescale_limits_conflicts_with_normalize_false():
@@ -87,11 +87,11 @@ def test_segment_nuclei_cellpose_with_rescale_limits(_ensure_test_data, cellpose
     dataset_path = Path(testdata_config.DATASET_DIR) / "operetta_cls_multiplex"
     test_image_path = dataset_path / "cycle_01" / "r05c03f15-fk1fl1-mip.ome.tiff"
 
-    test_image = AICSImage(test_image_path)
+    test_image = BioImage(test_image_path)
 
     # Crop to 500x500 pixels to speed up test
     cropped_data = test_image.data[:, :, :, :500, :500]
-    test_image = AICSImage(
+    test_image = BioImage(
         cropped_data,
         channel_names=test_image.channel_names,
         physical_pixel_sizes=test_image.physical_pixel_sizes,
@@ -108,7 +108,7 @@ def test_segment_nuclei_cellpose_with_rescale_limits(_ensure_test_data, cellpose
         gpu=False,
     )
 
-    assert isinstance(segmentation, AICSImage)
+    assert isinstance(segmentation, BioImage)
     assert segmentation.channel_names == ["Nuclei"]
 
     masks = segmentation.get_image_data("YX", T=0, C=0, Z=0)
@@ -124,11 +124,11 @@ def test_segment_nuclei_cellpose_3d_raises_error(_ensure_test_data):
     dataset_path = Path(testdata_config.DATASET_DIR) / "operetta_cls_multiplex"
     test_image_path = dataset_path / "cycle_01" / "r05c03f15-fk1fl1-mip.ome.tiff"
 
-    test_image = AICSImage(test_image_path)
+    test_image = BioImage(test_image_path)
 
     # Crop to 500x500 pixels to speed up test
     cropped_data = test_image.data[:, :, :, :500, :500]
-    test_image = AICSImage(
+    test_image = BioImage(
         cropped_data,
         channel_names=test_image.channel_names,
         physical_pixel_sizes=test_image.physical_pixel_sizes,
@@ -136,7 +136,7 @@ def test_segment_nuclei_cellpose_3d_raises_error(_ensure_test_data):
 
     # Create a fake 3D image by duplicating Z planes
     fake_3d_data = np.repeat(test_image.data, 3, axis=2)  # Repeat along Z dimension
-    fake_3d_image = AICSImage(
+    fake_3d_image = BioImage(
         fake_3d_data,
         channel_names=test_image.channel_names,
         physical_pixel_sizes=test_image.physical_pixel_sizes,
@@ -159,11 +159,11 @@ def test_segment_nuclei_cellpose_multiple_timepoints(_ensure_test_data, cellpose
     dataset_path = Path(testdata_config.DATASET_DIR) / "operetta_cls_multiplex"
     test_image_path = dataset_path / "cycle_01" / "r05c03f15-fk1fl1-mip.ome.tiff"
 
-    test_image = AICSImage(test_image_path)
+    test_image = BioImage(test_image_path)
 
     # Crop to 500x500 pixels to speed up test
     cropped_data = test_image.data[:, :, :, :500, :500]
-    test_image = AICSImage(
+    test_image = BioImage(
         cropped_data,
         channel_names=test_image.channel_names,
         physical_pixel_sizes=test_image.physical_pixel_sizes,
@@ -171,7 +171,7 @@ def test_segment_nuclei_cellpose_multiple_timepoints(_ensure_test_data, cellpose
 
     # Create fake multi-timepoint image
     fake_multitime_data = np.repeat(test_image.data, 3, axis=0)  # Repeat along T dimension
-    fake_multitime_image = AICSImage(
+    fake_multitime_image = BioImage(
         fake_multitime_data,
         channel_names=test_image.channel_names,
         physical_pixel_sizes=test_image.physical_pixel_sizes,

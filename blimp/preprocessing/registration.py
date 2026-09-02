@@ -9,7 +9,7 @@ from pathlib import Path
 import logging
 
 from itk import ParameterObject, transformix_filter, elastix_registration_method
-from aicsimageio import AICSImage
+from bioio import BioImage
 import itk
 import numpy as np
 import dask.array as da
@@ -276,7 +276,7 @@ def _recast_array(
 
 
 def _calculate_shifts_elastix(
-    images: List[AICSImage],
+    images: List[BioImage],
     reference_channel: int = 0,
     reference_cycle: int = 0,
     settings: TransformationParameters = TransformationParameters("rigid"),
@@ -303,19 +303,19 @@ def _calculate_shifts_elastix(
 
 
 def calculate_shifts(
-    images: List[AICSImage],
+    images: List[BioImage],
     reference_channel: int = 0,
     reference_cycle: int = 0,
     registration_settings: Union[str, TransformationParameters, None] = None,
 ) -> List[TransformationParameters]:
     """
-    Calculate the shift of each 2D image in a list of AICSImage objects relative to a reference image,
+    Calculate the shift of each 2D image in a list of BioImage objects relative to a reference image,
     using either the elastix or image_registration libraries.
 
     Parameters
     ----------
     images
-        A list of AICSImage objects to be registered.
+        A list of BioImage objects to be registered.
     reference_channel
         The channel index of the reference image. Default is 0.
     reference_cycle
@@ -335,14 +335,14 @@ def calculate_shifts(
     Raises
     ------
     ValueError
-        If one or more of the AICSImage objects has non-uniform or incorrect dimensionality.
+        If one or more of the BioImage objects has non-uniform or incorrect dimensionality.
         If the alignment library is not recognised
     NotImplementedError
         If the images have a Z dimension greater than 1.
     """
 
     if not check_uniform_dimension_sizes(images, omit="C"):
-        raise ValueError("Check input. One or more of the ``AICSImage``s has non-uniform or incorrect dimensionality")
+        raise ValueError("Check input. One or more of the ``BioImage``s has non-uniform or incorrect dimensionality")
     elif images[0].dims.Z > 1:
         raise NotImplementedError(
             "Images have shape {images[0].dims.shape}. However, "
@@ -382,33 +382,33 @@ def calculate_shifts(
 
 @overload
 def apply_shifts(
-    images: AICSImage,
+    images: BioImage,
     transformation_parameters: TransformationParameters,
-) -> AICSImage:
+) -> BioImage:
     ...
 
 
 @overload
 def apply_shifts(
-    images: List[AICSImage],
+    images: List[BioImage],
     transformation_parameters: List[TransformationParameters],
-) -> List[AICSImage]:
+) -> List[BioImage]:
     ...
 
 
 def apply_shifts(
-    images: Union[AICSImage, List[AICSImage]],
+    images: Union[BioImage, List[BioImage]],
     transformation_parameters: Union[TransformationParameters, List[TransformationParameters]],
     crop: bool = False,
-) -> Union[AICSImage, List[AICSImage]]:
+) -> Union[BioImage, List[BioImage]]:
     """
-    Apply transformations to 2D images in a list of AICSImage objects,
+    Apply transformations to 2D images in a list of BioImage objects,
     using either the elastix or image_registration libraries.
 
     Parameters
     ----------
     images
-        An AICSImage or list of AICSImage objects to be registered.
+        An BioImage or list of BioImage objects to be registered.
     transformation_parameters
         Transformation parameters or a list of parameters to be used.
         Parameters should be a list of
@@ -424,24 +424,24 @@ def apply_shifts(
 
     Returns
     -------
-    AICSImage or List[AICSImage]
+    BioImage or List[BioImage]
 
     Raises
     ------
     ValueError
-        If one or more of the AICSImage objects has non-uniform or incorrect dimensionality.
+        If one or more of the BioImage objects has non-uniform or incorrect dimensionality.
     NotImplementedError
         If the images have a Z dimension greater than 1.
     """
 
     # wrap a single argument in a list of length one
-    if isinstance(images, AICSImage):
+    if isinstance(images, BioImage):
         images = [images]
     if isinstance(transformation_parameters, TransformationParameters):
         transformation_parameters = [transformation_parameters]  # type: ignore
 
     if not check_uniform_dimension_sizes(images, omit="C"):
-        raise ValueError("Check input. One or more of the ``AICSImage``s has non-uniform or incorrect dimensionality")
+        raise ValueError("Check input. One or more of the ``BioImage``s has non-uniform or incorrect dimensionality")
     elif images[0].dims.Z > 1:
         raise NotImplementedError(
             "Images have shape {images[0].dims.shape}. However, "
@@ -471,7 +471,7 @@ def apply_shifts(
 
     # copy metadata from originals
     registered_images = [
-        AICSImage(registered, physical_pixel_sizes=original.physical_pixel_sizes, channel_names=original.channel_names)
+        BioImage(registered, physical_pixel_sizes=original.physical_pixel_sizes, channel_names=original.channel_names)
         for registered, original in zip(registered_arrays, images)
     ]
 
@@ -549,7 +549,7 @@ def _crop_array(arr: np.ndarray, mask: np.ndarray):
     return arr[min_row : max_row + 1, min_col : max_col + 1]
 
 
-def crop_image(image: AICSImage, mask: np.ndarray):
+def crop_image(image: BioImage, mask: np.ndarray):
     old = image.get_image_data("TCZYX")
     new_yx = _crop_array(mask, mask).shape
     new: np.ndarray = np.ndarray(shape=list(old.shape[:3]) + list(new_yx), dtype=image.dtype)
@@ -557,4 +557,4 @@ def crop_image(image: AICSImage, mask: np.ndarray):
         for c in range(old.shape[1]):
             for z in range(old.shape[2]):
                 new[t, c, z, :, :] = _crop_array(arr=old[t, c, z, :, :], mask=mask)
-    return AICSImage(new, physical_pixel_sizes=image.physical_pixel_sizes, channel_names=image.channel_names)
+    return BioImage(new, physical_pixel_sizes=image.physical_pixel_sizes, channel_names=image.channel_names)

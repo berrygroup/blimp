@@ -2,7 +2,7 @@ from typing import List, Tuple, Union, Optional
 from pathlib import Path
 import logging
 
-from aicsimageio import AICSImage
+from bioio import BioImage
 import numpy as np
 import mahotas as mh
 
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def segment_nuclei_cellpose(
-    intensity_image: AICSImage,
+    intensity_image: BioImage,
     nuclei_channel: int = 0,
     pretrained_model: Union[str, Path, None] = None,
     diameter: Optional[int] = None,
@@ -21,7 +21,7 @@ def segment_nuclei_cellpose(
     normalize: Union[bool, dict] = True,
     rescale_limits: Optional[Tuple[float, float]] = None,
     gpu: bool = False,
-) -> AICSImage:
+) -> BioImage:
     """Segment nuclei in 2D images across all timepoints using cellpose 4.
 
     Parameters
@@ -48,7 +48,7 @@ def segment_nuclei_cellpose(
 
     Returns
     -------
-    AICSImage
+    BioImage
         label image with segmented nuclei for all timepoints
 
     Raises
@@ -124,9 +124,9 @@ def segment_nuclei_cellpose(
         masks = results[0]
         all_masks.append(masks)
 
-    # Stack all timepoints and convert to AICSImage format (add C and Z dimensions)
+    # Stack all timepoints and convert to BioImage format (add C and Z dimensions)
     masks_stack = np.stack(all_masks)[:, np.newaxis, np.newaxis, :, :]
-    segmentation = AICSImage(
+    segmentation = BioImage(
         masks_stack,
         channel_names=["Nuclei"],
         physical_pixel_sizes=intensity_image.physical_pixel_sizes,
@@ -136,7 +136,7 @@ def segment_nuclei_cellpose(
 
 
 def compute_rescaling_limits(
-    images: Union[AICSImage, np.ndarray, str, Path, List[Union[AICSImage, np.ndarray, str, Path]]],
+    images: Union[BioImage, np.ndarray, str, Path, List[Union[BioImage, np.ndarray, str, Path]]],
     channel: int = 0,
     percentile: Tuple[float, float] = (1.0, 99.0),
     aggregation: str = "mean",
@@ -150,9 +150,9 @@ def compute_rescaling_limits(
     Parameters
     ----------
     images
-        one or more images, as AICSImage objects, numpy arrays, or paths to image files
+        one or more images, as BioImage objects, numpy arrays, or paths to image files
     channel
-        channel index to extract from AICSImage/path inputs; ignored for numpy arrays,
+        channel index to extract from BioImage/path inputs; ignored for numpy arrays,
         which are used as-is
     percentile
         (lower, upper) percentile pair, 0-100 scale, matching cellpose's own convention
@@ -183,8 +183,8 @@ def compute_rescaling_limits(
     uppers = []
     for image in images:
         if isinstance(image, (str, Path)):
-            pixels = AICSImage(image).get_image_data("TZYX", C=channel)
-        elif isinstance(image, AICSImage):
+            pixels = BioImage(image).get_image_data("TZYX", C=channel)
+        elif isinstance(image, BioImage):
             pixels = image.get_image_data("TZYX", C=channel)
         else:
             pixels = image
@@ -372,12 +372,12 @@ def segment_secondary(
 
 
 def resolve_multi_parent_objects(
-    label_image: AICSImage,
+    label_image: BioImage,
     measure_object: Optional[Union[int, str, List[Union[int, str]]]] = None,
     parent_object: Union[int, str] = 0,
     timepoint: int = 0,
     in_place: bool = True,
-) -> AICSImage | None:
+) -> BioImage | None:
     """
     Resolve child objects that span multiple parent objects by removing pixels
     to ensure each child object is fully contained within a single parent.
@@ -398,12 +398,12 @@ def resolve_multi_parent_objects(
         Timepoint at which to resolve objects, by default 0.
     in_place
         If True, modify the input label_image in place. If False, return a new
-        AICSImage with resolved objects, by default True.
+        BioImage with resolved objects, by default True.
 
     Returns
     -------
-    AICSImage | None
-        If in_place=False, returns a new AICSImage with resolved child objects.
+    BioImage | None
+        If in_place=False, returns a new BioImage with resolved child objects.
         If in_place=True, returns None and modifies the input label_image.
     """
 
@@ -449,9 +449,9 @@ def resolve_multi_parent_objects(
             new_label_stack if not in_place else None,
         )
 
-    # Return new AICSImage if not in_place, otherwise return None
+    # Return new BioImage if not in_place, otherwise return None
     if not in_place:
-        resolved_label_image = AICSImage(
+        resolved_label_image = BioImage(
             new_label_stack,
             channel_names=label_image.channel_names,
             physical_pixel_sizes=label_image.physical_pixel_sizes,
@@ -462,7 +462,7 @@ def resolve_multi_parent_objects(
 
 
 def _resolve_single_measure_object(
-    label_image: AICSImage,
+    label_image: BioImage,
     measure_object_index: int,
     parent_object_index: int,
     timepoint: int,
@@ -568,12 +568,12 @@ def _resolve_single_measure_object(
 
 
 def mask_child_objects_by_parent(
-    label_image: AICSImage,
+    label_image: BioImage,
     measure_object: Optional[Union[int, str, List[Union[int, str]]]] = None,
     parent_object: Union[int, str] = 0,
     timepoint: int = 0,
     in_place: bool = True,
-) -> AICSImage | None:
+) -> BioImage | None:
     """
     Mask child objects by parent objects, removing any pixels that extend
     beyond parent boundaries.
@@ -596,12 +596,12 @@ def mask_child_objects_by_parent(
         Timepoint at which to mask objects, by default 0.
     in_place
         If True, modify the input label_image in place. If False, return a new
-        AICSImage with masked objects, by default True.
+        BioImage with masked objects, by default True.
 
     Returns
     -------
-    AICSImage | None
-        If in_place=False, returns a new AICSImage with masked child objects.
+    BioImage | None
+        If in_place=False, returns a new BioImage with masked child objects.
         If in_place=True, returns None and modifies the input label_image.
 
     Examples
@@ -663,9 +663,9 @@ def mask_child_objects_by_parent(
             new_label_stack if not in_place else None,
         )
 
-    # Return new AICSImage if not in_place, otherwise return None
+    # Return new BioImage if not in_place, otherwise return None
     if not in_place:
-        masked_label_image = AICSImage(
+        masked_label_image = BioImage(
             new_label_stack,
             channel_names=label_image.channel_names,
             physical_pixel_sizes=label_image.physical_pixel_sizes,
@@ -676,7 +676,7 @@ def mask_child_objects_by_parent(
 
 
 def _mask_single_measure_object_by_parent(
-    label_image: AICSImage,
+    label_image: BioImage,
     measure_object_index: int,
     parent_object_index: int,
     timepoint: int,

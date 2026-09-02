@@ -2,7 +2,7 @@ from typing import List, Union, Optional
 from functools import reduce
 import logging
 
-from aicsimageio import AICSImage
+from bioio import BioImage
 from skimage.segmentation import clear_border
 import numpy as np
 import pandas as pd
@@ -38,10 +38,10 @@ logger = logging.getLogger(__name__)
 
 
 def _quantify_point_object_aggregated_to_parent(
-    label_image: AICSImage,
+    label_image: BioImage,
     measure_object_index: int,
     parent_object_index: int,
-    intensity_image: AICSImage,
+    intensity_image: BioImage,
     intensity_channels_list: List[str],
     timepoint: int = 0,
 ) -> pd.DataFrame:
@@ -258,7 +258,7 @@ def border_objects(label_array: np.ndarray) -> pd.DataFrame:
     return border_objects
 
 
-def border_objects_XY_3D(label_image: AICSImage, label_channel: int = 0) -> pd.DataFrame:
+def border_objects_XY_3D(label_image: BioImage, label_channel: int = 0) -> pd.DataFrame:
     """Identify border objects in the XY plane across a 3D image stack and
     return a DataFrame indicating which objects touch the XY borders.
 
@@ -304,7 +304,7 @@ def border_objects_XY_3D(label_image: AICSImage, label_channel: int = 0) -> pd.D
 
 
 def _measure_parent_object_label(
-    label_image: AICSImage, measure_object_index: int, parent_object_index: int, timepoint: int = 0
+    label_image: BioImage, measure_object_index: int, parent_object_index: int, timepoint: int = 0
 ) -> pd.DataFrame:
     """
     Measure the parent object associated with each object in a labeled image.
@@ -390,8 +390,8 @@ def _measure_parent_object_label(
 
 
 def _quantify_single_object(
-    intensity_image: AICSImage,
-    label_image: AICSImage,
+    intensity_image: BioImage,
+    label_image: BioImage,
     measure_object: Union[int, str],
     parent_object: Optional[Union[int, str]] = None,
     timepoint: Optional[int] = None,
@@ -558,8 +558,8 @@ def _quantify_single_object(
 
 
 def _quantify_single_timepoint_2D(
-    intensity_image: AICSImage,
-    label_image: AICSImage,
+    intensity_image: BioImage,
+    label_image: BioImage,
     measure_object: Union[int, str],
     parent_object: Optional[Union[int, str]] = None,
     timepoint: int = 0,
@@ -741,8 +741,8 @@ def _quantify_single_timepoint_2D(
 
 
 def _quantify_single_timepoint_3D(
-    intensity_image: AICSImage,
-    label_image: AICSImage,
+    intensity_image: BioImage,
+    label_image: BioImage,
     measure_object: Union[int, str],
     parent_object: Optional[Union[int, str]] = None,
     timepoint: int = 0,
@@ -1132,8 +1132,8 @@ def aggregate_and_merge_features(
 
 
 def quantify(
-    intensity_image: AICSImage,
-    label_image: AICSImage,
+    intensity_image: BioImage,
+    label_image: BioImage,
     measure_objects: Optional[Union[int, str, List[Union[int, str]]]] = None,
     parent_object: Optional[Union[int, str]] = None,
     aggregate: bool = False,

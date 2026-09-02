@@ -4,9 +4,9 @@ from pathlib import Path
 import re
 import logging
 
-from aicsimageio import AICSImage
-from aicsimageio.types import PhysicalPixelSizes
-from aicsimageio.writers import OmeTiffWriter
+from bioio import BioImage
+from bioio_base.types import PhysicalPixelSizes
+from bioio_ome_tiff.writers import OmeTiffWriter
 import numpy as np
 import pandas as pd
 
@@ -72,7 +72,7 @@ def _read_images_single_site(
     StandardFieldID: int,
     ChannelID: int,
     TimepointID: int,
-) -> List[AICSImage]:
+) -> List[BioImage]:
     """Load a set of image files for a single site.
 
     Reads a set of images corresponding to a single imaging site (field of
@@ -100,7 +100,7 @@ def _read_images_single_site(
     Returns
     -------
     PhysicalPixelSizes
-        AICSImage object for containing pixel dimensions
+        BioImage object for containing pixel dimensions
     """
 
     query = (
@@ -133,7 +133,7 @@ def _read_images_single_site(
         .URL.tolist()
     )
     filepath_list = [Path(in_path) / filename for filename in filename_list]
-    images = [AICSImage(filepath) for filepath in filepath_list]
+    images = [BioImage(filepath) for filepath in filepath_list]
     return images
 
 
@@ -167,7 +167,7 @@ def _get_zyx_resolution(
     Returns
     -------
     PhysicalPixelSizes
-        AICSImage object for containing pixel dimensions
+        BioImage object for containing pixel dimensions
     """
 
     # z resolution is not directly provided in the image metadata,
@@ -445,7 +445,6 @@ def operetta_to_ome_tiff(
                 dim_order="TCZYX",
                 channel_names=channel_names,
                 physical_pixel_sizes=voxel_dimensions,
-                parser="lxml",
             )
 
         # write MIP to OME TIFF
@@ -456,7 +455,6 @@ def operetta_to_ome_tiff(
                 dim_order="TCZYX",
                 channel_names=channel_names,
                 physical_pixel_sizes=voxel_dimensions,
-                parser="lxml",
             )
     return
 

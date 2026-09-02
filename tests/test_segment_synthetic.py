@@ -1,4 +1,5 @@
-from aicsimageio import AICSImage
+from bioio import BioImage
+from bioio_base.types import PhysicalPixelSizes
 import numpy as np
 import pytest
 
@@ -11,15 +12,15 @@ from blimp.processing.segment import (
 
 
 def _label_image_2D(parent, child):
-    """Stack two 2D label arrays (YX) into a TCZYX AICSImage."""
+    """Stack two 2D label arrays (YX) into a TCZYX BioImage."""
     stack = np.stack([parent, child])[np.newaxis, :, np.newaxis, :, :]
-    return AICSImage(stack, channel_names=["Parent", "Child"])
+    return BioImage(stack, channel_names=["Parent", "Child"])
 
 
 def _label_image_3D(parent, child):
-    """Stack two 3D label arrays (ZYX) into a TCZYX AICSImage."""
+    """Stack two 3D label arrays (ZYX) into a TCZYX BioImage."""
     stack = np.stack([parent, child])[np.newaxis, ...]
-    return AICSImage(stack, channel_names=["Parent", "Child"])
+    return BioImage(stack, channel_names=["Parent", "Child"])
 
 
 EXPECTED_KEPT_COLUMNS = [3, 4, 5, 6, 7]
@@ -142,9 +143,15 @@ def test_resolve_single_measure_object_requires_stack_when_not_in_place(straddli
 
 
 def _intensity_image_2D(array):
-    """Wrap a single 2D intensity array (YX) into a TCZYX AICSImage."""
+    """Wrap a single 2D intensity array (YX) into a TCZYX BioImage.
+
+    Physical pixel sizes are set explicitly (rather than left as bioio's
+    default) because ``BioImage.save()`` -> ``bioio_ome_tiff``'s
+    ``OmeTiffWriter`` crashes with ``AttributeError: 'NoneType' object has
+    no attribute 'Z'`` when a scene's ``physical_pixel_sizes`` is ``None``.
+    """
     stack = array[np.newaxis, np.newaxis, np.newaxis, :, :]
-    return AICSImage(stack, channel_names=["Nuclei"])
+    return BioImage(stack, channel_names=["Nuclei"], physical_pixel_sizes=PhysicalPixelSizes(1.0, 1.0, 1.0))
 
 
 # 101 evenly spaced integers 0..100: with n=101 points, np.percentile(_, p) == p
@@ -184,12 +191,7 @@ def test_compute_rescaling_limits_aggregation_mean_vs_median():
 
 
 def test_compute_rescaling_limits_input_types_agree(tmp_path):
-    """ndarray, AICSImage, and on-disk path inputs all give the same result for the same data.
-
-    Tiled to a (101, 3) shape (no singleton spatial dimension) since round-tripping a
-    Y=1 or X=1 image through an OME-TIFF write/read hits an unrelated aicsimageio
-    reshape quirk with singleton spatial dimensions.
-    """
+    """ndarray, BioImage, and on-disk path inputs all give the same result for the same data."""
     array = np.tile(_LINEAR_101.reshape(101, 1), (1, 3))
     array_result = compute_rescaling_limits(array)
 

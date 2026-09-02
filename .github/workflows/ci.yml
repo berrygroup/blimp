@@ -137,7 +137,7 @@ jobs:
             fail-fast: false
             matrix:
                 os: [ubuntu-latest, macos-latest]
-                python-version: ['3.10', '3.11', '3.12']
+                python-version: ['3.11', '3.12']
                 # Maps runner OS to the tox factor. Without this only the
                 # factor-less `tox -e py` is callable, which drops the platform
                 # guard and leaves the -linux/-macos envs never exercised.
@@ -196,9 +196,10 @@ jobs:
         -   name: Checkout code
             uses: actions/checkout@v7
 
-        # Rocky 8's AppStream has no python3.10, so setup-python cannot supply
-        # the matrix versions even where it works. uv can: tox-uv fetches a
-        # standalone build for whichever factor is requested. `git config` is
+        # Rocky 8's AppStream does not reliably provide the matrix's Python
+        # versions, so setup-python cannot supply them even where it works. uv
+        # can: tox-uv fetches a standalone build for whichever factor is
+        # requested. `git config` is
         # needed because checkout inside a container leaves the tree owned by a
         # different uid than the running user, and setuptools_scm shells out to
         # git for the version.
@@ -231,8 +232,8 @@ jobs:
         #
         # uv needs no ambient Python: it is a static binary (max GLIBC_2.17, well
         # under el8's 2.28) and fetches its own standalone CPython (also 2.17).
-        # So it both sidesteps the broken interpreter and supplies 3.10, which
-        # el8 AppStream does not package at all.
+        # So it both sidesteps the broken interpreter and supplies whichever
+        # matrix version is requested, without relying on AppStream packaging it.
         -   name: Set up uv (Rocky)
             if: matrix.container != ''
             uses: astral-sh/setup-uv@v7
@@ -294,10 +295,10 @@ jobs:
         # UV_PYTHON_PREFERENCE differs by leg deliberately. On the hosted
         # runners uv defaults to `system` and reuses setup-python's interpreter.
         # In the Rocky container the only system interpreter is 3.12, so `system`
-        # would silently run the 3.10 and 3.11 legs on 3.12 -- three legs
-        # claiming versions they never tested. `only-managed` forces uv to fetch
-        # the requested standalone build instead, which is also what makes 3.10
-        # testable at all, since el8 AppStream has no python3.10 package.
+        # would silently run the 3.11 leg on 3.12 too -- both legs claiming
+        # versions they never tested. `only-managed` forces uv to fetch the
+        # requested standalone build instead, which is also what makes 3.11
+        # testable at all, without relying on AppStream packaging it.
         -   name: Run tests
             run: |
                 # 3.10 -> 310, matching the tox factor names. `tr` rather than

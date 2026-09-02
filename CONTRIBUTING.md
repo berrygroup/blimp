@@ -17,8 +17,8 @@ conda-forge along with `tox`, `pytest` and `pre-commit`:
     conda activate blimp-dev
 
 Then install blimp itself, plus the dependencies conda cannot supply
-(`aicsimageio[nd2]`, `cellpose`, `itk-elastix`, `nd2reader`,
-`pystackreg`, `welford`):
+(`bioio`, `bioio-nd2`, `bioio-ome-tiff`, `cellpose`, `itk-elastix`,
+`nd2reader`, `pystackreg`, `welford`):
 
     pip install -e '.[dev,test]'
 
@@ -30,11 +30,8 @@ last.
 Check the install:
 
     python -c "import blimp; print(blimp.__version__)"
-    python -c "from aicsimageio.writers import OmeTiffWriter; print('writers OK')"
+    python -c "from bioio_ome_tiff.writers import OmeTiffWriter; print('writers OK')"
     blimp --help
-
-The `writers` import is the one that breaks if `numcodecs` resolves to
-0.16 or newer.
 
 Finally, install the pre-commit hooks. They are declared in
 `.pre-commit-config.yaml`, but git does not run them until they are
@@ -93,7 +90,7 @@ documentation creation. To run the tests, run:
     tox -e offline    # no network and no test data needed
     tox               # full suite; fetches the test data on first run
 
-`envlist` covers `py{310,311,312}` on both `linux` and `macos`, so a
+`envlist` covers `py{311,312}` on both `linux` and `macos`, so a
 single leg is named in full:
 
     tox -e py311-macos
@@ -109,11 +106,12 @@ the server — a class of breakage Ubuntu-only CI cannot see.
 Practical consequences if you edit the workflow:
 
 - `actions/setup-python` does not work on el8 images (no RHEL builds in its
-  versions manifest), and Rocky 8's AppStream has no `python3.10` at all.
-  Both matrix interpreters come from `tox-uv` instead, with
-  `UV_PYTHON_PREFERENCE=only-managed` so uv fetches the requested version
-  rather than falling back to the container's system Python — without it
-  the 3.10 and 3.11 legs would silently run on whatever the image provides.
+  versions manifest), and Rocky 8's AppStream does not reliably provide the
+  matrix's Python versions. Both matrix interpreters come from `tox-uv`
+  instead, with `UV_PYTHON_PREFERENCE=only-managed` so uv fetches the
+  requested version rather than falling back to the container's system
+  Python — without it the 3.11 leg would silently run on whatever the image
+  provides.
 - **The container legs use no distro Python at all.** This is deliberate.
   el8's `python3.12` package is broken on this image: its `pyexpat`
   extension was built against a newer expat than the system library, so

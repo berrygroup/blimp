@@ -1,7 +1,7 @@
 from pathlib import Path
 import logging
 
-from aicsimageio import AICSImage
+from bioio import BioImage
 import numpy as np
 import pytest
 
@@ -51,7 +51,7 @@ def test_IlluminationCorrection_fit_invalid_images():
 
 def test_IlluminationCorrection_fit_non_uniform_images():
     images = _load_test_data("illumination_correction")
-    images[0] = AICSImage(images[0].data[:, :, :, :100, :100])  # Non-uniform dimensions
+    images[0] = BioImage(images[0].data[:, :, :, :100, :100])  # Non-uniform dimensions
     illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
         method="pixel_z_score", timelapse=False
     )
@@ -227,8 +227,8 @@ def test_IlluminationCorrection_init_from_reference_images(_ensure_test_data):
     assert illumination_correction.file_name is None
     assert equal_dims(illumination_correction, images[0])
     assert illumination_correction.method == "pixel_z_score"
-    # invalid: one of the AICSImages has a different size
-    images[0] = AICSImage(images[0].data[:, :, :, :100, :100])
+    # invalid: one of the BioImages has a different size
+    images[0] = BioImage(images[0].data[:, :, :, :100, :100])
     with pytest.raises(ValueError):
         illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
             reference_images=images
@@ -263,7 +263,7 @@ def test_IlluminationCorrection_init_from_reference_image_files(_ensure_test_dat
     assert illumination_correction.timelapse is False
     assert illumination_correction.file_path is None
     assert illumination_correction.file_name is None
-    assert equal_dims(illumination_correction, AICSImage(image_paths[0]))
+    assert equal_dims(illumination_correction, BioImage(image_paths[0]))
     assert illumination_correction.method == "pixel_z_score"
     # valid: str
     illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
@@ -272,7 +272,7 @@ def test_IlluminationCorrection_init_from_reference_image_files(_ensure_test_dat
     assert illumination_correction.timelapse is False
     assert illumination_correction.file_path is None
     assert illumination_correction.file_name is None
-    assert equal_dims(illumination_correction, AICSImage(image_paths[0]))
+    assert equal_dims(illumination_correction, BioImage(image_paths[0]))
     assert illumination_correction.method == "pixel_z_score"
 
 
@@ -340,16 +340,16 @@ def test_correct_illumination(_ensure_test_data):
     assert dask_input.shape == dask_output.shape
     assert dask_input.dtype == dask_output.dtype
 
-    # valid AICSImage input
-    AICSImage_input = images[0]
-    AICSImage_output = blimp.preprocessing.illumination_correction._correct_illumination(
-        image=AICSImage_input, illumination_correction=illumination_correction
+    # valid BioImage input
+    BioImage_input = images[0]
+    BioImage_output = blimp.preprocessing.illumination_correction._correct_illumination(
+        image=BioImage_input, illumination_correction=illumination_correction
     )
-    assert isinstance(AICSImage_output, AICSImage)
-    assert AICSImage_input.shape == AICSImage_output.shape
-    assert AICSImage_input.dtype == AICSImage_output.dtype
-    assert AICSImage_input.physical_pixel_sizes == AICSImage_output.physical_pixel_sizes
-    assert AICSImage_input.channel_names == AICSImage_output.channel_names
+    assert isinstance(BioImage_output, BioImage)
+    assert BioImage_input.shape == BioImage_output.shape
+    assert BioImage_input.dtype == BioImage_output.dtype
+    assert BioImage_input.physical_pixel_sizes == BioImage_output.physical_pixel_sizes
+    assert BioImage_input.channel_names == BioImage_output.channel_names
 
 
 def test_IlluminationCorrection_copy(_ensure_test_data):
