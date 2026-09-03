@@ -39,3 +39,9 @@ dependencies:
 # and needs the git history, so develop from a clone rather than a source zip.
 -   setuptools
 -   setuptools_scm
+# Interactive use -- not needed to run the test suite, just for poking at
+# converted data by hand. pyqt supplies napari's GUI backend; conda-forge's
+# napari package does not pull one in on its own.
+-   jupyterlab
+-   napari
+-   pyqt
