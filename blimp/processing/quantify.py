@@ -737,6 +737,7 @@ def _quantify_single_timepoint_2D(
 
     # add timepoint information (note + 1 to match image metadata)
     features[["TimepointID"]] = timepoint + 1
+    features["is_point_object"] = is_point_object
     return features
 
 
@@ -837,6 +838,7 @@ def _quantify_single_timepoint_3D(
 
         # add timepoint information (note + 1 to match image metadata)
         features[["TimepointID"]] = timepoint + 1
+        features["is_point_object"] = is_point_object
         return features
 
     calculate_2D_derived = True
@@ -1037,6 +1039,7 @@ def _quantify_single_timepoint_3D(
 
     # add timepoint information (note + 1 to match image metadata)
     all_features[["TimepointID"]] = timepoint + 1
+    all_features["is_point_object"] = is_point_object
 
     return all_features
 
