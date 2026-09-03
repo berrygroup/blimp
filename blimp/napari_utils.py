@@ -77,11 +77,63 @@ def add_rois(
     )
 
 
+def add_labels_with_measurements(
+    viewer: napari.Viewer,
+    image_group_path: Union[str, Path],
+    label_name: str,
+    feature_table_name: Optional[str] = None,
+) -> "napari.layers.Labels":
+    """Add an ``ngio`` ``Label`` (+ its ``FeatureTable``, if present) as one
+    napari Labels layer with linked per-object features.
+
+    The ``add_rois`` equivalent for labels: read via ``ngio``'s own read
+    API, convert to napari's native representation, add to the viewer,
+    return the layer. Not named ``add_labels`` -- ``napari.Viewer`` already
+    has a built-in method of that name, and a same-named function here
+    would be confusing to call alongside it.
+
+    Parameters
+    ----------
+    viewer
+        The napari viewer to add the layer to.
+    image_group_path
+        Path to the OME-Zarr image group the label is attached to, e.g.
+        ``plate.zarr/C/09/mip``.
+    label_name
+        Name of the label to read (e.g. ``"Nuclei"``).
+    feature_table_name
+        Name of the feature table to read (default:
+        ``f"{label_name}_features"``, the naming convention
+        ``blimp.ome_ngff.features._write_well_features`` uses). Pass ``""``
+        explicitly to add the label with no features.
+
+    Returns
+    -------
+    napari.layers.Labels
+    """
+    container = open_ome_zarr_container(str(image_group_path))
+    label = container.get_label(label_name)
+    data = label.get_as_numpy()
+
+    features = None
+    table_name = feature_table_name if feature_table_name is not None else f"{label_name}_features"
+    if table_name and table_name in container.list_tables():
+        # ngio's FeatureTable.dataframe carries "label" as the index, but
+        # napari's add_labels(features=...) matches rows to label values by
+        # column, not index -- an indexed DataFrame is silently accepted but
+        # matched by row position instead, so the index needs converting
+        # back to a plain "label" column first.
+        features = container.get_feature_table(table_name).dataframe.reset_index()
+
+    return viewer.add_labels(data, name=label_name, features=features)
+
+
 # Functions bound onto a viewer instance by add_blimp_napari_methods(), keyed
 # by the method name they become. Add a new entry here to make a new
 # function available as viewer.<name>(...) too.
 _VIEWER_METHODS: Dict[str, Callable] = {
     "add_rois": add_rois,
+    "add_labels_with_measurements": add_labels_with_measurements,
 }
 
 
@@ -97,13 +149,12 @@ def add_blimp_napari_methods(viewer: napari.Viewer) -> napari.Viewer:
     other viewers, and other code importing napari elsewhere in the same
     process, are unaffected.
 
-    ``napari.Viewer`` is a pydantic model with ``validate_assignment=True``
-    (confirmed against a real instance's ``model_config``), so a plain
-    ``setattr`` validates the new attribute against the model's declared
-    fields and raises ``ValidationError`` for anything not already part of
-    its schema -- which a bound method never is. ``object.__setattr__``
-    bypasses that validation layer and writes directly to the instance's
-    own ``__dict__``, which is what actually needs to happen here.
+    ``napari.Viewer`` is a pydantic model with ``validate_assignment=True``,
+    so a plain ``setattr`` validates the new attribute against the model's
+    declared fields and raises ``ValidationError`` for anything not already
+    part of its schema -- which a bound method never is.
+    ``object.__setattr__`` bypasses that validation layer and writes
+    directly to the instance's own ``__dict__``.
 
     Parameters
     ----------
