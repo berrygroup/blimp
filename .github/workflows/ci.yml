@@ -102,12 +102,31 @@ jobs:
     # imports with requests and tqdm alone, so the package is not installed.
     testdata:
         runs-on: ubuntu-latest
+        outputs:
+            version: ${{ steps.testdata-version.outputs.version }}
         steps:
         -   uses: actions/checkout@v7
         -   uses: actions/setup-python@v7
             with:
                 python-version: '3.12'
                 cache: pip
+
+            # The cache key must change whenever the Figshare dataset does.
+            # Pinning it to the article id alone does not do that: the id is
+            # stable across every version of the same record (that is the
+            # point of Figshare's versioning), so a newer upload under the
+            # same id kept matching the old cache entry forever -- caught in
+            # practice when a new dataset version was published but CI kept
+            # restoring the previous one. Query the published version number
+            # and fold it into the key instead; the test job reads this job's
+            # output rather than re-querying, so every leg agrees on one key
+            # even if a new version publishes mid-run.
+        -   name: Get reference dataset version
+            id: testdata-version
+            run: |
+                version=$(curl -fsS https://api.figshare.com/v2/articles/23972244 | jq -r '.version')
+                echo "Figshare article 23972244 is at version $version"
+                echo "version=$version" >> "$GITHUB_OUTPUT"
 
             # Same key and paths as the test job; keep the three in step.
         -   name: Cache reference test dataset
@@ -118,7 +137,7 @@ jobs:
                     tests/_data
                     tests/_experiments
                     tests/_data.zip
-                key: blimp-testdata-23972244
+                key: blimp-testdata-23972244-v${{ steps.testdata-version.outputs.version }}
 
         -   name: Download reference dataset
             if: steps.cache.outputs.cache-hit != 'true'
@@ -242,8 +261,12 @@ jobs:
                 cache-suffix: ${{ matrix.label }}-py${{ matrix.python-version }}
 
         # Restores the entry the testdata job populated; the key is not
-        # OS-scoped, so all six legs share one copy. Key is pinned to the
-        # article id, so a new dataset invalidates the cache.
+        # OS-scoped, so all six legs share one copy. Folds in the Figshare
+        # version the testdata job resolved (see its "Get reference dataset
+        # version" step) rather than re-querying here, so every leg agrees on
+        # the same key -- the article id alone does not change across
+        # versions, so pinning to it alone let a new dataset upload silently
+        # keep matching the old cache entry.
         -   name: Cache reference test dataset
             uses: actions/cache@v6
             with:
@@ -253,7 +276,7 @@ jobs:
                     tests/_data
                     tests/_experiments
                     tests/_data.zip
-                key: blimp-testdata-23972244
+                key: blimp-testdata-23972244-v${{ needs.testdata.outputs.version }}
 
         # cellpose fetches pretrained weights on first use; cache them too.
         -   name: Cache cellpose models
