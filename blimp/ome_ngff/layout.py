@@ -133,12 +133,12 @@ def _cluster_grid_index(values: np.ndarray, tile_extent: float) -> np.ndarray:
     Fields meant to sit on the same nominal row/column can still differ by a
     small amount (a few percent of the tile extent) -- stage positioning
     jitter, or a slight rotation between
-    the stage and camera axes. Using that raw value directly as a continuous
-    pixel offset bakes the jitter into the canvas as a small but visible
-    misalignment between tiles that are meant to sit flush (fields are
-    acquired with no deliberate overlap). Clustering first, then placing
-    each cluster at an exact multiple of the tile size, snaps to the
-    intended grid instead.
+    the stage and camera axes. Using that raw value directly as a pixel
+    offset (see :func:`_exact_pixel_offset`) bakes the jitter into the
+    canvas as a small but visible misalignment between tiles that are meant
+    to sit flush (fields are acquired with no deliberate overlap).
+    Clustering first, then placing each cluster at an exact multiple of the
+    tile size, snaps to the intended grid instead.
 
     Parameters
     ----------
@@ -160,6 +160,37 @@ def _cluster_grid_index(values: np.ndarray, tile_extent: float) -> np.ndarray:
             next_id += 1
         cluster[order[i]] = next_id
     return cluster
+
+
+def _exact_pixel_offset(stage: np.ndarray, pixel_size: float, reverse: bool) -> np.ndarray:
+    """Convert raw stage coordinates directly to pixel offsets, without the
+    grid-snapping :func:`_cluster_grid_index` does.
+
+    More faithful to the actual recorded positions than grid placement --
+    prefer it when fields have genuine deliberate overlap, or nominal
+    positions are not expected to fall on a regular grid. ``reverse`` flips
+    the axis (e.g. stage-x increasing while pixel-x decreases), matching
+    ``x_direction="left"``/``y_direction="up"`` in
+    :func:`nd2_to_ome_ngff.get_field_layout`/
+    :func:`tiff_to_ome_ngff.get_field_layout_from_tiff_metadata`.
+
+    Parameters
+    ----------
+    stage
+        Raw stage coordinates along one axis, one per field.
+    pixel_size
+        Physical pixel size along that axis, in the same units as ``stage``.
+    reverse
+        Whether increasing ``stage`` should map to decreasing pixel offset.
+
+    Returns
+    -------
+    numpy.ndarray
+        Pixel offset per field, in ``stage``'s original order.
+    """
+    if reverse:
+        return np.round((stage.max() - stage) / pixel_size).astype(int)
+    return np.round((stage - stage.min()) / pixel_size).astype(int)
 
 
 def _build_fov_roi_table(layout: FieldLayout) -> RoiTable:

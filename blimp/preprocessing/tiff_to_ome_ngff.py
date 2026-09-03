@@ -9,11 +9,11 @@ one intensity TIFF, one label TIFF, and one measurements CSV per field, all
 sharing the intensity TIFF's own filename stem, each in their own directory
 (e.g. ``OME-TIFF-MIP/``, ``SEGMENTATION/``, ``QUANTIFICATION/``).
 
-Grid placement only (no continuous/stage-offset mode, unlike
-``nd2_to_ome_ngff.py``): real stage positions are read from the metadata
-sidecar ``nd2_to_ome_tiff.py`` writes alongside the field TIFFs (only when
-called with ``mip=True`` or ``keep_stacks=True``) -- see
-``nd2_parse_metadata.py::nd2_extract_metadata_and_save``.
+Real stage positions are read from the metadata sidecar ``nd2_to_ome_tiff.py``
+writes alongside the field TIFFs (only when called with ``mip=True`` or
+``keep_stacks=True``) -- see ``nd2_parse_metadata.py::nd2_extract_metadata_and_save``.
+Placement is "grid" (default) or "exact", same choice and same meaning
+as ``nd2_to_ome_ngff.py`` -- see :func:`get_field_layout_from_tiff_metadata`.
 
 Robust to partial upstream failure, field by field: a missing intensity or
 label TIFF is substituted with a blank (all-zero) array of that field's tile
@@ -35,7 +35,12 @@ from blimp.log import configure_logging
 from blimp.ome_ngff import NUM_PYRAMID_LEVELS, ensure_plate_exists
 from blimp.ome_ngff.plate import _write_well_image
 from blimp.ome_ngff.labels import _write_well_labels, _write_well_points
-from blimp.ome_ngff.layout import FieldLayout, _parse_well_name, _cluster_grid_index
+from blimp.ome_ngff.layout import (
+    FieldLayout,
+    _parse_well_name,
+    _cluster_grid_index,
+    _exact_pixel_offset,
+)
 from blimp.ome_ngff.features import _write_well_features
 
 logger = logging.getLogger(__name__)
@@ -78,16 +83,16 @@ def get_field_layout_from_tiff_metadata(
     tiff_dir: Union[str, Path],
     y_direction: str = "down",
     x_direction: str = "left",
+    placement: str = "grid",
 ) -> FieldLayout:
     """Compute the stitching layout for a well's fields of view from
     ``nd2_to_ome_tiff.py``'s own metadata sidecar, rather than from an nd2
     file directly.
 
-    Grid placement only: the raw ``stage_x_abs``/``stage_y_abs`` columns
-    feed the same jitter-tolerant :func:`blimp.ome_ngff.layout._cluster_grid_index`
-    ``nd2_to_ome_ngff.py``'s "grid" mode uses -- not
-    ``standard_field_id`` (a single raster-order integer, not a row/column
-    pair, so it can't drive tile placement directly).
+    The raw ``stage_x_abs``/``stage_y_abs`` columns feed the same layout
+    math ``nd2_to_ome_ngff.py`` uses -- not ``standard_field_id`` (a single
+    raster-order integer, not a row/column pair, so it can't drive tile
+    placement directly).
 
     Parameters
     ----------
@@ -101,6 +106,10 @@ def get_field_layout_from_tiff_metadata(
     y_direction, x_direction
         See :func:`blimp.preprocessing.nd2_to_ome_ngff.get_field_layout` --
         same convention, same defaults.
+    placement
+        "grid" or "exact" -- see
+        :func:`blimp.preprocessing.nd2_to_ome_ngff.get_field_layout`, same
+        meaning.
 
     Returns
     -------
@@ -115,6 +124,8 @@ def get_field_layout_from_tiff_metadata(
         raise ValueError(f'y_direction = {y_direction}, only "up" or "down" are possible')
     if x_direction not in {"left", "right"}:
         raise ValueError(f'x_direction = {x_direction}, only "left" or "right" are possible')
+    if placement not in {"grid", "exact"}:
+        raise ValueError(f'placement = {placement}, only "grid" or "exact" are possible')
 
     df = _read_metadata_csv(nd2_stem, tiff_dir)
     field_ids = df["field_id"].tolist()
@@ -137,16 +148,20 @@ def get_field_layout_from_tiff_metadata(
     tile_shape = reference_image.shape
     pixel_size = reference_image.physical_pixel_sizes
 
-    tile_extent_x = tile_shape[4] * pixel_size.X
-    tile_extent_y = tile_shape[3] * pixel_size.Y
-    col_idx = _cluster_grid_index(stage_x, tile_extent_x)
-    row_idx = _cluster_grid_index(stage_y, tile_extent_y)
-    if x_direction == "left":
-        col_idx = col_idx.max() - col_idx
-    if y_direction == "up":
-        row_idx = row_idx.max() - row_idx
-    offset_x_px = col_idx * tile_shape[4]
-    offset_y_px = row_idx * tile_shape[3]
+    if placement == "grid":
+        tile_extent_x = tile_shape[4] * pixel_size.X
+        tile_extent_y = tile_shape[3] * pixel_size.Y
+        col_idx = _cluster_grid_index(stage_x, tile_extent_x)
+        row_idx = _cluster_grid_index(stage_y, tile_extent_y)
+        if x_direction == "left":
+            col_idx = col_idx.max() - col_idx
+        if y_direction == "up":
+            row_idx = row_idx.max() - row_idx
+        offset_x_px = col_idx * tile_shape[4]
+        offset_y_px = row_idx * tile_shape[3]
+    else:
+        offset_x_px = _exact_pixel_offset(stage_x, pixel_size.X, reverse=(x_direction == "left"))
+        offset_y_px = _exact_pixel_offset(stage_y, pixel_size.Y, reverse=(y_direction == "up"))
     offsets = list(zip(offset_y_px.tolist(), offset_x_px.tolist()))
 
     row, column = _parse_well_name(nd2_stem, [None])
@@ -271,6 +286,7 @@ def convert_tiff_well_to_ome_ngff(
     feature_csv_dirs: Optional[Dict[str, Union[str, Path]]] = None,
     y_direction: str = "down",
     x_direction: str = "left",
+    placement: str = "grid",
     channel_names: Union[str, List[str], None] = None,
     num_levels: int = NUM_PYRAMID_LEVELS,
 ) -> None:
@@ -304,7 +320,7 @@ def convert_tiff_well_to_ome_ngff(
         ``quantify()`` result, or the *parent's* name when
         ``quantify(aggregate=True)`` was used (the caller decides this by
         which name it passes here, not this function).
-    y_direction, x_direction
+    y_direction, x_direction, placement
         See :func:`get_field_layout_from_tiff_metadata`.
     channel_names
         List of channel names in case those found in the TIFF metadata are
@@ -328,7 +344,9 @@ def convert_tiff_well_to_ome_ngff(
     feature_csv_dirs = feature_csv_dirs or {}
 
     logger.info(f"Reading layout for well {nd2_stem}")
-    layout = get_field_layout_from_tiff_metadata(nd2_stem, tiff_dir, y_direction=y_direction, x_direction=x_direction)
+    layout = get_field_layout_from_tiff_metadata(
+        nd2_stem, tiff_dir, y_direction=y_direction, x_direction=x_direction, placement=placement
+    )
     is_mip = layout.tile_shape[2] == 1
     manifest = _discover_well_manifest(nd2_stem, tiff_dir, label_dirs, feature_csv_dirs)
 
@@ -433,6 +451,7 @@ def tiff_to_ome_ngff(
     feature_csv_dirs: Optional[Dict[str, Union[str, Path]]] = None,
     y_direction: str = "down",
     x_direction: str = "left",
+    placement: str = "grid",
     channel_names: Union[str, List[str], None] = None,
 ) -> None:
     """Read a folder of field TIFFs + metadata sidecars (one well each,
@@ -457,7 +476,7 @@ def tiff_to_ome_ngff(
         PBS-style batch splitting, by well.
     label_dirs, feature_csv_dirs
         See :func:`convert_tiff_well_to_ome_ngff`.
-    y_direction, x_direction
+    y_direction, x_direction, placement
         See :func:`get_field_layout_from_tiff_metadata`.
     channel_names
         List of channel names in case those found in the TIFF metadata are
@@ -482,6 +501,7 @@ def tiff_to_ome_ngff(
             feature_csv_dirs=feature_csv_dirs,
             y_direction=y_direction,
             x_direction=x_direction,
+            placement=placement,
             channel_names=channel_names,
         )
 
@@ -512,6 +532,12 @@ if __name__ == "__main__":
         "-x", "--x_direction", default="left", help='direction of increasing (stage) x-coordinates ("left" or "right")'
     )
     convert_parser.add_argument(
+        "--placement",
+        default="grid",
+        choices=["grid", "exact"],
+        help='"grid" snaps fields to a tile grid (default); "exact" uses the raw stage offset directly',
+    )
+    convert_parser.add_argument(
         "-c", "--channel_names", type=str, nargs="+", default=None, help="list of channel names"
     )
     convert_parser.add_argument("-v", "--verbose", action="count", default=0, help="increase verbosity (e.g. -vvv)")
@@ -533,6 +559,7 @@ if __name__ == "__main__":
             batch_id=args.batch[1],
             y_direction=args.y_direction,
             x_direction=args.x_direction,
+            placement=args.placement,
             channel_names=args.channel_names,
         )
     elif args.command == "ensure-plate":

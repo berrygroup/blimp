@@ -9,8 +9,8 @@ metadata, and there is no tool to produce a smaller real one -- the `nd2`
 package (the most complete open reader for this proprietary format) has no
 writer for the native container, only write_ome_zarr()/write_tiff(). The
 pipeline was verified manually instead, against a real multi-position well
-file: correct stitching (both "grid" and "continuous" placement -- see
-get_field_layout), correct NGFF 0.5 metadata, and (for "continuous"
+file: correct stitching (both "grid" and "exact" placement -- see
+get_field_layout), correct NGFF 0.5 metadata, and (for "exact"
 placement specifically) a 99.84% exact pixel match against the source data,
 with differences confined to the expected tile-overlap zones from
 last-write-wins placement.

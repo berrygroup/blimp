@@ -1,24 +1,28 @@
 """Tests for tiff_to_ome_ngff.py -- assembling a whole-plate OME-NGFF store
 from an existing OME-TIFF pipeline (intensity, labels, features).
 
-No fixture exercises the full convert_tiff_well_to_ome_ngff pipeline
-end-to-end -- it needs real segmentation output. The pipeline was verified
-manually instead, against the real example nd2 file's own
-nd2_to_ome_tiff(mip=True) output: a 100% exact pixel match against a fresh
-nd2_to_ome_ngff conversion of the same file, correct global object IDs for
-two seeded fields, and correctly blank/row-free handling for two
-deliberately-omitted fields. The tests below cover the pure logic
+test_convert_tiff_well_to_ome_ngff_matches_reference exercises the full
+convert_tiff_well_to_ome_ngff pipeline end-to-end, against a small real
+fixture (4 fields from the example nd2 file's own nd2_to_ome_tiff(mip=True)
+output, real cellpose segmentation, 4x4-binned down to a few MB -- see
+tests/_data/datasets/tiff_to_ome_ngff_test/), for both "grid" and
+"exact" placement. The rest of the tests below cover the pure logic
 (metadata-driven layout, manifest discovery/logging) that pipeline is built
 from.
 """
 from pathlib import Path
 import logging
 
+from ngio import open_ome_zarr_container
+import numpy as np
 import pandas as pd
 import pytest
 
+from blimp.ome_ngff import ensure_plate_exists
+from blimp.constants import blimp_config
 from blimp.preprocessing.tiff_to_ome_ngff import (
     _discover_well_manifest,
+    convert_tiff_well_to_ome_ngff,
     get_field_layout_from_tiff_metadata,
 )
 
@@ -86,6 +90,44 @@ def test_get_field_layout_from_tiff_metadata_reads_real_tiff_and_csv(two_field_w
     assert layout.position_names == ["C09_0001", "C09_0002"]
 
 
+@pytest.fixture
+def two_field_well_overlapping(tmp_path):
+    """Like ``two_field_well``, but field 2's stage position is 1 physical
+    unit (2 px) short of a full tile pitch -- enough for grid clustering to
+    still put it in its own column (the gap exceeds tile_extent/2), but not
+    an exact tile multiple, so "grid" and "exact" placement disagree."""
+    nd2_stem = "WellC09_Seq0001"
+    tiff_dir = tmp_path
+    filenames = [f"{nd2_stem}_0001.ome.tiff", f"{nd2_stem}_0002.ome.tiff"]
+    for f in filenames:
+        _write_blank_tiff(tiff_dir / f)
+    _write_metadata_csv(
+        tiff_dir,
+        nd2_stem,
+        rows=[
+            {"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filenames[0]},
+            {"field_id": 2, "stage_x_abs": 7.0, "stage_y_abs": 0.0, "filename_ome_tiff": filenames[1]},
+        ],
+    )
+    return nd2_stem, tiff_dir, filenames
+
+
+def test_get_field_layout_from_tiff_metadata_grid_snaps_to_tile_pitch(two_field_well_overlapping):
+    nd2_stem, tiff_dir, _ = two_field_well_overlapping
+    layout = get_field_layout_from_tiff_metadata(nd2_stem, tiff_dir, placement="grid")
+    # Snapped flush at an exact multiple of the 16 px tile width, discarding
+    # the 2 px the raw stage positions would otherwise overlap by.
+    assert layout.offsets == [(0, 16), (0, 0)]
+
+
+def test_get_field_layout_from_tiff_metadata_exact_uses_raw_stage_offset(two_field_well_overlapping):
+    nd2_stem, tiff_dir, _ = two_field_well_overlapping
+    layout = get_field_layout_from_tiff_metadata(nd2_stem, tiff_dir, placement="exact")
+    # Raw offset from stage position (7.0 / 0.5 px per unit = 14 px), not
+    # snapped to the 16 px tile pitch -- field 2 overlaps field 1 by 2 px.
+    assert layout.offsets == [(0, 14), (0, 0)]
+
+
 def test_get_field_layout_from_tiff_metadata_raises_for_missing_sidecar(tmp_path):
     with pytest.raises(FileNotFoundError, match="metadata sidecar"):
         get_field_layout_from_tiff_metadata("NoSuchWell", tmp_path)
@@ -136,3 +178,45 @@ def test_discover_well_manifest_with_no_label_or_feature_dirs(two_field_well):
         "filename_ome_tiff",
         "intensity_exists",
     ]
+
+
+@pytest.mark.data
+@pytest.mark.parametrize("placement", ["grid", "exact"])
+def test_convert_tiff_well_to_ome_ngff_matches_reference(placement, tmp_path, _ensure_test_data):
+    """Full pipeline, real data: stitch the small downsampled fixture and
+    compare the result pixel-for-pixel against a reference store that was
+    built the same way and reviewed manually in napari (both intensity
+    mosaic and label placement) before being pinned here."""
+    testdata_config = blimp_config.get_data_config("testdata")
+    fixture_dir = Path(testdata_config.DATASET_DIR) / "tiff_to_ome_ngff_test"
+    nd2_stem = "WellC09_Channel647,488,561,405_Seq0006"
+
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    convert_tiff_well_to_ome_ngff(
+        nd2_stem=nd2_stem,
+        tiff_dir=fixture_dir / "OME-TIFF-MIP",
+        plate_path=plate_path,
+        label_dirs={"Nuclei": fixture_dir / "SEGMENTATION"},
+        placement=placement,
+    )
+
+    actual = open_ome_zarr_container(str(plate_path / "C" / "09" / "mip"))
+    expected = open_ome_zarr_container(
+        str(Path(testdata_config.RESOURCES_DIR) / f"tiff_to_ome_ngff_{placement}.zarr" / "C" / "09" / "mip")
+    )
+
+    np.testing.assert_array_equal(actual.get_image().get_as_numpy(), expected.get_image().get_as_numpy())
+    np.testing.assert_array_equal(
+        actual.get_label("Nuclei").get_as_numpy(), expected.get_label("Nuclei").get_as_numpy()
+    )
+
+    actual_pixel_size = actual.get_image().pixel_size
+    expected_pixel_size = expected.get_image().pixel_size
+    actual_rois = {
+        r.name: r.to_slicing_dict(pixel_size=actual_pixel_size) for r in actual.get_table("FOV_ROI_table").rois()
+    }
+    expected_rois = {
+        r.name: r.to_slicing_dict(pixel_size=expected_pixel_size) for r in expected.get_table("FOV_ROI_table").rois()
+    }
+    assert actual_rois == expected_rois

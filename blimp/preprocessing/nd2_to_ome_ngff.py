@@ -25,7 +25,12 @@ import numpy as np
 from blimp.log import configure_logging
 from blimp.ome_ngff import locate_well, NUM_PYRAMID_LEVELS, ensure_plate_exists
 from blimp.ome_ngff.plate import _write_well_image
-from blimp.ome_ngff.layout import FieldLayout, _parse_well_name, _cluster_grid_index
+from blimp.ome_ngff.layout import (
+    FieldLayout,
+    _parse_well_name,
+    _cluster_grid_index,
+    _exact_pixel_offset,
+)
 from blimp.preprocessing.nd2_to_ome_tiff import _get_list_of_files_current_batch
 
 logger = logging.getLogger(__name__)
@@ -68,13 +73,13 @@ def get_field_layout(
         :func:`blimp.ome_ngff.layout._cluster_grid_index`) and places each at
         an exact multiple of the tile size -- looks better when fields are
         meant to sit flush with no deliberate overlap, since it discards the
-        small (a few percent of tile size) stage jitter/axis cross-talk a
-        continuous offset would otherwise bake into the canvas. "continuous"
-        uses the raw
-        stage-position offset directly instead, which is more faithful to
-        the actual recorded positions -- prefer it if fields have genuine
-        deliberate overlap, or nominal positions are not expected to fall on
-        a regular grid.
+        small (a few percent of tile size) stage jitter/axis cross-talk an
+        unsnapped offset would otherwise bake into the canvas. "exact" uses
+        the raw stage-position offset directly instead (both modes read the
+        same recorded stage positions -- this is the only difference), which
+        is more faithful to the actual recorded positions -- prefer it if
+        fields have genuine deliberate overlap, or nominal positions are not
+        expected to fall on a regular grid.
 
     Returns
     -------
@@ -84,8 +89,8 @@ def get_field_layout(
         raise ValueError(f'y_direction = {y_direction}, only "up" or "down" are possible')
     if x_direction not in {"left", "right"}:
         raise ValueError(f'x_direction = {x_direction}, only "left" or "right" are possible')
-    if placement not in {"grid", "continuous"}:
-        raise ValueError(f'placement = {placement}, only "grid" or "continuous" are possible')
+    if placement not in {"grid", "exact"}:
+        raise ValueError(f'placement = {placement}, only "grid" or "exact" are possible')
 
     with nd2.ND2File(str(nd2_path)) as f:
         voxel_size = f.voxel_size()
@@ -125,14 +130,8 @@ def get_field_layout(
                 offset_x_px = col_idx * tile_shape[4]
                 offset_y_px = row_idx * tile_shape[3]
             else:
-                if x_direction == "right":
-                    offset_x_px = np.round((stage_x - stage_x.min()) / voxel_size.x).astype(int)
-                else:
-                    offset_x_px = np.round((stage_x.max() - stage_x) / voxel_size.x).astype(int)
-                if y_direction == "down":
-                    offset_y_px = np.round((stage_y - stage_y.min()) / voxel_size.y).astype(int)
-                else:
-                    offset_y_px = np.round((stage_y.max() - stage_y) / voxel_size.y).astype(int)
+                offset_x_px = _exact_pixel_offset(stage_x, voxel_size.x, reverse=(x_direction == "left"))
+                offset_y_px = _exact_pixel_offset(stage_y, voxel_size.y, reverse=(y_direction == "up"))
             offsets = list(zip(offset_y_px.tolist(), offset_x_px.tolist()))
 
         row, column = _parse_well_name(nd2_path, position_names)
@@ -194,7 +193,7 @@ def convert_individual_nd2_to_ome_ngff(
         See :func:`get_field_layout` for why this exists alongside
         ``y_direction``.
     placement
-        "grid" or "continuous" -- see :func:`get_field_layout`.
+        "grid" or "exact" -- see :func:`get_field_layout`.
     channel_names
         List of channel names in case those found in the image metadata
         are incorrect.
@@ -294,7 +293,7 @@ def nd2_to_ome_ngff(
     x_direction
         Direction of increasing (stage) x-coordinates ("left" or "right").
     placement
-        "grid" or "continuous" -- see :func:`get_field_layout`.
+        "grid" or "exact" -- see :func:`get_field_layout`.
     channel_names
         List of channel names in case those found in the image metadata
         are incorrect and need to be replaced.
@@ -362,8 +361,8 @@ if __name__ == "__main__":
     convert_parser.add_argument(
         "--placement",
         default="grid",
-        choices=["grid", "continuous"],
-        help='"grid" snaps fields to an exact tile grid (default); "continuous" uses raw stage offsets',
+        choices=["grid", "exact"],
+        help='"grid" snaps fields to a tile grid (default); "exact" uses the raw stage offset directly',
     )
     convert_parser.add_argument(
         "-c", "--channel_names", type=str, nargs="+", default=None, help="list of channel names"

@@ -12,6 +12,7 @@ from blimp.ome_ngff.layout import (
     _WELL_NAME_RE,
     _parse_well_name,
     _cluster_grid_index,
+    _exact_pixel_offset,
     _build_fov_roi_table,
 )
 
@@ -71,6 +72,18 @@ def test_cluster_grid_index_orders_clusters_ascending():
     idx = _cluster_grid_index(values, tile_extent=100.0)
     # cluster id must increase monotonically with the underlying value
     assert idx[1] < idx[2] < idx[0]
+
+
+def test_exact_pixel_offset_maps_min_stage_value_to_zero():
+    stage = np.array([100.0, 150.0, 125.0])
+    offset = _exact_pixel_offset(stage, pixel_size=5.0, reverse=False)
+    assert offset.tolist() == [0, 10, 5]
+
+
+def test_exact_pixel_offset_reverse_maps_max_stage_value_to_zero():
+    stage = np.array([100.0, 150.0, 125.0])
+    offset = _exact_pixel_offset(stage, pixel_size=5.0, reverse=True)
+    assert offset.tolist() == [10, 0, 5]
 
 
 def _make_field_layout(**overrides: Any) -> FieldLayout:
