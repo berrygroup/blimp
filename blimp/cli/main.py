@@ -53,7 +53,7 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--output_format",
         default="TIFF",
-        help="Output format for images (TIFF or NGFF, currently only TIFF implemented)",
+        help="Output format for images (TIFF or NGFF)",
     )
     parser.add_argument(
         "--mip",
@@ -116,6 +116,27 @@ def _add_convert_nd2_args(parser: argparse.ArgumentParser) -> None:
     """,
     )
     parser.add_argument(
+        "-x",
+        "--x_direction",
+        default="left",
+        help="""
+        --output_format NGFF only: direction of increasing (stage)
+        x-coordinates relative to the image ("left" or "right").
+        Default "left" -- override per-instrument if a microscope
+        needs "right" instead.
+    """,
+    )
+    parser.add_argument(
+        "--placement",
+        default="grid",
+        choices=["grid", "exact"],
+        help="""
+        --output_format NGFF only: "grid" (default) snaps fields to a
+        tile grid, discarding stage jitter; "exact" uses the raw stage
+        offset directly -- see nd2_to_ome_ngff.get_field_layout.
+    """,
+    )
+    parser.add_argument(
         "-c",
         "--channel_names",
         type=str,
@@ -138,6 +159,8 @@ def _convert_nd2(args) -> None:
         mip=args.mip,
         keep_stacks=args.keep_stacks,
         y_direction=args.y_direction,
+        x_direction=args.x_direction,
+        placement=args.placement,
         channel_names=args.channel_names,
         submit=args.submit,
         user=args.user,
