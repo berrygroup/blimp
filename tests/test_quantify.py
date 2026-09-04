@@ -914,6 +914,14 @@ def test_point_object_2D_aggregate(_ensure_test_data):
     assert (res.loc[mask, "Object2_intensity_mean_Channel1"] >= res.loc[mask, "Object2_intensity_min_Channel1"]).all()
     assert (res.loc[mask, "Object2_intensity_mean_Channel1"] <= res.loc[mask, "Object2_intensity_max_Channel1"]).all()
 
+    # The child (point) object's own point/blob status must survive
+    # aggregation under its own prefixed name, distinct from the parent's
+    # own (unprefixed) column -- see _quantify_point_object_aggregated_to_parent.
+    assert "Object2_is_point_object" in res.columns
+    assert res["Object2_is_point_object"].all()
+    assert "is_point_object" in res.columns
+    assert not res["is_point_object"].any()
+
     # Verify no duplicate columns with _x/_y suffixes
     assert not any(
         col.endswith("_x") or col.endswith("_y") for col in res.columns
@@ -1049,6 +1057,14 @@ def test_point_object_3D_aggregate(_ensure_test_data):
     mask = res["Object2_count"] > 0
     assert (res.loc[mask, "Object2_intensity_mean_Channel1"] >= res.loc[mask, "Object2_intensity_min_Channel1"]).all()
     assert (res.loc[mask, "Object2_intensity_mean_Channel1"] <= res.loc[mask, "Object2_intensity_max_Channel1"]).all()
+
+    # The child (point) object's own point/blob status must survive
+    # aggregation under its own prefixed name, distinct from the parent's
+    # own (unprefixed) column -- see _quantify_point_object_aggregated_to_parent.
+    assert "Object2_is_point_object" in res.columns
+    assert res["Object2_is_point_object"].all()
+    assert "is_point_object" in res.columns
+    assert not res["is_point_object"].any()
 
     # Verify no duplicate columns with _x/_y suffixes
     assert not any(
@@ -1365,3 +1381,13 @@ def test_aggregate_mixed_point_and_regular_objects_3D(_ensure_test_data):
 
     duplicate_cols = [col for col in result.columns if result.columns.tolist().count(col) > 1]
     assert len(duplicate_cols) == 0, f"Duplicate columns: {duplicate_cols}"
+
+    # Each aggregated child's own point/blob status must survive under its
+    # own prefixed name -- Object2/Object2_dup via the point-object fast
+    # path (_quantify_point_object_aggregated_to_parent), Object3 (a regular
+    # object, not in point_objects) via aggregate_and_merge_features. The
+    # parent's own (unprefixed) column must not be clobbered by any of them.
+    assert result["Object2_is_point_object"].all()
+    assert result["Object2_dup_is_point_object"].all()
+    assert not result["Object3_is_point_object"].any()
+    assert not result["is_point_object"].any()

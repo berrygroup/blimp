@@ -93,6 +93,7 @@ def _quantify_point_object_aggregated_to_parent(
             {
                 "parent_label": [],
                 f"{label_image.channel_names[measure_object_index]}_count": [],
+                f"{label_image.channel_names[measure_object_index]}_is_point_object": [],
             }
         )
 
@@ -147,6 +148,10 @@ def _quantify_point_object_aggregated_to_parent(
 
     result = pd.DataFrame(out_data)
     result["parent_label_name"] = label_image.channel_names[parent_object_index]
+    # Prefixed with the point object's own name (not a bare "is_point_object")
+    # to avoid colliding with the parent's own un-prefixed column of the same
+    # name once this merges into the parent-level output in quantify().
+    result[f"{measure_name}_is_point_object"] = True
     result[["TimepointID"]] = timepoint + 1
 
     return result
@@ -1105,6 +1110,14 @@ def aggregate_and_merge_features(
         count_var = non_parent_object_names[df_index] + "_count"
         object_count = df.groupby("parent_label").size().to_frame(count_var).reset_index()
         agg_df = agg_df.merge(object_count, how="left", left_on="parent_label", right_on="parent_label")
+
+        # retain whether this child object is a point object -- otherwise
+        # lost, since is_point_object is boolean and numeric_cols above
+        # excludes it from aggregation entirely. Constant across all of this
+        # child's own rows, so a single broadcast value applies to every
+        # group. Guarded for dataframes that predate the column.
+        if "is_point_object" in df.columns:
+            agg_df[non_parent_object_names[df_index] + "_is_point_object"] = df["is_point_object"].iloc[0]
 
         aggregated_dfs.append(agg_df)
 
