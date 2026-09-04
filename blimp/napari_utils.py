@@ -128,12 +128,80 @@ def add_labels_with_measurements(
     return viewer.add_labels(data, name=label_name, features=features)
 
 
+def add_points_with_measurements(
+    viewer: napari.Viewer,
+    image_group_path: Union[str, Path],
+    table_name: str,
+    name: Optional[str] = None,
+    size: float = 10,
+    face_color: str = "yellow",
+) -> "napari.layers.Points":
+    """Add a point-object ``GenericRoiTable`` (written by
+    ``blimp.ome_ngff.labels._write_well_points``) as a napari Points layer
+    with linked per-point features.
+
+    Point objects have no pixel-value identity to read back as a Labels
+    layer (see ``_write_well_points``) -- each is instead one small ROI in a
+    ``GenericRoiTable``, read here via ``ngio``'s own read API and converted
+    to one napari point per ROI, at its own center coordinate.
+
+    Parameters
+    ----------
+    viewer
+        The napari viewer to add the layer to.
+    image_group_path
+        Path to the OME-Zarr image group the table is attached to, e.g.
+        ``plate.zarr/C/09/mip``.
+    table_name
+        Name of the point-object table to read (the ``channel_name`` given
+        to ``_write_well_points``, e.g. ``"Spots"``).
+    name
+        Points layer name (default: ``table_name``).
+    size
+        Point marker diameter, in pixels.
+    face_color
+        Passed through to ``viewer.add_points``.
+
+    Returns
+    -------
+    napari.layers.Points
+    """
+    container = open_ome_zarr_container(str(image_group_path))
+    table = container.get_table(table_name)
+    pixel_size = container.get_image().pixel_size
+
+    coords = []
+    roi_names = []
+    for roi in table.rois():
+        slices = roi.to_slicing_dict(pixel_size=pixel_size)
+        point = [(slices[axis].start + slices[axis].stop) / 2 for axis in ("z", "y", "x") if axis in slices]
+        coords.append(point)
+        roi_names.append(roi.name)
+
+    features = None
+    df = table.dataframe
+    geometry_columns = [
+        "x_micrometer",
+        "y_micrometer",
+        "z_micrometer",
+        "len_x_micrometer",
+        "len_y_micrometer",
+        "len_z_micrometer",
+    ]
+    measurement_columns = [c for c in df.columns if c not in geometry_columns]
+    if measurement_columns:
+        features = df.loc[roi_names, measurement_columns].reset_index(drop=True)
+
+    return viewer.add_points(coords, name=name or table_name, size=size, face_color=face_color, features=features)
+
+
 # Functions bound onto a viewer instance by add_blimp_napari_methods(), keyed
 # by the method name they become. Add a new entry here to make a new
 # function available as viewer.<name>(...) too.
 _VIEWER_METHODS: Dict[str, Callable] = {
     "add_rois": add_rois,
     "add_labels_with_measurements": add_labels_with_measurements,
+    "add_points_with_measurements": add_points_with_measurements,
 }
 
 
