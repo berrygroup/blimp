@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 
 from blimp.log import configure_logging
-from blimp.ome_ngff import NUM_PYRAMID_LEVELS, ensure_plate_exists
+from blimp.ome_ngff import locate_well, NUM_PYRAMID_LEVELS, ensure_plate_exists
 from blimp.ome_ngff.plate import _write_well_image
 from blimp.ome_ngff.labels import _write_well_labels, _write_well_points
 from blimp.ome_ngff.layout import (
@@ -667,6 +667,11 @@ if __name__ == "__main__":
     ensure_parser.add_argument("--plate_name", default=None, help="name for the plate (default: derived from path)")
     ensure_parser.add_argument("-v", "--verbose", action="count", default=0, help="increase verbosity (e.g. -vvv)")
 
+    locate_parser = subparsers.add_parser("locate-well", help="Print the on-disk path of one well")
+    locate_parser.add_argument("-p", "--plate_path", help="path to the shared plate .zarr store", required=True)
+    locate_parser.add_argument("-w", "--well", help="well name, e.g. C09", required=True)
+    locate_parser.add_argument("-v", "--verbose", action="count", default=0, help="increase verbosity (e.g. -vvv)")
+
     args = parser.parse_args()
     configure_logging(args.verbose)
 
@@ -687,3 +692,5 @@ if __name__ == "__main__":
         )
     elif args.command == "ensure-plate":
         ensure_plate_exists(args.plate_path, args.plate_name or Path(args.plate_path).stem)
+    elif args.command == "locate-well":
+        locate_well(args.plate_path, args.well)
