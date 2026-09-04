@@ -20,6 +20,7 @@ import pytest
 
 from blimp.ome_ngff import ensure_plate_exists
 from blimp.constants import blimp_config
+from blimp.ome_ngff.labels import MAX_OBJECTS_PER_FIELD
 from blimp.preprocessing.tiff_to_ome_ngff import (
     _discover_well_manifest,
     _get_parent_channel_name,
@@ -304,6 +305,62 @@ def test_convert_tiff_well_to_ome_ngff_writes_every_channel_only_parent_gets_fea
 
     assert "Nuclei_features" in container.list_tables()
     assert "Cell_features" not in container.list_tables()
+
+
+def test_convert_tiff_well_to_ome_ngff_single_channel_needs_no_parent_label_name(tmp_path, caplog):
+    """Regression, from a real user's data: a single-channel label TIFF (no
+    parent/child relationship at all -- quantify() called without
+    parent_object, and predating the is_point_object column entirely) used
+    to require a 'parent_label_name' column that only exists for an
+    aggregated, multi-object quantify() call. With only one channel there is
+    nothing to disambiguate, so it should just work without either column
+    (falling back to blob for point/blob status, with a logged warning)."""
+    nd2_stem = "WellC09_Seq0001"
+    tiff_dir = tmp_path / "intensity"
+    tiff_dir.mkdir()
+    label_dir = tmp_path / "labels"
+    label_dir.mkdir()
+    feature_dir = tmp_path / "features"
+    feature_dir.mkdir()
+
+    filename = f"{nd2_stem}_0001.ome.tiff"
+    _write_blank_tiff(tiff_dir / filename)
+
+    nuclei_array = np.zeros((16, 16), dtype="uint16")
+    nuclei_array[0:8, 0:8] = 1
+    nuclei_array[8:16, 8:16] = 2
+    _write_label_tiff(label_dir / filename, {"Nuclei": nuclei_array})
+
+    # Real shape of a pre-is_point_object, non-aggregated quantify() CSV --
+    # no parent_label_name, no is_point_object, just "label" + feature columns.
+    pd.DataFrame({"label": [1, 2], "Nuclei_area": [64, 64], "TimepointID": [1, 1]}).to_csv(
+        feature_dir / f"{Path(filename).stem}.csv", index=False
+    )
+
+    _write_metadata_csv(
+        tiff_dir,
+        nd2_stem,
+        rows=[{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}],
+    )
+
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    with caplog.at_level(logging.WARNING):
+        convert_tiff_well_to_ome_ngff(
+            nd2_stem=nd2_stem,
+            tiff_dir=tiff_dir,
+            plate_path=plate_path,
+            label_dir=label_dir,
+            feature_csv_dir=feature_dir,
+        )
+    assert "Could not determine whether 'Nuclei' is a point-object channel" in caplog.text
+
+    container = open_ome_zarr_container(str(plate_path / "C" / "09" / "mip"))
+    assert container.list_labels() == ["Nuclei"]
+    assert "Nuclei_features" in container.list_tables()
+    df = container.get_feature_table("Nuclei_features").dataframe.reset_index()
+    offset = 1 * MAX_OBJECTS_PER_FIELD
+    assert set(df["label"]) == {1 + offset, 2 + offset}
 
 
 def test_convert_tiff_well_to_ome_ngff_routes_named_channel_to_generic_roi_table(tmp_path):

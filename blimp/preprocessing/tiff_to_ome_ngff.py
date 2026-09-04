@@ -230,6 +230,11 @@ def _get_parent_channel_name(feature_csv_columns_df: pd.DataFrame) -> str:
     ``parent_label_name`` column ``quantify()`` leaves on an aggregated
     result.
 
+    Only needed to disambiguate *between* multiple label channels -- a label
+    TIFF with a single channel has nothing to disambiguate, so callers skip
+    this and use that one channel's name directly instead (see
+    :func:`convert_tiff_well_to_ome_ngff`).
+
     ``quantify()``'s own top-level loop measures the parent object against
     *itself* as its own designated parent too (alongside every real child),
     and masking a channel's own label array with itself is trivially "every
@@ -441,7 +446,13 @@ def convert_tiff_well_to_ome_ngff(
                 break
         if feature_csv_columns_df is None:
             raise FileNotFoundError(f"No feature CSVs found at all for well {nd2_stem} in {feature_csv_dir}")
-        parent_channel_name = _get_parent_channel_name(feature_csv_columns_df)
+        if len(label_channel_names) == 1:
+            # No other channel to disambiguate against -- the CSV can only
+            # be about this one, whether or not quantify() was even called
+            # with a parent_object (there's nothing to aggregate around).
+            parent_channel_name = label_channel_names[0]
+        else:
+            parent_channel_name = _get_parent_channel_name(feature_csv_columns_df)
         if parent_channel_name not in label_channel_names:
             logger.warning(
                 f"Well {nd2_stem}: feature CSV's parent channel '{parent_channel_name}' is not among the "
