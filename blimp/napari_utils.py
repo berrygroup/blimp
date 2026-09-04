@@ -5,7 +5,7 @@ depends on ``napari`` and ``ngio``, so it works from a lightweight interactive
 viewing environment that doesn't have blimp's full (much heavier) dependency
 set installed, e.g. via ``pip install -e /path/to/blimp --no-deps``.
 """
-from typing import Dict, Union, Callable, Optional
+from typing import Dict, List, Union, Callable, Optional
 from pathlib import Path
 import types
 
@@ -73,6 +73,13 @@ def add_rois(
         edge_color=edge_color,
         face_color="transparent",
         edge_width=edge_width,
+        # Rectangle corners above are in pixel units (to_slicing_dict converted
+        # them); without this, napari treats those pixel values as world units
+        # directly (implicit scale=1), while the image/label layers opened via
+        # the napari-ome-zarr plugin already carry the real physical scale from
+        # NGFF metadata -- the two would disagree on what one world unit means,
+        # so this layer would render at the wrong size/position relative to them.
+        scale=(pixel_size.y, pixel_size.x),
         **kwargs,
     )
 
@@ -125,7 +132,14 @@ def add_labels_with_measurements(
         # back to a plain "label" column first.
         features = container.get_feature_table(table_name).dataframe.reset_index()
 
-    return viewer.add_labels(data, name=label_name, features=features)
+    # Without this, napari displays `data` in raw pixel units (implicit
+    # scale=1) -- disagreeing with any image/labels layer opened via the
+    # napari-ome-zarr plugin, which already carries the real physical scale
+    # from NGFF metadata. (t, z, y, x) trimmed to data's own leading axes.
+    pixel_size = label.pixel_size
+    scale = (pixel_size.t, pixel_size.z, pixel_size.y, pixel_size.x)[-data.ndim :]
+
+    return viewer.add_labels(data, name=label_name, features=features, scale=scale)
 
 
 def add_points_with_measurements(
@@ -172,9 +186,11 @@ def add_points_with_measurements(
 
     coords = []
     roi_names = []
+    axes: List[str] = []
     for roi in table.rois():
         slices = roi.to_slicing_dict(pixel_size=pixel_size)
-        point = [(slices[axis].start + slices[axis].stop) / 2 for axis in ("z", "y", "x") if axis in slices]
+        axes = [axis for axis in ("z", "y", "x") if axis in slices]
+        point = [(slices[axis].start + slices[axis].stop) / 2 for axis in axes]
         coords.append(point)
         roi_names.append(roi.name)
 
@@ -192,7 +208,17 @@ def add_points_with_measurements(
     if measurement_columns:
         features = df.loc[roi_names, measurement_columns].reset_index(drop=True)
 
-    return viewer.add_points(coords, name=name or table_name, size=size, face_color=face_color, features=features)
+    # coords above are in pixel units (to_slicing_dict converted them); without
+    # a matching scale, napari would treat those pixel values as world units
+    # directly, disagreeing with any image/labels layer opened via the
+    # napari-ome-zarr plugin, which already carries the real physical scale
+    # from NGFF metadata.
+    axis_to_pixel_size = {"z": pixel_size.z, "y": pixel_size.y, "x": pixel_size.x}
+    scale = tuple(axis_to_pixel_size[axis] for axis in axes)
+
+    return viewer.add_points(
+        coords, name=name or table_name, size=size, face_color=face_color, features=features, scale=scale
+    )
 
 
 # Functions bound onto a viewer instance by add_blimp_napari_methods(), keyed
