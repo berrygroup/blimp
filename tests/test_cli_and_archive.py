@@ -49,6 +49,52 @@ def test_convert_requires_input_type():
         _parse(["convert", "-i", "."])
 
 
+def test_convert_tiff_minimal_invocation(tmp_path):
+    args = _parse(["convert", "tiff", "-i", str(tmp_path), "-o", str(tmp_path / "plate.zarr"), "--user", "z1234567"])
+    assert args.input_type == "tiff"
+    assert callable(args.func)
+
+
+def test_convert_tiff_requires_user(tmp_path):
+    with pytest.raises(SystemExit):
+        _parse(["convert", "tiff", "-i", str(tmp_path), "-o", str(tmp_path / "plate.zarr")])
+
+
+def test_convert_tiff_requires_plate_path(tmp_path):
+    with pytest.raises(SystemExit):
+        _parse(["convert", "tiff", "-i", str(tmp_path), "--user", "z1234567"])
+
+
+def test_convert_tiff_accepts_label_and_feature_flags(tmp_path):
+    args = _parse(
+        [
+            "convert",
+            "tiff",
+            "-i",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "plate.zarr"),
+            "--user",
+            "z1234567",
+            "-l",
+            "/labels",
+            "-f",
+            "/features",
+            "--point_object_channel_names",
+            "Spots",
+            "Blobs",
+        ]
+    )
+    assert args.label_dir == "/labels"
+    assert args.feature_csv_dir == "/features"
+    assert args.point_object_channel_names == ["Spots", "Blobs"]
+
+
+def test_convert_tiff_output_format_defaults_to_ngff(tmp_path):
+    args = _parse(["convert", "tiff", "-i", str(tmp_path), "-o", str(tmp_path / "plate.zarr"), "--user", "z1234567"])
+    assert args.output_format == "NGFF"
+
+
 @pytest.mark.parametrize("input_type", ["nd2", "operetta"])
 def test_archive_subcommands_parse(input_type, tmp_path):
     """Regression: -j/--jobscript_path was marked required=True despite
