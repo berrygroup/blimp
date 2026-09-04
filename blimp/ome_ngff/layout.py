@@ -221,7 +221,7 @@ def _build_fov_roi_table(layout: FieldLayout) -> RoiTable:
     """
     pixel_size_x = layout.pixel_size_x if layout.pixel_size_x and layout.pixel_size_x > 0 else 1.0
     pixel_size_y = layout.pixel_size_y if layout.pixel_size_y and layout.pixel_size_y > 0 else 1.0
-    if pixel_size_x == 1.0 or pixel_size_y == 1.0:
+    if not (layout.pixel_size_x and layout.pixel_size_x > 0) or not (layout.pixel_size_y and layout.pixel_size_y > 0):
         logger.warning(
             "Missing or non-positive pixel size in source metadata; falling back to "
             "1.0 micrometer/pixel for the FOV ROI table. ROI extents will be wrong "
