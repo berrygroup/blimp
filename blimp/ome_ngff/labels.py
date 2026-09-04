@@ -23,12 +23,14 @@ from blimp.ome_ngff.layout import FieldLayout
 
 logger = logging.getLogger(__name__)
 
-# Upper bound on objects per field, used to shift each field's locally-unique
-# label IDs into a disjoint global range: global_id = field_id *
-# MAX_OBJECTS_PER_FIELD + local_id. 10 million comfortably supports
-# realistic field counts within uint32's ~4.29e9 ceiling (~400 fields/well
-# headroom) while keeping the paired human-readable id
-# (f"{well}_{field_id:04d}_{local_id:07d}") consistent with this same bound.
+# Upper bound on objects per field. Each field's own label IDs start at 1
+# (locally unique, but colliding across fields), so before placing a field
+# into the shared well canvas its IDs are shifted into a disjoint numeric
+# range: global_id = field_id * MAX_OBJECTS_PER_FIELD + local_id. 10 million
+# comfortably supports realistic field counts within uint32's ~4.29e9
+# ceiling (~400 fields/well headroom) while keeping the paired human-readable
+# id (f"{well}_{field_id:04d}_{local_id:07d}") consistent with this same
+# bound.
 MAX_OBJECTS_PER_FIELD = 10_000_000
 
 
@@ -106,7 +108,7 @@ def _write_well_labels(
         Name for the new label (e.g. ``"Nuclei"``).
     field_arrays
         Maps each field's ``field_id`` (matching ``layout.field_ids``) to
-        its own local 2D (Y, X) label array with locally-unique integer IDs
+        its own local (Z, Y, X) label array with locally-unique integer IDs
         starting at 1 -- or ``None`` for a field whose label TIFF was
         missing, substituted with a blank (all-zero) region.
     max_objects_per_field
@@ -163,8 +165,10 @@ def _write_well_points(
     channel_name
         Name for the new table (e.g. ``"Spots"``).
     field_masks
-        Maps each field's ``field_id`` to its own local 2D (Y, X) boolean/
-        binary point mask, or ``None`` if missing.
+        Maps each field's ``field_id`` to its own local boolean/binary point
+        mask -- 2D (Y, X) for a MIP well or 3D (Z, Y, X) for a real stack,
+        matching how the same field's blob channels are read -- or ``None``
+        if missing.
     field_features
         Maps each field's ``field_id`` to its own ``quantify()`` output for
         this channel (sequential ``label`` 1..N, matching ``np.argwhere``
@@ -174,6 +178,7 @@ def _write_well_points(
     """
     pixel_size_x = layout.pixel_size_x if layout.pixel_size_x and layout.pixel_size_x > 0 else 1.0
     pixel_size_y = layout.pixel_size_y if layout.pixel_size_y and layout.pixel_size_y > 0 else 1.0
+    pixel_size_z = layout.pixel_size_z if layout.pixel_size_z and layout.pixel_size_z > 0 else 1.0
 
     rois = []
     feature_rows = []
@@ -184,26 +189,25 @@ def _write_well_points(
             continue
 
         coords = np.argwhere(mask > 0)
+        is_3d = mask.ndim == 3
         offset = field_id * max_objects_per_field
         features_df = field_features.get(field_id)
 
-        for local_id_minus_one, (y, x) in enumerate(coords):
+        for local_id_minus_one, coord in enumerate(coords):
+            z, y, x = (int(coord[0]), int(coord[1]), int(coord[2])) if is_3d else (0, int(coord[0]), int(coord[1]))
             local_id = local_id_minus_one + 1
             global_id = int(offset + local_id)
             name = fov_object_id(well_name, field_id, local_id)
             world_y = float((y0 + y) * pixel_size_y)
             world_x = float((x0 + x) * pixel_size_x)
-            rois.append(
-                Roi.from_values(
-                    slices={
-                        "y": slice(world_y, world_y + pixel_size_y),
-                        "x": slice(world_x, world_x + pixel_size_x),
-                    },
-                    name=name,
-                    label=global_id,
-                    space="world",
-                )
-            )
+            slices = {
+                "y": slice(world_y, world_y + pixel_size_y),
+                "x": slice(world_x, world_x + pixel_size_x),
+            }
+            if is_3d:
+                world_z = float(z * pixel_size_z)
+                slices["z"] = slice(world_z, world_z + pixel_size_z)
+            rois.append(Roi.from_values(slices=slices, name=name, label=global_id, space="world"))
             if features_df is not None:
                 row = features_df.loc[features_df["label"] == local_id]
                 if not row.empty:

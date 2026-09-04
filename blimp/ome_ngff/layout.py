@@ -48,7 +48,7 @@ class FieldLayout:
     field_ids
         One stable, source-assigned integer field identifier per field, in
         the same order as ``offsets`` -- 1-indexed position order for an
-        nd2-sourced layout, the metadata sidecar's own ``field_id`` column
+        nd2-sourced layout, the metadata CSV's own ``field_id`` column
         for a TIFF-sourced one. Keys the global object-id formula in
         :mod:`blimp.ome_ngff.labels`/:mod:`blimp.ome_ngff.features`.
     """

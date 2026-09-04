@@ -33,7 +33,7 @@ def _write_metadata_csv(tiff_dir: Path, nd2_stem: str, rows: list) -> None:
     pd.DataFrame(rows).to_csv(tiff_dir / f"{nd2_stem}_metadata.csv", index=False)
 
 
-def _write_blank_tiff(path: Path) -> None:
+def _write_blank_tiff(path: Path, z: int = 1) -> None:
     """A minimal real OME-TIFF, just enough for BioImage to read shape/dtype/
     pixel size back -- avoids needing a real microscope file for pure-layout
     tests."""
@@ -42,7 +42,7 @@ def _write_blank_tiff(path: Path) -> None:
     import numpy as np
 
     OmeTiffWriter.save(
-        data=np.zeros((1, 2, 1, 16, 16), dtype="uint16"),
+        data=np.zeros((1, 2, z, 16, 16), dtype="uint16"),
         uri=str(path),
         dim_order="TCZYX",
         channel_names=["DAPI", "GFP"],
@@ -51,13 +51,15 @@ def _write_blank_tiff(path: Path) -> None:
 
 
 def _write_label_tiff(path: Path, channel_arrays: dict, pixel_size: float = 0.5) -> None:
-    """A small real multi-channel label TIFF: one channel per (name, 2D
-    array) pair, stacked in the given order."""
+    """A small real multi-channel label TIFF: one channel per (name, array)
+    pair, stacked in the given order. Each array is either 2D (Y, X, for a
+    MIP-style single-plane channel) or 3D (Z, Y, X, for a real stack)."""
     from bioio_base.types import PhysicalPixelSizes
     from bioio_ome_tiff.writers import OmeTiffWriter
 
     channel_names = list(channel_arrays.keys())
-    data = np.stack([channel_arrays[name] for name in channel_names])[np.newaxis, :, np.newaxis, :, :]
+    stacked = np.stack([channel_arrays[name] for name in channel_names])
+    data = stacked[np.newaxis, :, np.newaxis, :, :] if stacked.ndim == 3 else stacked[np.newaxis]
     OmeTiffWriter.save(
         data=data.astype("uint16"),
         uri=str(path),
@@ -147,8 +149,8 @@ def test_get_field_layout_from_tiff_metadata_exact_uses_raw_stage_offset(two_fie
     assert layout.offsets == [(0, 14), (0, 0)]
 
 
-def test_get_field_layout_from_tiff_metadata_raises_for_missing_sidecar(tmp_path):
-    with pytest.raises(FileNotFoundError, match="metadata sidecar"):
+def test_get_field_layout_from_tiff_metadata_raises_for_missing_metadata_csv(tmp_path):
+    with pytest.raises(FileNotFoundError, match="metadata CSV"):
         get_field_layout_from_tiff_metadata("NoSuchWell", tmp_path)
 
 
@@ -341,6 +343,51 @@ def test_convert_tiff_well_to_ome_ngff_routes_named_channel_to_generic_roi_table
     assert container.list_labels() == ["Nuclei"]
     assert "Spots" in container.list_tables()
     assert len(container.get_table("Spots").rois()) == 2
+
+
+def test_convert_tiff_well_to_ome_ngff_point_object_channel_supports_3d_stacks(tmp_path):
+    """Regression guard: a point-object channel in a real (non-MIP) z-stack
+    must place each point at its own z-plane, not collapse to 2D."""
+    nd2_stem = "WellC09_Seq0001"
+    tiff_dir = tmp_path / "intensity"
+    tiff_dir.mkdir()
+    label_dir = tmp_path / "labels"
+    label_dir.mkdir()
+
+    filename = f"{nd2_stem}_0001.ome.tiff"
+    _write_blank_tiff(tiff_dir / filename, z=3)
+
+    nuclei_array = np.zeros((3, 16, 16), dtype="uint16")
+    nuclei_array[0, 0:8, 0:8] = 1
+    spots_mask = np.zeros((3, 16, 16), dtype="uint16")
+    spots_mask[2, 2, 2] = 1  # a single point on the third z-plane
+    _write_label_tiff(label_dir / filename, {"Nuclei": nuclei_array, "Spots": spots_mask})
+
+    _write_metadata_csv(
+        tiff_dir,
+        nd2_stem,
+        rows=[{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}],
+    )
+
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    convert_tiff_well_to_ome_ngff(
+        nd2_stem=nd2_stem,
+        tiff_dir=tiff_dir,
+        plate_path=plate_path,
+        label_dir=label_dir,
+        point_object_channel_names=["Spots"],
+    )
+
+    container = open_ome_zarr_container(str(plate_path / "C" / "09" / "stack"))
+    table = container.get_table("Spots")
+    rois = table.rois()
+    assert len(rois) == 1
+    pixel_size = container.get_image().pixel_size
+    slices = rois[0].to_slicing_dict(pixel_size=pixel_size)
+    assert slices["z"] == slice(2, 3)
+    assert slices["y"] == slice(2, 3)
+    assert slices["x"] == slice(2, 3)
 
 
 def test_convert_tiff_well_to_ome_ngff_raises_for_unknown_point_object_channel_name(tmp_path):

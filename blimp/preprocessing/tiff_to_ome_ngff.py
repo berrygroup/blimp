@@ -1,34 +1,7 @@
 """Assemble a whole-plate OME-NGFF (OME-Zarr) store from an existing
-OME-TIFF pipeline: per-field intensity TIFFs (from ``nd2_to_ome_tiff.py``),
-per-field segmentation label TIFFs, and per-field ``quantify()`` measurement
-CSVs.
-
-Input contract (matches the lab's own established convention -- see
-``run_segment_and_quantify.py`` in the ``berrygroup/publications`` repo):
-one intensity TIFF, one (possibly multi-channel) label TIFF, and one
-already-aggregated measurements CSV per field, all sharing the intensity
-TIFF's own filename stem, each in their own directory (e.g.
-``OME-TIFF-MIP/``, ``SEGMENTATION/``, ``QUANTIFICATION/``). A label TIFF's
-own channel names (e.g. ``["Nuclei", "Cell"]``) name the objects it
-segments -- every channel is written as its own label layer, but only the
-one channel `quantify()`'s own aggregation was built around (its
-``parent_label_name``, see :func:`_get_parent_channel_name`) gets a
-``FeatureTable``, since a single aggregated CSV already folds every child
-object's stats into that one parent's own rows.
-
-Real stage positions are read from the metadata sidecar ``nd2_to_ome_tiff.py``
-writes alongside the field TIFFs (only when called with ``mip=True`` or
-``keep_stacks=True``) -- see ``nd2_parse_metadata.py::nd2_extract_metadata_and_save``.
-Placement is "grid" (default) or "exact", same choice and same meaning
-as ``nd2_to_ome_ngff.py`` -- see :func:`get_field_layout_from_tiff_metadata`.
-
-Robust to partial upstream failure, field by field: a missing intensity or
-label TIFF is substituted with a blank (all-zero) array of that field's tile
-shape; a missing measurements CSV simply contributes no rows to the
-parent's feature table for that field. The metadata sidecar's own field
-list is authoritative for "which fields should exist," independent of
-which downstream files actually landed on disk -- see
-:func:`_discover_well_manifest`.
+OME-TIFF pipeline: per-field intensity TIFFs, segmentation label TIFFs, and
+``quantify()`` measurement CSVs, matching the filename-stem convention in
+``run_segment_and_quantify.py`` (``berrygroup/publications`` repo).
 """
 from typing import Dict, List, Union, Optional
 from pathlib import Path
@@ -53,10 +26,6 @@ from blimp.ome_ngff.features import _write_well_features
 
 logger = logging.getLogger(__name__)
 
-# A source TIFF pipeline never carries channel-color metadata (confirmed:
-# nd2_to_ome_tiff.py's OmeTiffWriter.save() call never passes one), so the
-# TIFF-sourced layout always falls back to this cycle -- not a defensive
-# "just in case" branch, an expected characteristic of this input.
 _DEFAULT_CHANNEL_COLORS = ["FF0000", "00FF00", "0000FF", "FF00FF", "00FFFF", "FFFF00"]
 
 
@@ -65,20 +34,20 @@ def _metadata_csv_path(nd2_stem: str, tiff_dir: Union[str, Path]) -> Path:
 
 
 def _read_metadata_csv(nd2_stem: str, tiff_dir: Union[str, Path]) -> pd.DataFrame:
-    """Read and dedupe the ``nd2_to_ome_tiff.py`` metadata sidecar to one
+    """Read and dedupe the ``nd2_to_ome_tiff.py`` metadata CSV to one
     row per ``field_id``, sorted ascending.
 
     Raises
     ------
     FileNotFoundError
-        If the sidecar doesn't exist -- naming the flag that produces it,
+        If the metadata CSV doesn't exist -- naming the flag that produces it,
         since it's easy to have converted without it (``mip=False`` and
         ``keep_stacks=False``).
     """
     metadata_csv_path = _metadata_csv_path(nd2_stem, tiff_dir)
     if not metadata_csv_path.exists():
         raise FileNotFoundError(
-            f"No metadata sidecar found at {metadata_csv_path}. This is written by "
+            f"No metadata CSV found at {metadata_csv_path}. This is written by "
             "nd2_to_ome_tiff(...) only when called with mip=True or keep_stacks=True -- "
             "re-run the TIFF conversion with one of those flags to produce it."
         )
@@ -94,7 +63,7 @@ def get_field_layout_from_tiff_metadata(
     placement: str = "grid",
 ) -> FieldLayout:
     """Compute the stitching layout for a well's fields of view from
-    ``nd2_to_ome_tiff.py``'s own metadata sidecar, rather than from an nd2
+    ``nd2_to_ome_tiff.py``'s own metadata CSV, rather than from an nd2
     file directly.
 
     The raw ``stage_x_abs``/``stage_y_abs`` columns feed the same layout
@@ -106,10 +75,10 @@ def get_field_layout_from_tiff_metadata(
     ----------
     nd2_stem
         The source nd2 file's stem, e.g. ``"WellC09_Channel647..."`` --
-        shared by the metadata sidecar (``{nd2_stem}_metadata.csv``) and
+        shared by the metadata CSV (``{nd2_stem}_metadata.csv``) and
         every field TIFF's own filename.
     tiff_dir
-        Directory containing the field TIFFs and the metadata sidecar (e.g.
+        Directory containing the field TIFFs and the metadata CSV (e.g.
         an ``OME-TIFF-MIP/`` folder).
     y_direction, x_direction
         See :func:`blimp.preprocessing.nd2_to_ome_ngff.get_field_layout` --
@@ -126,7 +95,7 @@ def get_field_layout_from_tiff_metadata(
     Raises
     ------
     FileNotFoundError
-        If the metadata sidecar, or every field TIFF it lists, is missing.
+        If the metadata CSV, or every field TIFF it lists, is missing.
     """
     if y_direction not in {"up", "down"}:
         raise ValueError(f'y_direction = {y_direction}, only "up" or "down" are possible')
@@ -209,7 +178,7 @@ def _discover_well_manifest(
     label_dir: Optional[Union[str, Path]] = None,
     feature_csv_dir: Optional[Union[str, Path]] = None,
 ) -> pd.DataFrame:
-    """Cross-reference the metadata sidecar's field list (authoritative --
+    """Cross-reference the metadata CSV's field list (authoritative --
     fixed at acquisition time, independent of which downstream files
     actually exist) against what's actually present in the intensity TIFF
     directory, the label directory, and the feature-CSV directory. Logs a
@@ -225,7 +194,7 @@ def _discover_well_manifest(
     -------
     pd.DataFrame
         One row per ``field_id`` (plus ``stage_x_abs``/``stage_y_abs``/
-        ``filename_ome_tiff`` from the sidecar), with an added
+        ``filename_ome_tiff`` from the metadata CSV), with an added
         ``intensity_exists`` boolean column, and (if given) ``label_exists``/
         ``feature_exists`` boolean columns.
     """
@@ -288,20 +257,14 @@ def _is_point_object_channel(
     feature_csv_columns_df: Optional[pd.DataFrame],
     point_object_channel_names: Optional[List[str]],
 ) -> bool:
-    """Determine whether a label channel has no stable per-pixel identity
-    and should become a ``GenericRoiTable`` (via ``_write_well_points``)
-    rather than an ``ngio.Label`` (via ``_write_well_labels``).
+    """Whether a label channel should become a ``GenericRoiTable`` (via
+    ``_write_well_points``) rather than an ``ngio.Label`` (via
+    ``_write_well_labels``).
 
-    An explicit name wins first -- mirrors ``quantify()``'s own
-    ``point_objects`` parameter, which the caller already had to specify
-    explicitly when they ran ``quantify()`` in the first place. Otherwise,
-    if a feature CSV is available: the parent channel's own status is its
-    plain ``is_point_object`` column; any other channel's is its own
-    ``f"{name}_is_point_object"`` column (see
-    ``aggregate_and_merge_features``/``_quantify_point_object_aggregated_to_parent``
-    in ``quantify.py``). Falls back to ``False`` (blob) with a logged
-    warning if none of that is available -- point/blob-ness genuinely can't
-    be determined from the label file alone.
+    An explicit name wins first. Otherwise, if a feature CSV is available,
+    read it off the CSV's own ``is_point_object`` column (parent channel) or
+    ``f"{name}_is_point_object"`` column (any other channel). Defaults to
+    ``False`` (blob) with a logged warning if neither is available.
     """
     if point_object_channel_names and channel_name in point_object_channel_names:
         return True
@@ -338,11 +301,10 @@ def convert_tiff_well_to_ome_ngff(
     Parameters
     ----------
     nd2_stem
-        The source nd2 file's stem shared by the metadata sidecar and every
+        The source nd2 file's stem shared by the metadata CSV and every
         field TIFF's own filename (see :func:`get_field_layout_from_tiff_metadata`).
     tiff_dir
-        Directory containing the intensity field TIFFs and the metadata
-        sidecar.
+        Directory containing the intensity field TIFFs and the metadata CSV.
     plate_path
         Full path to the shared plate .zarr store. Must already exist --
         see :func:`blimp.ome_ngff.ensure_plate_exists`.
@@ -494,10 +456,6 @@ def convert_tiff_well_to_ome_ngff(
         )
         is_parent = feature_csv_dir is not None and label_name == parent_channel_name
 
-        # Point objects are read as flat 2D masks (_write_well_points has no
-        # 3D support); blob objects keep their real Z depth so a genuine 3D
-        # label places one slice per Z-plane rather than broadcasting a 2D
-        # mask across every plane.
         field_arrays: Dict[int, Optional[np.ndarray]] = {}
         for field_id in layout.field_ids:
             row = manifest_by_field.loc[field_id]
@@ -506,10 +464,7 @@ def convert_tiff_well_to_ome_ngff(
                 continue
             path = Path(label_dir) / row["filename_ome_tiff"]
             label_image = BioImage(str(path))
-            if is_point_object:
-                field_arrays[field_id] = np.squeeze(label_image.get_image_data("YX", C=channel_index, T=0))
-            else:
-                field_arrays[field_id] = label_image.get_image_data("ZYX", C=channel_index, T=0)
+            field_arrays[field_id] = label_image.get_image_data("ZYX", C=channel_index, T=0)
 
         # Only the parent channel gets measurements attached -- every child
         # object's stats are already folded into the parent's own rows.
@@ -553,7 +508,7 @@ def tiff_to_ome_ngff(
     placement: str = "grid",
     channel_names: Union[str, List[str], None] = None,
 ) -> None:
-    """Read a folder of field TIFFs + metadata sidecars (one well each,
+    """Read a folder of field TIFFs + metadata CSVs (one well each,
     named ``{nd2_stem}_metadata.csv``) and stitch them into a shared
     OME-NGFF plate store, including any configured labels/features. Can
     perform batch processing (one well per batch unit).
@@ -566,7 +521,7 @@ def tiff_to_ome_ngff(
     ----------
     in_path
         Directory containing the intensity field TIFFs and metadata
-        sidecars (e.g. an ``OME-TIFF-MIP/`` folder).
+        CSVs (e.g. an ``OME-TIFF-MIP/`` folder).
     plate_path
         Full path to the shared plate .zarr store.
     plate_name
@@ -614,7 +569,7 @@ if __name__ == "__main__":
 
     convert_parser = subparsers.add_parser("convert", help="Convert a folder of field TIFFs to OME-NGFF")
     convert_parser.add_argument(
-        "-i", "--in_path", help="directory containing field TIFFs and metadata sidecars", required=True
+        "-i", "--in_path", help="directory containing field TIFFs and metadata CSVs", required=True
     )
     convert_parser.add_argument("-o", "--plate_path", help="path to the shared plate .zarr store", required=True)
     convert_parser.add_argument("--plate_name", default=None, help="name for the plate (default: derived from path)")

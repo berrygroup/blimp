@@ -27,6 +27,7 @@ def generate_pbs_script(
     mip: bool,
     keep_stacks: bool,
     save_metadata_files: bool,
+    conda_env: str = "berrylab-py311",
 ) -> str:
     """Formats a PBS jobscript template using input arguments.
 
@@ -49,6 +50,8 @@ def generate_pbs_script(
         whether to save maximum-intensity-projections
     keep_stacks
         whether to save stacks
+    conda_env
+        name of the conda environment to activate on the compute node
 
     Returns
     -------
@@ -64,6 +67,7 @@ def generate_pbs_script(
         MIP="--mip" if mip else "",
         KEEP_STACKS="--keep_stacks" if keep_stacks else "",
         SAVE_METADATA_FILES="--save_metadata_files" if save_metadata_files else "",
+        CONDA_ENV=conda_env,
     )
 
 
@@ -79,6 +83,7 @@ def convert_operetta(
     submit: bool = False,
     user: str = "z1234567",
     email: str = "foo@bar.com",
+    conda_env: str = "berrylab-py311",
     dryrun: bool = False,
 ) -> None:
     """Recursively searches for 'Images' directories and creates a job script
@@ -116,6 +121,8 @@ def convert_operetta(
         username (your zID, must match the path to your data)
     email
         email address for job notifications
+    conda_env
+        name of the conda environment to activate on the compute node
     dryrun
         prepare scripts and echo commands without submitting
     """
@@ -150,6 +157,7 @@ def convert_operetta(
             mip=mip,
             keep_stacks=keep_stacks,
             save_metadata_files=save_metadata_files,
+            conda_env=conda_env,
         )
         # write to files
         with open(jobscript_path, "w+") as f:

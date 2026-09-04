@@ -8,7 +8,7 @@ already knows exactly which plate's output they want assembled, so
 ``in_path``/``plate_path`` are explicit, and the command runs once per
 plate -- matching ``tiff_to_ome_ngff()``'s own shape (it already takes an
 explicit ``in_path``/``plate_path`` and internally batches over however
-many wells' ``*_metadata.csv`` sidecars live under that one ``in_path``).
+many wells' ``*_metadata.csv`` files live under that one ``in_path``).
 """
 from typing import List, Union, Optional
 from pathlib import Path
@@ -37,6 +37,7 @@ def generate_pbs_script_tiff_ngff(
     label_dir: Optional[str] = None,
     feature_csv_dir: Optional[str] = None,
     point_object_channel_names: Optional[List[str]] = None,
+    conda_env: str = "berrylab-py311",
 ) -> str:
     """Formats a PBS jobscript template using
     ``tiff_to_ome_ngff.py``'s own CLI -- mirrors
@@ -47,7 +48,7 @@ def generate_pbs_script_tiff_ngff(
     template
         PBS jobscript template
     input_dir
-        full path to the directory of field TIFFs + metadata sidecars
+        full path to the directory of field TIFFs + metadata CSVs
     plate_path
         full path to the shared plate .zarr store (created up front by
         :func:`convert_tiff` before this jobscript is written)
@@ -66,6 +67,8 @@ def generate_pbs_script_tiff_ngff(
         incorrect
     label_dir, feature_csv_dir, point_object_channel_names
         see :func:`blimp.preprocessing.tiff_to_ome_ngff.convert_tiff_well_to_ome_ngff`
+    conda_env
+        name of the conda environment to activate on the compute node
 
     Returns
     -------
@@ -98,6 +101,7 @@ def generate_pbs_script_tiff_ngff(
         LABEL_DIR=f"--label_dir {label_dir}" if label_dir else "",
         FEATURE_CSV_DIR=f"--feature_csv_dir {feature_csv_dir}" if feature_csv_dir else "",
         POINT_OBJECT_CHANNEL_NAMES=point_object_channel_names_str,
+        CONDA_ENV=conda_env,
     )
 
 
@@ -119,6 +123,7 @@ def convert_tiff(
     submit: bool = False,
     user: str = "z1234567",
     email: str = "foo@bar.com",
+    conda_env: str = "berrylab-py311",
     dryrun: bool = False,
 ) -> None:
     """Creates a PBS job script to assemble one plate's existing OME-TIFF
@@ -138,8 +143,8 @@ def convert_tiff(
     ----------
     in_path
         Directory containing the intensity field TIFFs and metadata
-        sidecars for one plate (e.g. an ``OME-TIFF-MIP/`` folder) -- may
-        hold many wells, one ``*_metadata.csv`` sidecar each.
+        CSVs for one plate (e.g. an ``OME-TIFF-MIP/`` folder) -- may
+        hold many wells, one ``*_metadata.csv`` file each.
     plate_path
         Full path to the shared plate .zarr store to create/write to.
     image_format
@@ -176,6 +181,8 @@ def convert_tiff(
         username (your zID)
     email
         email address for job notifications
+    conda_env
+        name of the conda environment to activate on the compute node
     dryrun
         prepare the script and echo the command without submitting
     """
@@ -192,7 +199,7 @@ def convert_tiff(
 
     nd2_stems = sorted(p.stem[: -len("_metadata")] for p in in_path.glob("*_metadata.csv"))
     if not nd2_stems:
-        raise FileNotFoundError(f"No '*_metadata.csv' sidecars found under {in_path}")
+        raise FileNotFoundError(f"No '*_metadata.csv' files found under {in_path}")
     logger.info(f"Found {len(nd2_stems)} well(s) under {in_path}")
 
     if label_dir is None:
@@ -244,6 +251,7 @@ def convert_tiff(
         label_dir=str(Path(label_dir).resolve()) if label_dir is not None else None,
         feature_csv_dir=str(Path(feature_csv_dir).resolve()) if feature_csv_dir is not None else None,
         point_object_channel_names=point_object_channel_names,
+        conda_env=conda_env,
     )
 
     job_script_path = job_path / f"batch_convert_tiff_{in_path.stem}.pbs"

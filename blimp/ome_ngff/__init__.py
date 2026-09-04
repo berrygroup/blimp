@@ -1,10 +1,3 @@
-"""Shared OME-NGFF (OME-Zarr) writer core, used by every blimp source-format
-writer (``blimp.preprocessing.nd2_to_ome_ngff``,
-``blimp.preprocessing.tiff_to_ome_ngff``, and future Operetta support).
-
-Nothing here reads any particular source format directly -- see each
-submodule's own docstring for what it covers.
-"""
 from blimp.ome_ngff.plate import (
     locate_well,
     open_well_image,

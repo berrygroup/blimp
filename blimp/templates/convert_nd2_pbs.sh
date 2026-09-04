@@ -22,7 +22,7 @@ INPUT_DIR="{INPUT_DIR}"
 OUTPUT_DIR="{OUTPUT_DIR}"
 
 source /home/{USER}/.bashrc
-conda activate berrylab-py310
+conda activate {CONDA_ENV}
 
 cd $PBS_O_WORKDIR
 

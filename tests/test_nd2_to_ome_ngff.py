@@ -1,19 +1,11 @@
 """Tests for nd2_to_ome_ngff.py -- the nd2-specific glue around the shared
-blimp.ome_ngff writer core (see tests/test_ome_ngff_*.py for the generic
+blimp.ome_ngff writer core (see tests/test_ome_ngff.py for the generic
 logic: grid clustering, ROI tables, NGFF metadata, plate/well registration).
 
-No fixture exercises the full convert_individual_nd2_to_ome_ngff pipeline
-(well registration, tile placement, pyramid generation) end-to-end: the
-existing reference .nd2 files are single-position with no well-plate
-metadata, and there is no tool to produce a smaller real one -- the `nd2`
-package (the most complete open reader for this proprietary format) has no
-writer for the native container, only write_ome_zarr()/write_tiff(). The
-pipeline was verified manually instead, against a real multi-position well
-file: correct stitching (both "grid" and "exact" placement -- see
-get_field_layout), correct NGFF 0.5 metadata, and (for "exact"
-placement specifically) a 99.84% exact pixel match against the source data,
-with differences confined to the expected tile-overlap zones from
-last-write-wins placement.
+The full convert_individual_nd2_to_ome_ngff pipeline is untested here against
+a real reference .nd2 file (none of the existing reference files are
+multi-position well acquisitions); it was instead verified manually against
+a real multi-position well file -- see PR #9.
 """
 from pathlib import Path
 

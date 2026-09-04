@@ -1,17 +1,15 @@
 """Convert Nikon nd2 files to OME-NGFF (OME-Zarr) format.
 
 Each nd2 file is treated as a single well containing several stage-position
-fields of view, which are stitched into one contiguous mosaic image per well
-using nominal grid placement from stage coordinates (no sub-pixel
-registration). Wells are written into one shared OME-Zarr plate store per
-plate (HCS layout), rather than one independent store per well, to avoid the
-"many small files" problem that a store-per-well layout would create.
+fields of view, stitched into one contiguous mosaic image per well using
+nominal grid placement from stage coordinates (no sub-pixel registration).
+Wells are written into one shared OME-Zarr plate store per plate (HCS
+layout), matching the standard OME-NGFF plate structure rather than one
+independent store per well.
 
 Plate/well registration and NGFF metadata construction live in
 ``blimp.ome_ngff`` (shared across every source format); this module supplies
-only what's specific to reading an nd2 file directly -- stage positions,
-voxel size, and channel metadata, via the ``nd2`` package's own structured
-API (pinned -- see ``requirements.txt``).
+only what's specific to reading an nd2 file directly.
 """
 from typing import List, Union, Optional
 from pathlib import Path
@@ -45,41 +43,25 @@ def get_field_layout(
     """Compute the stitching layout for an nd2 file's fields of view.
 
     Reads stage positions, voxel size, and channel metadata directly from
-    the nd2 file via the ``nd2`` package's own structured API, rather than
-    via the older ``nd2reader``-based metadata pipeline in
-    ``nd2_parse_metadata.py``, for more robust cross-version compatibility.
+    the nd2 file via the ``nd2`` package's own structured API.
 
     Parameters
     ----------
     nd2_path
         Full path to the .nd2 image file.
     y_direction
-        Direction of increasing (stage) y-coordinates (possible values are
-        "up" and "down"), matching the convention already established in
-        ``nd2_parse_metadata.py::get_standard_field_id_mapping``.
+        Direction of increasing (stage) y-coordinates ("up" or "down").
     x_direction
         Direction of increasing (stage) x-coordinates relative to the image
-        ("left" or "right"). Unlike ``y_direction``, this has no precedent
-        elsewhere in blimp -- ``nd2_to_ome_tiff.py``/``nd2_parse_metadata.py``
-        never needed it, since they number fields rather than placing them on
-        a stitched canvas. Added after a real microscope was found to need
-        it: some stage/camera combinations report x independently of y, so a
-        correct y_direction does not guarantee x needs no equivalent flip.
-        Defaults to "left", the most commonly used setup in this lab.
-        Override per-instrument if a different microscope needs "right"
-        instead.
+        ("left" or "right") -- override per-instrument if a microscope
+        reports x independently of y.
     placement
         "grid" (default) clusters fields into rows/columns first (see
         :func:`blimp.ome_ngff.layout._cluster_grid_index`) and places each at
-        an exact multiple of the tile size -- looks better when fields are
-        meant to sit flush with no deliberate overlap, since it discards the
-        small (a few percent of tile size) stage jitter/axis cross-talk an
-        unsnapped offset would otherwise bake into the canvas. "exact" uses
-        the raw stage-position offset directly instead (both modes read the
-        same recorded stage positions -- this is the only difference), which
-        is more faithful to the actual recorded positions -- prefer it if
-        fields have genuine deliberate overlap, or nominal positions are not
-        expected to fall on a regular grid.
+        an exact multiple of the tile size, discarding stage jitter. "exact"
+        uses the raw stage-position offset directly -- prefer it if fields
+        have genuine deliberate overlap, or positions aren't expected to
+        fall on a regular grid.
 
     Returns
     -------

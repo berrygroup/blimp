@@ -81,6 +81,11 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
         help="Whether to submit jobs after creating jobscripts (default = False)",
     )
     parser.add_argument(
+        "--conda_env",
+        default="berrylab-py311",
+        help="Name of the conda environment to activate on the compute node (default = berrylab-py311)",
+    )
+    parser.add_argument(
         "--verify-only",
         default=False,
         action="store_true",
@@ -151,7 +156,7 @@ def _add_convert_tiff_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-i",
         "--input_path",
-        help="Directory containing field TIFFs and metadata sidecars for one plate (required)",
+        help="Directory containing field TIFFs and metadata CSVs for one plate (required)",
         required=True,
     )
     parser.add_argument("-o", "--plate_path", help="Path to the shared plate .zarr store (required)", required=True)
@@ -179,6 +184,11 @@ def _add_convert_tiff_args(parser: argparse.ArgumentParser) -> None:
         default=False,
         action="store_true",
         help="Whether to submit jobs after creating jobscripts (default = False)",
+    )
+    parser.add_argument(
+        "--conda_env",
+        default="berrylab-py311",
+        help="Name of the conda environment to activate on the compute node (default = berrylab-py311)",
     )
     parser.add_argument(
         "-y",
@@ -250,6 +260,7 @@ def _convert_tiff(args) -> None:
         submit=args.submit,
         user=args.user,
         email=args.email,
+        conda_env=args.conda_env,
         dryrun=False,
     )
     return None
@@ -273,6 +284,7 @@ def _convert_nd2(args) -> None:
         submit=args.submit,
         user=args.user,
         email=args.email,
+        conda_env=args.conda_env,
         dryrun=False,
     )
     return None
@@ -303,6 +315,7 @@ def _convert_operetta(args) -> None:
             submit=args.submit,
             user=args.user,
             email=args.email,
+            conda_env=args.conda_env,
             dryrun=False,
         )
     return None

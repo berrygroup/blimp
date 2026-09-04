@@ -41,6 +41,7 @@ def generate_pbs_script(
     keep_stacks: bool,
     y_direction: str,
     channel_names: Union[str, List[str], None] = None,
+    conda_env: str = "berrylab-py311",
 ) -> str:
     """Formats a PBS jobscript template using input arguments.
 
@@ -70,6 +71,8 @@ def generate_pbs_script(
     channel_names
         List of channel names in case those found in the
         image metadata are incorrect and need to be replaced
+    conda_env
+        name of the conda environment to activate on the compute node
 
     Returns
     -------
@@ -94,6 +97,7 @@ def generate_pbs_script(
         KEEP_STACKS="--keep_stacks" if keep_stacks else "",
         Y_DIRECTION=y_direction,
         CHANNEL_NAMES=channel_names,
+        CONDA_ENV=conda_env,
     )
 
 
@@ -111,6 +115,7 @@ def generate_pbs_script_ngff(
     x_direction: str,
     placement: str,
     channel_names: Union[str, List[str], None] = None,
+    conda_env: str = "berrylab-py311",
 ) -> str:
     """Formats a PBS jobscript template for the NGFF output format, using
     :func:`blimp.preprocessing.nd2_to_ome_ngff.nd2_to_ome_ngff`'s own CLI
@@ -145,6 +150,8 @@ def generate_pbs_script_ngff(
     channel_names
         List of channel names in case those found in the
         image metadata are incorrect and need to be replaced
+    conda_env
+        name of the conda environment to activate on the compute node
 
     Returns
     -------
@@ -171,6 +178,7 @@ def generate_pbs_script_ngff(
         X_DIRECTION=x_direction,
         PLACEMENT=placement,
         CHANNEL_NAMES=channel_names,
+        CONDA_ENV=conda_env,
     )
 
 
@@ -189,6 +197,7 @@ def convert_nd2(
     submit: bool = False,
     user: str = "z1234567",
     email: str = "foo@bar.com",
+    conda_env: str = "berrylab-py311",
     dryrun: bool = False,
 ) -> None:
     """Recursively searches for .nd2 files and creates a job script to convert
@@ -231,6 +240,8 @@ def convert_nd2(
         username (your zID)
     email
         email address for job notifications
+    conda_env
+        name of the conda environment to activate on the compute node
     dryrun
         prepare scripts and echo commands without submitting
     """
@@ -300,6 +311,7 @@ def convert_nd2(
                 keep_stacks=keep_stacks,
                 y_direction=y_direction,
                 channel_names=channel_names,
+                conda_env=conda_env,
             )
         else:
             # Created up front (idempotent, and cheap -- see
@@ -320,6 +332,7 @@ def convert_nd2(
                 x_direction=x_direction,
                 placement=placement,
                 channel_names=channel_names,
+                conda_env=conda_env,
             )
         # write to files
         with open(job_path, "w+") as f:
