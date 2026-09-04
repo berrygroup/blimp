@@ -15,6 +15,9 @@ File handling
 
     preprocessing.convert_nd2
     preprocessing.nd2_to_ome_tiff
+    preprocessing.nd2_to_ome_ngff
+    preprocessing.convert_tiff
+    preprocessing.tiff_to_ome_ngff
     preprocessing.convert_operetta
     preprocessing.operetta_to_ome_tiff
     preprocessing.operetta_parse_metadata.get_image_metadata

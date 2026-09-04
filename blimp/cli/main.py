@@ -53,7 +53,7 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--output_format",
         default="TIFF",
-        help="Output format for images (TIFF or NGFF, currently only TIFF implemented)",
+        help="Output format for images (TIFF or NGFF)",
     )
     parser.add_argument(
         "--mip",
@@ -79,6 +79,11 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
         default=False,
         action="store_true",
         help="Whether to submit jobs after creating jobscripts (default = False)",
+    )
+    parser.add_argument(
+        "--conda_env",
+        default="berrylab-py311",
+        help="Name of the conda environment to activate on the compute node (default = berrylab-py311)",
     )
     parser.add_argument(
         "--verify-only",
@@ -116,12 +121,147 @@ def _add_convert_nd2_args(parser: argparse.ArgumentParser) -> None:
     """,
     )
     parser.add_argument(
+        "-x",
+        "--x_direction",
+        default="left",
+        help="""
+        --output_format NGFF only: direction of increasing (stage)
+        x-coordinates relative to the image ("left" or "right").
+        Default "left" -- override per-instrument if a microscope
+        needs "right" instead.
+    """,
+    )
+    parser.add_argument(
+        "--placement",
+        default="grid",
+        choices=["grid", "exact"],
+        help="""
+        --output_format NGFF only: "grid" (default) snaps fields to a
+        tile grid, discarding stage jitter; "exact" uses the raw stage
+        offset directly -- see nd2_to_ome_ngff.get_field_layout.
+    """,
+    )
+    parser.add_argument(
         "-c",
         "--channel_names",
         type=str,
         nargs="+",
         default=None,
         help="List of channel names",
+    )
+    return None
+
+
+def _add_convert_tiff_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "-i",
+        "--input_path",
+        help="Directory containing field TIFFs and metadata CSVs for one plate (required)",
+        required=True,
+    )
+    parser.add_argument("-o", "--plate_path", help="Path to the shared plate .zarr store (required)", required=True)
+    parser.add_argument("--plate_name", default=None, help="Name for the plate (default: derived from path)")
+    parser.add_argument(
+        "-j",
+        "--jobscript_path",
+        default=os.getcwd(),
+        help="Directory to save PBS jobscripts (default = current working directory)",
+    )
+    parser.add_argument(
+        "--output_format",
+        default="NGFF",
+        help="Output format (only NGFF is currently supported for this input type)",
+    )
+    parser.add_argument("--user", metavar="ZID", help="Your zID for HPC submission (required)", required=True)
+    parser.add_argument("--email", help="Email address for job notifications", required=False)
+    parser.add_argument(
+        "--batch",
+        default=1,
+        help="When using batch processing, provide the number of batches, by well (default = 1)",
+    )
+    parser.add_argument(
+        "--submit",
+        default=False,
+        action="store_true",
+        help="Whether to submit jobs after creating jobscripts (default = False)",
+    )
+    parser.add_argument(
+        "--conda_env",
+        default="berrylab-py311",
+        help="Name of the conda environment to activate on the compute node (default = berrylab-py311)",
+    )
+    parser.add_argument(
+        "-y",
+        "--y_direction",
+        default="down",
+        help='Direction of increasing (stage) y-coordinates ("up" or "down")',
+    )
+    parser.add_argument(
+        "-x",
+        "--x_direction",
+        default="left",
+        help='Direction of increasing (stage) x-coordinates ("left" or "right")',
+    )
+    parser.add_argument(
+        "--placement",
+        default="grid",
+        choices=["grid", "exact"],
+        help='"grid" (default) snaps fields to a tile grid, discarding stage jitter; '
+        '"exact" uses the raw stage offset directly',
+    )
+    parser.add_argument(
+        "-c",
+        "--channel_names",
+        type=str,
+        nargs="+",
+        default=None,
+        help="List of channel names",
+    )
+    parser.add_argument(
+        "-l",
+        "--label_dir",
+        default=None,
+        help="Directory containing one (possibly multi-channel) label TIFF per field",
+    )
+    parser.add_argument(
+        "-f",
+        "--feature_csv_dir",
+        default=None,
+        help="Directory containing one already-aggregated quantify() CSV per field",
+    )
+    parser.add_argument(
+        "--point_object_channel_names",
+        type=str,
+        nargs="+",
+        default=None,
+        help="Label channel names, if any, with no stable per-pixel identity (see quantify()'s point_objects)",
+    )
+    return None
+
+
+def _convert_tiff(args) -> None:
+    """Wrapper for convert_tiff()"""
+    from blimp.preprocessing.convert_tiff import convert_tiff
+
+    convert_tiff(
+        in_path=args.input_path,
+        plate_path=args.plate_path,
+        image_format=args.output_format,
+        plate_name=args.plate_name,
+        label_dir=args.label_dir,
+        feature_csv_dir=args.feature_csv_dir,
+        point_object_channel_names=args.point_object_channel_names,
+        n_batches=args.batch,
+        y_direction=args.y_direction,
+        x_direction=args.x_direction,
+        placement=args.placement,
+        channel_names=args.channel_names,
+        job_path=args.jobscript_path,
+        submit=args.submit,
+        user=args.user,
+        email=args.email,
+        conda_env=args.conda_env,
+        dryrun=False,
     )
     return None
 
@@ -138,10 +278,13 @@ def _convert_nd2(args) -> None:
         mip=args.mip,
         keep_stacks=args.keep_stacks,
         y_direction=args.y_direction,
+        x_direction=args.x_direction,
+        placement=args.placement,
         channel_names=args.channel_names,
         submit=args.submit,
         user=args.user,
         email=args.email,
+        conda_env=args.conda_env,
         dryrun=False,
     )
     return None
@@ -172,6 +315,7 @@ def _convert_operetta(args) -> None:
             submit=args.submit,
             user=args.user,
             email=args.email,
+            conda_env=args.conda_env,
             dryrun=False,
         )
     return None
@@ -318,6 +462,20 @@ def _get_full_parser() -> argparse.ArgumentParser:
     convert_operetta_subparser.set_defaults(func=_convert_operetta)
     _add_convert_args(convert_operetta_subparser)
     _add_convert_operetta_args(convert_operetta_subparser)
+
+    # Convert - TIFF pipeline
+    convert_tiff_header = """
+        * tiff: Assemble an existing OME-TIFF pipeline's output
+          (intensity, labels, features) into a whole-plate OME-NGFF store.
+    """
+    convert_tiff_subparser = convert_subparsers.add_parser(
+        "tiff",
+        help="Existing OME-TIFF pipeline output",
+        description="".join([header, convert_header, convert_tiff_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    convert_tiff_subparser.set_defaults(func=_convert_tiff)
+    _add_convert_tiff_args(convert_tiff_subparser)
 
     # Archive
 

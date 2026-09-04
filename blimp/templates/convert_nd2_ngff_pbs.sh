@@ -1,10 +1,10 @@
 #!/bin/bash
 
-### Splits a set of operetta images into batches and converts to OME-TIFF
+### Stitches nd2 files into a whole-plate OME-NGFF (OME-Zarr) store
 
-#PBS -N ConvertOperetta
-#PBS -l select=1:ncpus=1:mem=32gb
-#PBS -l walltime=04:00:00
+#PBS -N ConvertND2NGFF
+#PBS -l select=1:ncpus=1:mem=128gb
+#PBS -l walltime=08:00:00
 #PBS -o {LOG_DIR}/
 #PBS -e {LOG_DIR}/
 #PBS -M {USER_EMAIL}
@@ -19,15 +19,15 @@
 ###---------------------------------------------------------------------------
 
 INPUT_DIR="{INPUT_DIR}"
-OUTPUT_DIR="{INPUT_DIR}/OME-TIFF"
+PLATE_PATH="{PLATE_PATH}"
 
 source /home/{USER}/.bashrc
 conda activate {CONDA_ENV}
 
 cd $PBS_O_WORKDIR
 
-python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/operetta_to_ome_tiff.py \
--i "$INPUT_DIR/Images" -o "$OUTPUT_DIR" -f Index.idx.xml --batch {N_BATCHES} \
-{BATCH_ID_EXPR} {MIP} {KEEP_STACKS} {SAVE_METADATA_FILES}
+python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/nd2_to_ome_ngff.py convert \
+-i "$INPUT_DIR" -o "$PLATE_PATH" --batch {N_BATCHES} {BATCH_ID_EXPR} \
+{MIP} {KEEP_STACKS} -y {Y_DIRECTION} -x {X_DIRECTION} --placement {PLACEMENT} {CHANNEL_NAMES}
 
 conda deactivate
