@@ -7,7 +7,7 @@ import glob
 import logging
 import subprocess
 
-from blimp.utils import read_template
+from blimp.utils import read_template, pbs_array_directive
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +57,16 @@ def generate_pbs_script(
     -------
     Template as a formatted string to be written to file
     """
+    array_directive, batch_id_expr = pbs_array_directive(n_batches)
+
     return template.format(
         INPUT_DIR=input_dir,
         LOG_DIR=log_dir,
         USER=user,
         USER_EMAIL=email,
         N_BATCHES=n_batches,
-        BATCH_MAX=n_batches - 1,
+        ARRAY_DIRECTIVE=array_directive,
+        BATCH_ID_EXPR=batch_id_expr,
         MIP="--mip" if mip else "",
         KEEP_STACKS="--keep_stacks" if keep_stacks else "",
         SAVE_METADATA_FILES="--save_metadata_files" if save_metadata_files else "",

@@ -13,7 +13,7 @@ from blimp.preprocessing.convert_tiff import convert_tiff, generate_pbs_script_t
 
 def test_generate_pbs_script_tiff_ngff_formats_template_with_everything():
     template = (
-        "{INPUT_DIR}|{PLATE_PATH}|{LOG_DIR}|{USER}|{USER_EMAIL}|{N_BATCHES}|{BATCH_MAX}|"
+        "{INPUT_DIR}|{PLATE_PATH}|{LOG_DIR}|{USER}|{USER_EMAIL}|{N_BATCHES}|{ARRAY_DIRECTIVE}|{BATCH_ID_EXPR}|"
         "{Y_DIRECTION}|{X_DIRECTION}|{PLACEMENT}|{CHANNEL_NAMES}|{LABEL_DIR}|{FEATURE_CSV_DIR}|"
         "{POINT_OBJECT_CHANNEL_NAMES}"
     )
@@ -34,9 +34,29 @@ def test_generate_pbs_script_tiff_ngff_formats_template_with_everything():
         point_object_channel_names=["Spots"],
     )
     assert result == (
-        "/in|/plate.zarr|/log|z1234567|a@b.com|4|3|down|left|grid|--channel_names DAPI GFP|"
-        "--label_dir /labels|--feature_csv_dir /features|--point_object_channel_names Spots"
+        "/in|/plate.zarr|/log|z1234567|a@b.com|4|#PBS -J 0-3|${PBS_ARRAY_INDEX}|down|left|grid|"
+        "--channel_names DAPI GFP|--label_dir /labels|--feature_csv_dir /features|"
+        "--point_object_channel_names Spots"
     )
+
+
+def test_generate_pbs_script_tiff_ngff_skips_array_directive_for_one_batch():
+    """Regression: a real PBS Pro cluster rejected "-J 0-0" outright as an
+    illegal value, so a single-batch job must not use array syntax at all."""
+    template = "{ARRAY_DIRECTIVE}|{BATCH_ID_EXPR}"
+    result = generate_pbs_script_tiff_ngff(
+        template=template,
+        input_dir="/in",
+        plate_path="/plate.zarr",
+        log_dir="/log",
+        user="z1234567",
+        email="a@b.com",
+        n_batches=1,
+        y_direction="down",
+        x_direction="left",
+        placement="grid",
+    )
+    assert result == "|0"
 
 
 def test_generate_pbs_script_tiff_ngff_formats_template_with_nothing_optional():

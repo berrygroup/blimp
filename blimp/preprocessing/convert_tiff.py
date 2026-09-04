@@ -15,7 +15,7 @@ from pathlib import Path
 import logging
 import subprocess
 
-from blimp.utils import read_template
+from blimp.utils import read_template, pbs_array_directive
 from blimp.ome_ngff import ensure_plate_exists
 from blimp.preprocessing.tiff_to_ome_ngff import _discover_well_manifest
 
@@ -86,6 +86,8 @@ def generate_pbs_script_tiff_ngff(
     else:
         point_object_channel_names_str = "--point_object_channel_names " + (" ".join(point_object_channel_names))
 
+    array_directive, batch_id_expr = pbs_array_directive(n_batches)
+
     return template.format(
         INPUT_DIR=input_dir,
         PLATE_PATH=plate_path,
@@ -93,7 +95,8 @@ def generate_pbs_script_tiff_ngff(
         USER=user,
         USER_EMAIL=email,
         N_BATCHES=n_batches,
-        BATCH_MAX=n_batches - 1,
+        ARRAY_DIRECTIVE=array_directive,
+        BATCH_ID_EXPR=batch_id_expr,
         Y_DIRECTION=y_direction,
         X_DIRECTION=x_direction,
         PLACEMENT=placement,

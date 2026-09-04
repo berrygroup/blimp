@@ -14,7 +14,7 @@
 ### batch number on each node. Batches should run from zero to N_BATCHES-1
 ### to process all files
 
-#PBS -J 0-{BATCH_MAX}
+{ARRAY_DIRECTIVE}
 
 ###---------------------------------------------------------------------------
 
@@ -27,7 +27,7 @@ conda activate {CONDA_ENV}
 cd $PBS_O_WORKDIR
 
 python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/nd2_to_ome_ngff.py convert \
--i "$INPUT_DIR" -o "$PLATE_PATH" --batch {N_BATCHES} ${{PBS_ARRAY_INDEX}} \
+-i "$INPUT_DIR" -o "$PLATE_PATH" --batch {N_BATCHES} {BATCH_ID_EXPR} \
 {MIP} {KEEP_STACKS} -y {Y_DIRECTION} -x {X_DIRECTION} --placement {PLACEMENT} {CHANNEL_NAMES}
 
 conda deactivate

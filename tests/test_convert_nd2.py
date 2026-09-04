@@ -12,7 +12,10 @@ from blimp.preprocessing.convert_nd2 import (
 
 
 def test_generate_pbs_script_formats_tiff_template():
-    template = "{INPUT_DIR}|{OUTPUT_DIR}|{LOG_DIR}|{USER}|{USER_EMAIL}|{N_BATCHES}|{BATCH_MAX}|{MIP}|{KEEP_STACKS}|{Y_DIRECTION}|{CHANNEL_NAMES}"
+    template = (
+        "{INPUT_DIR}|{OUTPUT_DIR}|{LOG_DIR}|{USER}|{USER_EMAIL}|{N_BATCHES}|{ARRAY_DIRECTIVE}|{BATCH_ID_EXPR}|"
+        "{MIP}|{KEEP_STACKS}|{Y_DIRECTION}|{CHANNEL_NAMES}"
+    )
     result = generate_pbs_script(
         template=template,
         input_dir="/in",
@@ -26,12 +29,33 @@ def test_generate_pbs_script_formats_tiff_template():
         y_direction="down",
         channel_names=["DAPI", "GFP"],
     )
-    assert result == "/in|/out|/log|z1234567|a@b.com|4|3|--mip||down|--channel_names DAPI GFP"
+    assert result == (
+        "/in|/out|/log|z1234567|a@b.com|4|#PBS -J 0-3|${PBS_ARRAY_INDEX}|--mip||down|--channel_names DAPI GFP"
+    )
+
+
+def test_generate_pbs_script_formats_tiff_template_skips_array_directive_for_one_batch():
+    """Regression: a real PBS Pro cluster rejected "-J 0-0" outright as an
+    illegal value, so a single-batch job must not use array syntax at all."""
+    template = "{ARRAY_DIRECTIVE}|{BATCH_ID_EXPR}"
+    result = generate_pbs_script(
+        template=template,
+        input_dir="/in",
+        output_dir="/out",
+        log_dir="/log",
+        user="z1234567",
+        email="a@b.com",
+        n_batches=1,
+        mip=True,
+        keep_stacks=False,
+        y_direction="down",
+    )
+    assert result == "|0"
 
 
 def test_generate_pbs_script_ngff_formats_ngff_template():
     template = (
-        "{INPUT_DIR}|{PLATE_PATH}|{LOG_DIR}|{USER}|{USER_EMAIL}|{N_BATCHES}|{BATCH_MAX}|"
+        "{INPUT_DIR}|{PLATE_PATH}|{LOG_DIR}|{USER}|{USER_EMAIL}|{N_BATCHES}|{ARRAY_DIRECTIVE}|{BATCH_ID_EXPR}|"
         "{MIP}|{KEEP_STACKS}|{Y_DIRECTION}|{X_DIRECTION}|{PLACEMENT}|{CHANNEL_NAMES}"
     )
     result = generate_pbs_script_ngff(
@@ -49,7 +73,7 @@ def test_generate_pbs_script_ngff_formats_ngff_template():
         placement="grid",
         channel_names=None,
     )
-    assert result == "/in|/plate.zarr|/log|z1234567|a@b.com|4|3|--mip||down|left|grid|"
+    assert result == ("/in|/plate.zarr|/log|z1234567|a@b.com|4|#PBS -J 0-3|${PBS_ARRAY_INDEX}|--mip||down|left|grid|")
 
 
 @pytest.fixture

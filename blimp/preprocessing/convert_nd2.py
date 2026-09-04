@@ -6,7 +6,7 @@ import glob
 import logging
 import subprocess
 
-from blimp.utils import read_template
+from blimp.utils import read_template, pbs_array_directive
 from blimp.ome_ngff import ensure_plate_exists
 
 logger = logging.getLogger(__name__)
@@ -85,6 +85,8 @@ def generate_pbs_script(
             channel_names = [channel_names]
         channel_names = "--channel_names " + (" ".join(channel_names))
 
+    array_directive, batch_id_expr = pbs_array_directive(n_batches)
+
     return template.format(
         INPUT_DIR=input_dir,
         OUTPUT_DIR=output_dir,
@@ -92,7 +94,8 @@ def generate_pbs_script(
         USER=user,
         USER_EMAIL=email,
         N_BATCHES=n_batches,
-        BATCH_MAX=n_batches - 1,
+        ARRAY_DIRECTIVE=array_directive,
+        BATCH_ID_EXPR=batch_id_expr,
         MIP="--mip" if mip else "",
         KEEP_STACKS="--keep_stacks" if keep_stacks else "",
         Y_DIRECTION=y_direction,
@@ -164,6 +167,8 @@ def generate_pbs_script_ngff(
             channel_names = [channel_names]
         channel_names = "--channel_names " + (" ".join(channel_names))
 
+    array_directive, batch_id_expr = pbs_array_directive(n_batches)
+
     return template.format(
         INPUT_DIR=input_dir,
         PLATE_PATH=plate_path,
@@ -171,7 +176,8 @@ def generate_pbs_script_ngff(
         USER=user,
         USER_EMAIL=email,
         N_BATCHES=n_batches,
-        BATCH_MAX=n_batches - 1,
+        ARRAY_DIRECTIVE=array_directive,
+        BATCH_ID_EXPR=batch_id_expr,
         MIP="--mip" if mip else "",
         KEEP_STACKS="--keep_stacks" if keep_stacks else "",
         Y_DIRECTION=y_direction,
