@@ -79,7 +79,18 @@ def ensure_plate_exists(
     try:
         plate = create_empty_plate(store=str(plate_path), name=plate_name, ngff_version=NGFF_VERSION, overwrite=False)
     except NgioFileExistsError:
-        return open_ome_zarr_plate(store=str(plate_path), mode="r+")
+        try:
+            return open_ome_zarr_plate(store=str(plate_path), mode="r+")
+        except NgioFileNotFoundError as e:
+            # create_empty_plate refused because the path is non-empty, but
+            # what's there isn't a valid OME-Zarr plate store either (e.g.
+            # plate_path is an unrelated, already-populated directory) --
+            # surface one clear error instead of this confusing pairing.
+            raise FileExistsError(
+                f"{plate_path} already exists and is not empty, but does not contain a valid "
+                "OME-Zarr plate store. Pass a path to a new location, or to an existing plate "
+                "store created by this same pipeline."
+            ) from e
 
     for row in _PLATE_ROWS[plate_size]:
         plate.add_row(row)

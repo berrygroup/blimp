@@ -276,6 +276,18 @@ def test_ensure_plate_exists_is_idempotent(tmp_path):
     assert plate2.rows == [chr(ord("A") + i) for i in range(16)]
 
 
+def test_ensure_plate_exists_raises_clear_error_for_non_empty_non_plate_directory(tmp_path):
+    """Regression: passing a plate_path that already exists and has content,
+    but isn't itself a valid OME-Zarr plate store (e.g. -o . run from an
+    ordinary working directory), used to raise a confusing chained
+    NgioFileExistsError/NgioFileNotFoundError pair -- create_empty_plate
+    refuses because the directory is non-empty, and the fallback open then
+    fails because there's no real plate store there either."""
+    (tmp_path / "some_unrelated_file.txt").write_text("hello")
+    with pytest.raises(FileExistsError, match="valid OME-Zarr plate store"):
+        ensure_plate_exists(tmp_path, "test_plate")
+
+
 # --------------------------------------------------------------------------- #
 # labels.py -- segmentation label placement with reproducible global IDs,
 # and the point-object GenericRoiTable path
