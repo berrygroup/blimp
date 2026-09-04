@@ -521,6 +521,7 @@ if __name__ == "__main__":
     convert_parser.add_argument(
         "--batch",
         nargs=2,
+        type=int,
         default=[1, 0],
         metavar=("N_BATCHES", "BATCH_ID"),
         help="number of batches and the current batch to process (0-indexed)",
