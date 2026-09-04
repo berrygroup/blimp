@@ -1,7 +1,7 @@
 # Development environment for blimp.
 #
-#   conda env create -f environment-dev.yml
-#   conda activate blimp-dev
+#   conda env create -f environment.yml
+#   conda activate berrylab-py311
 #   pip install -e ".[test,dev]"        # editable install + tox/pytest/pre-commit
 #   pre-commit install                  # optional: run hooks on commit
 #   tox -e offline                      # fast check, no network or reference data
@@ -9,7 +9,7 @@
 # conda-forge supplies the compiled stack; the pip-only dependencies arrive via
 # `pip install -e .`. Do not duplicate a dependency in both places -- that is
 # how you get two copies and an import resolving to the wrong one.
-name: blimp-dev
+name: berrylab-py311
 channels:
 -   conda-forge
 dependencies:
