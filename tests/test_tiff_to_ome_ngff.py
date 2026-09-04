@@ -22,6 +22,8 @@ from blimp.ome_ngff import ensure_plate_exists
 from blimp.constants import blimp_config
 from blimp.preprocessing.tiff_to_ome_ngff import (
     _discover_well_manifest,
+    _get_parent_channel_name,
+    _is_point_object_channel,
     convert_tiff_well_to_ome_ngff,
     get_field_layout_from_tiff_metadata,
 )
@@ -45,6 +47,23 @@ def _write_blank_tiff(path: Path) -> None:
         dim_order="TCZYX",
         channel_names=["DAPI", "GFP"],
         physical_pixel_sizes=PhysicalPixelSizes(1.0, 0.5, 0.5),
+    )
+
+
+def _write_label_tiff(path: Path, channel_arrays: dict, pixel_size: float = 0.5) -> None:
+    """A small real multi-channel label TIFF: one channel per (name, 2D
+    array) pair, stacked in the given order."""
+    from bioio_base.types import PhysicalPixelSizes
+    from bioio_ome_tiff.writers import OmeTiffWriter
+
+    channel_names = list(channel_arrays.keys())
+    data = np.stack([channel_arrays[name] for name in channel_names])[np.newaxis, :, np.newaxis, :, :]
+    OmeTiffWriter.save(
+        data=data.astype("uint16"),
+        uri=str(path),
+        dim_order="TCZYX",
+        channel_names=channel_names,
+        physical_pixel_sizes=PhysicalPixelSizes(1.0, pixel_size, pixel_size),
     )
 
 
@@ -156,15 +175,13 @@ def test_discover_well_manifest_flags_missing_label_and_feature_files(two_field_
     # neither field's feature CSV exists
 
     with caplog.at_level(logging.WARNING):
-        manifest = _discover_well_manifest(
-            nd2_stem, tiff_dir, label_dirs={"Nuclei": label_dir}, feature_csv_dirs={"Nuclei": feature_dir}
-        )
+        manifest = _discover_well_manifest(nd2_stem, tiff_dir, label_dir=label_dir, feature_csv_dir=feature_dir)
 
     assert manifest["intensity_exists"].tolist() == [True, True]
-    assert manifest["label_exists_Nuclei"].tolist() == [True, False]
-    assert manifest["feature_exists_Nuclei"].tolist() == [False, False]
-    assert "label 'Nuclei' missing for field_id(s) [2]" in caplog.text
-    assert "feature CSV 'Nuclei' missing for field_id(s) [1, 2]" in caplog.text
+    assert manifest["label_exists"].tolist() == [True, False]
+    assert manifest["feature_exists"].tolist() == [False, False]
+    assert "label TIFF missing for field_id(s) [2]" in caplog.text
+    assert "feature CSV missing for field_id(s) [1, 2]" in caplog.text
 
 
 def test_discover_well_manifest_with_no_label_or_feature_dirs(two_field_well):
@@ -178,6 +195,180 @@ def test_discover_well_manifest_with_no_label_or_feature_dirs(two_field_well):
         "filename_ome_tiff",
         "intensity_exists",
     ]
+
+
+def test_get_parent_channel_name_reads_column():
+    df = pd.DataFrame({"label": [1, 2], "parent_label_name": ["Nuclei", "Nuclei"]})
+    assert _get_parent_channel_name(df) == "Nuclei"
+
+
+def test_get_parent_channel_name_raises_when_column_absent():
+    df = pd.DataFrame({"label": [1, 2]})
+    with pytest.raises(ValueError, match="parent_label_name"):
+        _get_parent_channel_name(df)
+
+
+def test_is_point_object_channel_explicit_name_wins():
+    # No feature CSV at all -- the explicit name is the only signal.
+    assert _is_point_object_channel("Spots", None, None, ["Spots"]) is True
+    assert _is_point_object_channel("Nuclei", None, None, ["Spots"]) is False
+
+
+def test_is_point_object_channel_reads_parent_own_column():
+    df = pd.DataFrame({"label": [1], "parent_label_name": ["Nuclei"], "is_point_object": [False]})
+    assert _is_point_object_channel("Nuclei", "Nuclei", df, None) is False
+
+
+def test_is_point_object_channel_reads_child_prefixed_column():
+    df = pd.DataFrame(
+        {
+            "label": [1],
+            "parent_label_name": ["Nuclei"],
+            "is_point_object": [False],
+            "Spots_is_point_object": [True],
+        }
+    )
+    assert _is_point_object_channel("Spots", "Nuclei", df, None) is True
+
+
+def test_is_point_object_channel_falls_back_to_blob_and_warns(caplog):
+    df = pd.DataFrame({"label": [1], "parent_label_name": ["Nuclei"], "is_point_object": [False]})
+    with caplog.at_level(logging.WARNING):
+        # "Cell" has no f"Cell_is_point_object" column and isn't named explicitly.
+        assert _is_point_object_channel("Cell", "Nuclei", df, None) is False
+    assert "Could not determine whether 'Cell' is a point-object channel" in caplog.text
+
+
+def test_convert_tiff_well_to_ome_ngff_writes_every_channel_only_parent_gets_features(tmp_path):
+    """Regression guard for the old label_image.get_image_data(..., C=0)
+    hardcoding: a genuinely multi-channel label TIFF must have each channel
+    read from its own index, not channel 0 broadcast to every label -- and
+    only the channel quantify()'s own aggregation was built around gets a
+    FeatureTable."""
+    nd2_stem = "WellC09_Seq0001"
+    tiff_dir = tmp_path / "intensity"
+    tiff_dir.mkdir()
+    label_dir = tmp_path / "labels"
+    label_dir.mkdir()
+    feature_dir = tmp_path / "features"
+    feature_dir.mkdir()
+
+    filename = f"{nd2_stem}_0001.ome.tiff"
+    _write_blank_tiff(tiff_dir / filename)
+
+    nuclei_array = np.zeros((16, 16), dtype="uint16")
+    nuclei_array[0:8, 0:8] = 1
+    nuclei_array[8:16, 8:16] = 2
+    cell_array = np.zeros((16, 16), dtype="uint16")
+    cell_array[0:8, :] = 5
+    cell_array[8:16, :] = 6
+    _write_label_tiff(label_dir / filename, {"Nuclei": nuclei_array, "Cell": cell_array})
+
+    pd.DataFrame(
+        {
+            "label": [1, 2],
+            "parent_label_name": ["Nuclei", "Nuclei"],
+            "is_point_object": [False, False],
+            "Cell_count": [3, 2],
+            "Cell_is_point_object": [False, False],
+        }
+    ).to_csv(feature_dir / f"{Path(filename).stem}.csv", index=False)
+
+    _write_metadata_csv(
+        tiff_dir,
+        nd2_stem,
+        rows=[{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}],
+    )
+
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    convert_tiff_well_to_ome_ngff(
+        nd2_stem=nd2_stem,
+        tiff_dir=tiff_dir,
+        plate_path=plate_path,
+        label_dir=label_dir,
+        feature_csv_dir=feature_dir,
+    )
+
+    container = open_ome_zarr_container(str(plate_path / "C" / "09" / "mip"))
+    assert set(container.list_labels()) == {"Nuclei", "Cell"}
+
+    nuclei_values = set(np.unique(container.get_label("Nuclei").get_as_numpy())) - {0}
+    cell_values = set(np.unique(container.get_label("Cell").get_as_numpy())) - {0}
+    assert nuclei_values, "Nuclei channel should have real (non-background) values"
+    # The old bug always read channel 0 (Nuclei) for every label -- these
+    # must be genuinely different data, not the same array read twice.
+    assert nuclei_values != cell_values
+
+    assert "Nuclei_features" in container.list_tables()
+    assert "Cell_features" not in container.list_tables()
+
+
+def test_convert_tiff_well_to_ome_ngff_routes_named_channel_to_generic_roi_table(tmp_path):
+    nd2_stem = "WellC09_Seq0001"
+    tiff_dir = tmp_path / "intensity"
+    tiff_dir.mkdir()
+    label_dir = tmp_path / "labels"
+    label_dir.mkdir()
+
+    filename = f"{nd2_stem}_0001.ome.tiff"
+    _write_blank_tiff(tiff_dir / filename)
+
+    nuclei_array = np.zeros((16, 16), dtype="uint16")
+    nuclei_array[0:8, 0:8] = 1
+    spots_mask = np.zeros((16, 16), dtype="uint16")
+    spots_mask[2, 2] = 1
+    spots_mask[10, 10] = 1
+    _write_label_tiff(label_dir / filename, {"Nuclei": nuclei_array, "Spots": spots_mask})
+
+    _write_metadata_csv(
+        tiff_dir,
+        nd2_stem,
+        rows=[{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}],
+    )
+
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    convert_tiff_well_to_ome_ngff(
+        nd2_stem=nd2_stem,
+        tiff_dir=tiff_dir,
+        plate_path=plate_path,
+        label_dir=label_dir,
+        point_object_channel_names=["Spots"],
+    )
+
+    container = open_ome_zarr_container(str(plate_path / "C" / "09" / "mip"))
+    assert container.list_labels() == ["Nuclei"]
+    assert "Spots" in container.list_tables()
+    assert len(container.get_table("Spots").rois()) == 2
+
+
+def test_convert_tiff_well_to_ome_ngff_raises_for_unknown_point_object_channel_name(tmp_path):
+    nd2_stem = "WellC09_Seq0001"
+    tiff_dir = tmp_path / "intensity"
+    tiff_dir.mkdir()
+    label_dir = tmp_path / "labels"
+    label_dir.mkdir()
+
+    filename = f"{nd2_stem}_0001.ome.tiff"
+    _write_blank_tiff(tiff_dir / filename)
+    _write_label_tiff(label_dir / filename, {"Nuclei": np.zeros((16, 16), dtype="uint16")})
+    _write_metadata_csv(
+        tiff_dir,
+        nd2_stem,
+        rows=[{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}],
+    )
+
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    with pytest.raises(ValueError, match="Spots"):
+        convert_tiff_well_to_ome_ngff(
+            nd2_stem=nd2_stem,
+            tiff_dir=tiff_dir,
+            plate_path=plate_path,
+            label_dir=label_dir,
+            point_object_channel_names=["Spots"],
+        )
 
 
 @pytest.mark.data
@@ -197,7 +388,7 @@ def test_convert_tiff_well_to_ome_ngff_matches_reference(placement, tmp_path, _e
         nd2_stem=nd2_stem,
         tiff_dir=fixture_dir / "OME-TIFF-MIP",
         plate_path=plate_path,
-        label_dirs={"Nuclei": fixture_dir / "SEGMENTATION"},
+        label_dir=fixture_dir / "SEGMENTATION",
         placement=placement,
     )
 

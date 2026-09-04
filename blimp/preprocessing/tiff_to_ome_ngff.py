@@ -5,9 +5,16 @@ CSVs.
 
 Input contract (matches the lab's own established convention -- see
 ``run_segment_and_quantify.py`` in the ``berrygroup/publications`` repo):
-one intensity TIFF, one label TIFF, and one measurements CSV per field, all
-sharing the intensity TIFF's own filename stem, each in their own directory
-(e.g. ``OME-TIFF-MIP/``, ``SEGMENTATION/``, ``QUANTIFICATION/``).
+one intensity TIFF, one (possibly multi-channel) label TIFF, and one
+already-aggregated measurements CSV per field, all sharing the intensity
+TIFF's own filename stem, each in their own directory (e.g.
+``OME-TIFF-MIP/``, ``SEGMENTATION/``, ``QUANTIFICATION/``). A label TIFF's
+own channel names (e.g. ``["Nuclei", "Cell"]``) name the objects it
+segments -- every channel is written as its own label layer, but only the
+one channel `quantify()`'s own aggregation was built around (its
+``parent_label_name``, see :func:`_get_parent_channel_name`) gets a
+``FeatureTable``, since a single aggregated CSV already folds every child
+object's stats into that one parent's own rows.
 
 Real stage positions are read from the metadata sidecar ``nd2_to_ome_tiff.py``
 writes alongside the field TIFFs (only when called with ``mip=True`` or
@@ -17,10 +24,11 @@ as ``nd2_to_ome_ngff.py`` -- see :func:`get_field_layout_from_tiff_metadata`.
 
 Robust to partial upstream failure, field by field: a missing intensity or
 label TIFF is substituted with a blank (all-zero) array of that field's tile
-shape; a missing measurements CSV simply contributes no rows to that
-object's feature table. The metadata sidecar's own field list is
-authoritative for "which fields should exist," independent of which
-downstream files actually landed on disk -- see :func:`_discover_well_manifest`.
+shape; a missing measurements CSV simply contributes no rows to the
+parent's feature table for that field. The metadata sidecar's own field
+list is authoritative for "which fields should exist," independent of
+which downstream files actually landed on disk -- see
+:func:`_discover_well_manifest`.
 """
 from typing import Dict, List, Union, Optional
 from pathlib import Path
@@ -198,28 +206,29 @@ def get_field_layout_from_tiff_metadata(
 def _discover_well_manifest(
     nd2_stem: str,
     tiff_dir: Union[str, Path],
-    label_dirs: Optional[Dict[str, Union[str, Path]]] = None,
-    feature_csv_dirs: Optional[Dict[str, Union[str, Path]]] = None,
+    label_dir: Optional[Union[str, Path]] = None,
+    feature_csv_dir: Optional[Union[str, Path]] = None,
 ) -> pd.DataFrame:
     """Cross-reference the metadata sidecar's field list (authoritative --
     fixed at acquisition time, independent of which downstream files
     actually exist) against what's actually present in the intensity TIFF
-    directory, each named label directory, and each named feature-CSV
-    directory. Logs a per-source summary naming exactly which field IDs are
-    missing, so gaps are observable rather than silently papered over.
+    directory, the label directory, and the feature-CSV directory. Logs a
+    per-source summary naming exactly which field IDs are missing, so gaps
+    are observable rather than silently papered over.
+
+    ``label_dir``/``feature_csv_dir`` hold one (possibly multi-channel)
+    label TIFF / one (already-aggregated) feature CSV per *field* -- not one
+    per named object -- so existence is a single column each, not one per
+    channel name.
 
     Returns
     -------
     pd.DataFrame
         One row per ``field_id`` (plus ``stage_x_abs``/``stage_y_abs``/
         ``filename_ome_tiff`` from the sidecar), with an added
-        ``intensity_exists`` boolean column, and one ``label_exists_{name}``/
-        ``feature_exists_{name}`` boolean column per ``label_dirs``/
-        ``feature_csv_dirs`` entry.
+        ``intensity_exists`` boolean column, and (if given) ``label_exists``/
+        ``feature_exists`` boolean columns.
     """
-    label_dirs = label_dirs or {}
-    feature_csv_dirs = feature_csv_dirs or {}
-
     df = _read_metadata_csv(nd2_stem, tiff_dir)
     stems = df["filename_ome_tiff"].apply(lambda f: Path(f).stem)
 
@@ -228,19 +237,17 @@ def _discover_well_manifest(
     if missing:
         logger.warning(f"Well {nd2_stem}: intensity TIFF missing for field_id(s) {missing}")
 
-    for name, label_dir in label_dirs.items():
-        col = f"label_exists_{name}"
-        df[col] = df["filename_ome_tiff"].apply(lambda f: (Path(label_dir) / f).exists())
-        missing = df.loc[~df[col], "field_id"].tolist()
+    if label_dir is not None:
+        df["label_exists"] = df["filename_ome_tiff"].apply(lambda f: (Path(label_dir) / f).exists())
+        missing = df.loc[~df["label_exists"], "field_id"].tolist()
         if missing:
-            logger.warning(f"Well {nd2_stem}: label '{name}' missing for field_id(s) {missing}")
+            logger.warning(f"Well {nd2_stem}: label TIFF missing for field_id(s) {missing}")
 
-    for name, feature_dir in feature_csv_dirs.items():
-        col = f"feature_exists_{name}"
-        df[col] = stems.apply(lambda s: (Path(feature_dir) / f"{s}.csv").exists())
-        missing = df.loc[~df[col], "field_id"].tolist()
+    if feature_csv_dir is not None:
+        df["feature_exists"] = stems.apply(lambda s: (Path(feature_csv_dir) / f"{s}.csv").exists())
+        missing = df.loc[~df["feature_exists"], "field_id"].tolist()
         if missing:
-            logger.warning(f"Well {nd2_stem}: feature CSV '{name}' missing for field_id(s) {missing}")
+            logger.warning(f"Well {nd2_stem}: feature CSV missing for field_id(s) {missing}")
 
     logger.info(
         f"Well {nd2_stem}: {len(df)} fields expected; "
@@ -249,30 +256,64 @@ def _discover_well_manifest(
     return df
 
 
-def _channel_is_point_object(
-    channel_name: str, feature_csv_dirs: Dict[str, Union[str, Path]], manifest: pd.DataFrame
-) -> bool:
-    """Determine whether a channel is a point-object channel by reading
-    ``is_point_object`` off the first available feature CSV for it.
+def _get_parent_channel_name(feature_csv_columns_df: pd.DataFrame) -> str:
+    """The parent channel's own name, read directly off the
+    ``parent_label_name`` column ``quantify()`` leaves on an aggregated
+    result.
 
-    Falls back to ``False`` (blob object) with a logged warning if that
-    channel has no feature CSV available for any field in this well --
-    point/blob-ness genuinely can't be determined from the label file
-    alone (see module docstring in ``blimp/ome_ngff/labels.py``).
+    ``quantify()``'s own top-level loop measures the parent object against
+    *itself* as its own designated parent too (alongside every real child),
+    and masking a channel's own label array with itself is trivially "every
+    object is 100% contained within itself" -- so this column already names
+    the parent channel directly, no inference needed.
+
+    Raises
+    ------
+    ValueError
+        If the column is absent (``quantify()`` was called without
+        ``parent_object``) -- there is then no way to know which channel
+        this CSV's measurements are about.
     """
-    feature_dir = feature_csv_dirs.get(channel_name)
-    if feature_dir is None:
-        return False
-    exists_col = f"feature_exists_{channel_name}"
-    for filename_ome_tiff in manifest.loc[manifest[exists_col], "filename_ome_tiff"]:
-        csv_path = Path(feature_dir) / f"{Path(filename_ome_tiff).stem}.csv"
-        df = pd.read_csv(csv_path, nrows=1)
-        if "is_point_object" in df.columns:
-            return bool(df["is_point_object"].iloc[0])
-        break
+    if "parent_label_name" not in feature_csv_columns_df.columns:
+        raise ValueError(
+            "No 'parent_label_name' column -- was quantify() called with parent_object? "
+            "Without it there's no way to tell which label channel this feature CSV is about."
+        )
+    return feature_csv_columns_df["parent_label_name"].iloc[0]
+
+
+def _is_point_object_channel(
+    channel_name: str,
+    parent_channel_name: Optional[str],
+    feature_csv_columns_df: Optional[pd.DataFrame],
+    point_object_channel_names: Optional[List[str]],
+) -> bool:
+    """Determine whether a label channel has no stable per-pixel identity
+    and should become a ``GenericRoiTable`` (via ``_write_well_points``)
+    rather than an ``ngio.Label`` (via ``_write_well_labels``).
+
+    An explicit name wins first -- mirrors ``quantify()``'s own
+    ``point_objects`` parameter, which the caller already had to specify
+    explicitly when they ran ``quantify()`` in the first place. Otherwise,
+    if a feature CSV is available: the parent channel's own status is its
+    plain ``is_point_object`` column; any other channel's is its own
+    ``f"{name}_is_point_object"`` column (see
+    ``aggregate_and_merge_features``/``_quantify_point_object_aggregated_to_parent``
+    in ``quantify.py``). Falls back to ``False`` (blob) with a logged
+    warning if none of that is available -- point/blob-ness genuinely can't
+    be determined from the label file alone.
+    """
+    if point_object_channel_names and channel_name in point_object_channel_names:
+        return True
+    if feature_csv_columns_df is not None:
+        if channel_name == parent_channel_name and "is_point_object" in feature_csv_columns_df.columns:
+            return bool(feature_csv_columns_df["is_point_object"].iloc[0])
+        point_col = f"{channel_name}_is_point_object"
+        if point_col in feature_csv_columns_df.columns:
+            return bool(feature_csv_columns_df[point_col].iloc[0])
     logger.warning(
         f"Could not determine whether '{channel_name}' is a point-object channel "
-        "(no feature CSV available, or it predates the is_point_object column); "
+        "(not named in point_object_channel_names, and no feature CSV column available); "
         "treating it as a regular (blob) object."
     )
     return False
@@ -282,8 +323,9 @@ def convert_tiff_well_to_ome_ngff(
     nd2_stem: str,
     tiff_dir: Union[str, Path],
     plate_path: Union[str, Path],
-    label_dirs: Optional[Dict[str, Union[str, Path]]] = None,
-    feature_csv_dirs: Optional[Dict[str, Union[str, Path]]] = None,
+    label_dir: Optional[Union[str, Path]] = None,
+    feature_csv_dir: Optional[Union[str, Path]] = None,
+    point_object_channel_names: Optional[List[str]] = None,
     y_direction: str = "down",
     x_direction: str = "left",
     placement: str = "grid",
@@ -304,22 +346,35 @@ def convert_tiff_well_to_ome_ngff(
     plate_path
         Full path to the shared plate .zarr store. Must already exist --
         see :func:`blimp.ome_ngff.ensure_plate_exists`.
-    label_dirs
-        Maps a label name (e.g. ``"Nuclei"``) to the directory containing
-        that channel's per-field label TIFFs (same filenames as the
-        intensity TIFFs). Omit a channel entirely to skip writing it. Each
-        label TIFF's own Z depth must match ``tiff_dir``'s (both 1 for a
-        MIP, or both equal for a real stack) -- ``quantify()`` and the rest
-        of ``segment.py`` support 3D label images even though
-        ``segment_nuclei_cellpose`` itself only produces 2D ones.
-    feature_csv_dirs
-        Maps a label name to the directory containing that channel's
-        per-field ``quantify()`` measurement CSVs (same filename stems).
-        The key names **the label whose `label`/`parent_label` values these
-        rows key against** -- the object's own name for a non-aggregated
-        ``quantify()`` result, or the *parent's* name when
-        ``quantify(aggregate=True)`` was used (the caller decides this by
-        which name it passes here, not this function).
+    label_dir
+        Directory containing one (possibly multi-channel) label TIFF per
+        field (same filenames as the intensity TIFFs) -- each channel's own
+        OME channel-name (e.g. ``"Nuclei"``, ``"Cell"``) names the object it
+        segments, and every channel is written as its own label layer.
+        ``None`` skips labels entirely. Each label TIFF's own Z depth must
+        match ``tiff_dir``'s (both 1 for a MIP, or both equal for a real
+        stack) -- ``quantify()`` and the rest of ``segment.py`` support 3D
+        label images even though ``segment_nuclei_cellpose`` itself only
+        produces 2D ones.
+    feature_csv_dir
+        Directory containing one already-aggregated ``quantify()``
+        measurement CSV per field (same filename stems) -- there is exactly
+        one CSV per field regardless of how many label channels exist,
+        since aggregation folds every child object's stats into the
+        parent's own rows. Which label channel this CSV's measurements
+        belong to is read directly off its own ``parent_label_name`` column
+        (see :func:`_get_parent_channel_name`) -- only that one channel gets
+        a ``FeatureTable`` attached; every other channel is still written as
+        a label layer with no measurements of its own.
+    point_object_channel_names
+        Names of label channels, if any, that have no stable per-pixel
+        identity and should become a ``GenericRoiTable`` instead of an
+        ``ngio.Label`` -- mirrors ``quantify()``'s own ``point_objects``
+        parameter. Optional: when a ``feature_csv_dir`` is given, each
+        channel's point/blob status is normally read directly off that CSV
+        instead (see :func:`_is_point_object_channel`) -- this is a
+        fallback/override for when it isn't (e.g. no ``feature_csv_dir`` at
+        all), or to force a channel either way.
     y_direction, x_direction, placement
         See :func:`get_field_layout_from_tiff_metadata`.
     channel_names
@@ -340,15 +395,12 @@ def convert_tiff_well_to_ome_ngff(
     directory (mirroring how ``nd2_to_ome_ngff.py`` writes each
     independently under its own ``keep_stacks``/``mip`` flag).
     """
-    label_dirs = label_dirs or {}
-    feature_csv_dirs = feature_csv_dirs or {}
-
     logger.info(f"Reading layout for well {nd2_stem}")
     layout = get_field_layout_from_tiff_metadata(
         nd2_stem, tiff_dir, y_direction=y_direction, x_direction=x_direction, placement=placement
     )
     is_mip = layout.tile_shape[2] == 1
-    manifest = _discover_well_manifest(nd2_stem, tiff_dir, label_dirs, feature_csv_dirs)
+    manifest = _discover_well_manifest(nd2_stem, tiff_dir, label_dir, feature_csv_dir)
 
     if channel_names is None:
         channel_names = layout.channel_names
@@ -388,9 +440,59 @@ def convert_tiff_well_to_ome_ngff(
         project_z=is_mip,
     )
 
-    for label_name, label_dir in label_dirs.items():
-        exists_col = f"label_exists_{label_name}"
-        is_point_object = _channel_is_point_object(label_name, feature_csv_dirs, manifest)
+    if label_dir is None:
+        return
+
+    # Channel names are read once, from the first available field's own
+    # label TIFF -- the same "first available field" pattern
+    # get_field_layout_from_tiff_metadata already uses for tile shape/pixel
+    # size, on the assumption that every field's label TIFF shares the same
+    # channel layout (one segmentation pipeline run).
+    label_channel_names: Optional[List[str]] = None
+    for field_id in layout.field_ids:
+        row = manifest_by_field.loc[field_id]
+        if row["label_exists"]:
+            label_channel_names = list(BioImage(str(Path(label_dir) / row["filename_ome_tiff"])).channel_names)
+            break
+    if label_channel_names is None:
+        raise FileNotFoundError(f"No label TIFFs found at all for well {nd2_stem} in {label_dir}")
+
+    unknown_point_object_names = set(point_object_channel_names or []) - set(label_channel_names)
+    if unknown_point_object_names:
+        raise ValueError(
+            f"point_object_channel_names {sorted(unknown_point_object_names)} not found among the label "
+            f"TIFF's own channels {label_channel_names} for well {nd2_stem}"
+        )
+
+    # The first available feature CSV's own columns tell us which channel is
+    # the aggregation parent (_get_parent_channel_name), and per-channel
+    # point/blob status (_is_point_object_channel) -- read once and reused
+    # for every channel below, since there's exactly one CSV per field.
+    feature_csv_columns_df: Optional[pd.DataFrame] = None
+    parent_channel_name: Optional[str] = None
+    if feature_csv_dir is not None:
+        for field_id in layout.field_ids:
+            row = manifest_by_field.loc[field_id]
+            if row["feature_exists"]:
+                stem = Path(row["filename_ome_tiff"]).stem
+                feature_csv_columns_df = pd.read_csv(Path(feature_csv_dir) / f"{stem}.csv")
+                break
+        if feature_csv_columns_df is None:
+            raise FileNotFoundError(f"No feature CSVs found at all for well {nd2_stem} in {feature_csv_dir}")
+        parent_channel_name = _get_parent_channel_name(feature_csv_columns_df)
+        if parent_channel_name not in label_channel_names:
+            logger.warning(
+                f"Well {nd2_stem}: feature CSV's parent channel '{parent_channel_name}' is not among the "
+                f"label TIFF's own channels {label_channel_names} -- no channel will get a FeatureTable."
+            )
+
+    well_name = f"{layout.row}{layout.column:02d}"
+
+    for channel_index, label_name in enumerate(label_channel_names):
+        is_point_object = _is_point_object_channel(
+            label_name, parent_channel_name, feature_csv_columns_df, point_object_channel_names
+        )
+        is_parent = feature_csv_dir is not None and label_name == parent_channel_name
 
         # Point objects are read as flat 2D masks (_write_well_points has no
         # 3D support); blob objects keep their real Z depth so a genuine 3D
@@ -399,31 +501,27 @@ def convert_tiff_well_to_ome_ngff(
         field_arrays: Dict[int, Optional[np.ndarray]] = {}
         for field_id in layout.field_ids:
             row = manifest_by_field.loc[field_id]
-            if not row[exists_col]:
+            if not row["label_exists"]:
                 field_arrays[field_id] = None
                 continue
             path = Path(label_dir) / row["filename_ome_tiff"]
             label_image = BioImage(str(path))
             if is_point_object:
-                field_arrays[field_id] = np.squeeze(label_image.get_image_data("YX"))
+                field_arrays[field_id] = np.squeeze(label_image.get_image_data("YX", C=channel_index, T=0))
             else:
-                field_arrays[field_id] = label_image.get_image_data("ZYX", C=0, T=0)
+                field_arrays[field_id] = label_image.get_image_data("ZYX", C=channel_index, T=0)
 
-        field_features: Dict[int, Optional[pd.DataFrame]] = {}
-        feature_dir = feature_csv_dirs.get(label_name)
-        if feature_dir is not None:
-            exists_col_feat = f"feature_exists_{label_name}"
+        # Only the parent channel gets measurements attached -- every child
+        # object's stats are already folded into the parent's own rows.
+        field_features: Dict[int, Optional[pd.DataFrame]] = {field_id: None for field_id in layout.field_ids}
+        if is_parent:
             for field_id in layout.field_ids:
                 row = manifest_by_field.loc[field_id]
-                if not row[exists_col_feat]:
-                    field_features[field_id] = None
+                if not row["feature_exists"]:
                     continue
                 stem = Path(row["filename_ome_tiff"]).stem
-                field_features[field_id] = pd.read_csv(Path(feature_dir) / f"{stem}.csv")
-        else:
-            field_features = {field_id: None for field_id in layout.field_ids}
+                field_features[field_id] = pd.read_csv(Path(feature_csv_dir) / f"{stem}.csv")  # type: ignore[arg-type]
 
-        well_name = f"{layout.row}{layout.column:02d}"
         if is_point_object:
             _write_well_points(
                 container=container,
@@ -435,7 +533,7 @@ def convert_tiff_well_to_ome_ngff(
             )
         else:
             _write_well_labels(container=container, layout=layout, label_name=label_name, field_arrays=field_arrays)
-            if feature_dir is not None:
+            if is_parent:
                 _write_well_features(
                     container=container, label_name=label_name, field_dataframes=field_features, well_name=well_name
                 )
@@ -447,8 +545,9 @@ def tiff_to_ome_ngff(
     plate_name: Optional[str] = None,
     n_batches: int = 1,
     batch_id: int = 0,
-    label_dirs: Optional[Dict[str, Union[str, Path]]] = None,
-    feature_csv_dirs: Optional[Dict[str, Union[str, Path]]] = None,
+    label_dir: Optional[Union[str, Path]] = None,
+    feature_csv_dir: Optional[Union[str, Path]] = None,
+    point_object_channel_names: Optional[List[str]] = None,
     y_direction: str = "down",
     x_direction: str = "left",
     placement: str = "grid",
@@ -474,7 +573,7 @@ def tiff_to_ome_ngff(
         Name for the plate, used only if it does not already exist.
     n_batches, batch_id
         PBS-style batch splitting, by well.
-    label_dirs, feature_csv_dirs
+    label_dir, feature_csv_dir, point_object_channel_names
         See :func:`convert_tiff_well_to_ome_ngff`.
     y_direction, x_direction, placement
         See :func:`get_field_layout_from_tiff_metadata`.
@@ -497,8 +596,9 @@ def tiff_to_ome_ngff(
             nd2_stem=nd2_stem,
             tiff_dir=in_path,
             plate_path=plate_path,
-            label_dirs=label_dirs,
-            feature_csv_dirs=feature_csv_dirs,
+            label_dir=label_dir,
+            feature_csv_dir=feature_csv_dir,
+            point_object_channel_names=point_object_channel_names,
             y_direction=y_direction,
             x_direction=x_direction,
             placement=placement,
@@ -540,6 +640,25 @@ if __name__ == "__main__":
     convert_parser.add_argument(
         "-c", "--channel_names", type=str, nargs="+", default=None, help="list of channel names"
     )
+    convert_parser.add_argument(
+        "-l",
+        "--label_dir",
+        default=None,
+        help="directory containing one (possibly multi-channel) label TIFF per field",
+    )
+    convert_parser.add_argument(
+        "-f",
+        "--feature_csv_dir",
+        default=None,
+        help="directory containing one already-aggregated quantify() CSV per field",
+    )
+    convert_parser.add_argument(
+        "--point_object_channel_names",
+        type=str,
+        nargs="+",
+        default=None,
+        help="label channel names, if any, with no stable per-pixel identity (see quantify()'s point_objects)",
+    )
     convert_parser.add_argument("-v", "--verbose", action="count", default=0, help="increase verbosity (e.g. -vvv)")
 
     ensure_parser = subparsers.add_parser("ensure-plate", help="Idempotently create a plate store if it doesn't exist")
@@ -557,6 +676,9 @@ if __name__ == "__main__":
             plate_name=args.plate_name,
             n_batches=args.batch[0],
             batch_id=args.batch[1],
+            label_dir=args.label_dir,
+            feature_csv_dir=args.feature_csv_dir,
+            point_object_channel_names=args.point_object_channel_names,
             y_direction=args.y_direction,
             x_direction=args.x_direction,
             placement=args.placement,
