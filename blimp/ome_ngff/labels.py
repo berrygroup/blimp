@@ -127,6 +127,11 @@ def _write_well_labels(
         canvas[..., y0 : y0 + h, x0 : x0 + w] = _offset_label_ids(local_array, field_id, max_objects_per_field)
 
     label.set_array(canvas, merge="keep_nonzero")
+    # set_array only writes level 0 -- without this, every coarser pyramid
+    # level is left as the empty array derive_label pre-allocated, so the
+    # label silently vanishes in any viewer that renders from a coarser
+    # level when zoomed out (e.g. napari's multiscale rendering).
+    label.consolidate()
 
     roi_table = container.build_masking_roi_table(label_name)
     container.add_table(f"{label_name}_ROI_table", roi_table, overwrite=True)

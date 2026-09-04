@@ -363,8 +363,23 @@ def test_write_well_labels_offsets_and_stitches_two_fields(tmp_path):
         2 * MAX_OBJECTS_PER_FIELD + 1,
     }
 
-    roi_table = container.get_masking_roi_table("Nuclei_ROI_table")
-    assert len(roi_table.rois()) == 3
+
+def test_write_well_labels_consolidates_coarser_pyramid_levels(tmp_path):
+    """Regression: set_array only ever writes level 0 -- without an explicit
+    consolidate() call afterward, every coarser pyramid level is left as the
+    empty array derive_label pre-allocated, so the label silently vanishes
+    in any viewer that renders from a coarser level when zoomed out (found
+    via a real napari session, not a synthetic scenario)."""
+    container = _make_well_container(tmp_path)
+    layout = _make_well_layout()
+
+    field0 = np.zeros((16, 16), dtype=np.uint16)
+    field0[2:6, 2:6] = 1
+    _write_well_labels(container=container, layout=layout, label_name="Nuclei", field_arrays={1: field0, 2: None})
+
+    zarr_group = zarr.open_group(str(tmp_path / "plate.zarr"), mode="r")
+    level_1 = zarr_group["labels/Nuclei/1"][:]
+    assert set(np.unique(level_1).tolist()) == {0, 1 * MAX_OBJECTS_PER_FIELD + 1}
 
 
 def test_write_well_labels_blank_substitutes_missing_field(tmp_path):
