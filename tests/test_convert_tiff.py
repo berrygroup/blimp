@@ -15,7 +15,7 @@ def test_generate_pbs_script_tiff_ngff_formats_template_with_everything():
     template = (
         "{INPUT_DIR}|{PLATE_PATH}|{LOG_DIR}|{USER}|{USER_EMAIL}|{N_BATCHES}|{ARRAY_DIRECTIVE}|{BATCH_ID_EXPR}|"
         "{Y_DIRECTION}|{X_DIRECTION}|{PLACEMENT}|{CHANNEL_NAMES}|{LABEL_DIR}|{FEATURE_CSV_DIR}|"
-        "{POINT_OBJECT_CHANNEL_NAMES}"
+        "{POINT_OBJECT_CHANNEL_NAMES}|{ILLUMINATION_CORRECTION}"
     )
     result = generate_pbs_script_tiff_ngff(
         template=template,
@@ -32,11 +32,12 @@ def test_generate_pbs_script_tiff_ngff_formats_template_with_everything():
         label_dir="/labels",
         feature_csv_dir="/features",
         point_object_channel_names=["Spots"],
+        illumination_correction="/correction.pkl",
     )
     assert result == (
         "/in|/plate.zarr|/log|z1234567|a@b.com|4|#PBS -J 0-3|${PBS_ARRAY_INDEX}|down|left|grid|"
         "--channel_names DAPI GFP|--label_dir /labels|--feature_csv_dir /features|"
-        "--point_object_channel_names Spots"
+        "--point_object_channel_names Spots|--illumination_correction /correction.pkl"
     )
 
 
@@ -60,7 +61,7 @@ def test_generate_pbs_script_tiff_ngff_skips_array_directive_for_one_batch():
 
 
 def test_generate_pbs_script_tiff_ngff_formats_template_with_nothing_optional():
-    template = "{LABEL_DIR}|{FEATURE_CSV_DIR}|{CHANNEL_NAMES}|{POINT_OBJECT_CHANNEL_NAMES}"
+    template = "{LABEL_DIR}|{FEATURE_CSV_DIR}|{CHANNEL_NAMES}|{POINT_OBJECT_CHANNEL_NAMES}|{ILLUMINATION_CORRECTION}"
     result = generate_pbs_script_tiff_ngff(
         template=template,
         input_dir="/in",
@@ -73,7 +74,7 @@ def test_generate_pbs_script_tiff_ngff_formats_template_with_nothing_optional():
         x_direction="left",
         placement="grid",
     )
-    assert result == "|||"
+    assert result == "||||"
 
 
 @pytest.fixture
@@ -132,6 +133,18 @@ def test_convert_tiff_raises_for_feature_csv_dir_with_no_matching_files(tiff_pip
             job_path=tmp_path / "jobs",
             feature_csv_dir=empty_feature_dir,
         )
+
+
+def test_convert_tiff_raises_for_missing_illumination_correction_file(tiff_pipeline_dir, tmp_path):
+    in_path, _ = tiff_pipeline_dir
+    with pytest.raises(FileNotFoundError, match="illumination_correction"):
+        convert_tiff(
+            in_path=in_path,
+            plate_path=tmp_path / "plate.zarr",
+            job_path=tmp_path / "jobs",
+            illumination_correction=tmp_path / "nonexistent.pkl",
+        )
+    assert not (tmp_path / "jobs" / f"batch_convert_tiff_{in_path.stem}.pbs").exists()
 
 
 def test_convert_tiff_proceeds_with_partial_label_coverage(tiff_pipeline_dir, tmp_path):

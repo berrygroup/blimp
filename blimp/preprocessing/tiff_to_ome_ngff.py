@@ -23,6 +23,7 @@ from blimp.ome_ngff.layout import (
     _exact_pixel_offset,
 )
 from blimp.ome_ngff.features import _write_well_features
+from blimp.preprocessing.illumination_correction import IlluminationCorrection
 
 logger = logging.getLogger(__name__)
 
@@ -299,6 +300,7 @@ def convert_tiff_well_to_ome_ngff(
     placement: str = "grid",
     channel_names: Union[str, List[str], None] = None,
     num_levels: int = NUM_PYRAMID_LEVELS,
+    illumination_correction: Optional[Union[str, Path]] = None,
 ) -> None:
     """Stitch one well's TIFF pipeline output (intensity, labels, features)
     into a well image in a shared OME-NGFF plate store.
@@ -349,6 +351,17 @@ def convert_tiff_well_to_ome_ngff(
         incorrect.
     num_levels
         Number of pyramid levels to write.
+    illumination_correction
+        Path to an already-fitted ``IlluminationCorrection`` ``.pkl`` file
+        (see :class:`blimp.preprocessing.illumination_correction.IlluminationCorrection`).
+        Loaded once and applied to every field's intensity pixels before
+        stitching -- ``None`` skips correction entirely. Fitting a
+        correction is a separate, already-implemented concern; this only
+        applies one that already exists. The correction's own fitted
+        channel names must match ``channel_names`` exactly (same order) --
+        channel matching inside ``IlluminationCorrection.correct()`` is
+        purely positional (by index, not name), so a mismatch here would
+        otherwise silently apply the wrong channel's statistics.
 
     Notes
     -----
@@ -374,6 +387,17 @@ def convert_tiff_well_to_ome_ngff(
     elif isinstance(channel_names, str):
         channel_names = [channel_names]
 
+    illumination_correction_obj = None
+    if illumination_correction is not None:
+        illumination_correction_obj = IlluminationCorrection(from_file=illumination_correction)
+        correction_channel_names = list(illumination_correction_obj.mean_image.channel_names)
+        if correction_channel_names != list(channel_names):
+            raise ValueError(
+                f"Illumination correction channels {correction_channel_names} do not match "
+                f"well {nd2_stem}'s own channels {channel_names} (same order required) -- "
+                "channel matching in IlluminationCorrection.correct() is positional, not by name."
+            )
+
     plate = open_ome_zarr_plate(store=str(plate_path), mode="r+")
 
     manifest_by_field = manifest.set_index("field_id")
@@ -384,7 +408,10 @@ def convert_tiff_well_to_ome_ngff(
         if not row["intensity_exists"]:
             return np.zeros(layout.tile_shape, dtype=reference_dtype)
         path = Path(tiff_dir) / row["filename_ome_tiff"]
-        return BioImage(str(path)).get_image_data("TCZYX")
+        tile = BioImage(str(path)).get_image_data("TCZYX")
+        if illumination_correction_obj is not None:
+            tile = illumination_correction_obj.correct(tile)
+        return tile
 
     # dtype for blank-substitution: read from the first available field.
     first_available = manifest.loc[manifest["intensity_exists"], "filename_ome_tiff"]
@@ -518,6 +545,7 @@ def tiff_to_ome_ngff(
     x_direction: str = "left",
     placement: str = "grid",
     channel_names: Union[str, List[str], None] = None,
+    illumination_correction: Optional[Union[str, Path]] = None,
 ) -> None:
     """Read a folder of field TIFFs + metadata CSVs (one well each,
     named ``{nd2_stem}_metadata.csv``) and stitch them into a shared
@@ -539,7 +567,7 @@ def tiff_to_ome_ngff(
         Name for the plate, used only if it does not already exist.
     n_batches, batch_id
         PBS-style batch splitting, by well.
-    label_dir, feature_csv_dir, point_object_channel_names
+    label_dir, feature_csv_dir, point_object_channel_names, illumination_correction
         See :func:`convert_tiff_well_to_ome_ngff`.
     y_direction, x_direction, placement
         See :func:`get_field_layout_from_tiff_metadata`.
@@ -569,6 +597,7 @@ def tiff_to_ome_ngff(
             x_direction=x_direction,
             placement=placement,
             channel_names=channel_names,
+            illumination_correction=illumination_correction,
         )
 
 
@@ -626,6 +655,11 @@ if __name__ == "__main__":
         default=None,
         help="label channel names, if any, with no stable per-pixel identity (see quantify()'s point_objects)",
     )
+    convert_parser.add_argument(
+        "--illumination_correction",
+        default=None,
+        help="path to an already-fitted IlluminationCorrection .pkl file, applied to every field before stitching",
+    )
     convert_parser.add_argument("-v", "--verbose", action="count", default=0, help="increase verbosity (e.g. -vvv)")
 
     ensure_parser = subparsers.add_parser("ensure-plate", help="Idempotently create a plate store if it doesn't exist")
@@ -655,6 +689,7 @@ if __name__ == "__main__":
             x_direction=args.x_direction,
             placement=args.placement,
             channel_names=args.channel_names,
+            illumination_correction=args.illumination_correction,
         )
     elif args.command == "ensure-plate":
         ensure_plate_exists(args.plate_path, args.plate_name or Path(args.plate_path).stem)

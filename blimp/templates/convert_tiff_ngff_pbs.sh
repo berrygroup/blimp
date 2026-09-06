@@ -29,6 +29,6 @@ cd $PBS_O_WORKDIR
 
 python /srv/scratch/{USER}/src/blimp/blimp/preprocessing/tiff_to_ome_ngff.py convert \
 -i "$INPUT_DIR" -o "$PLATE_PATH" --batch {N_BATCHES} {BATCH_ID_EXPR} \
--y {Y_DIRECTION} -x {X_DIRECTION} --placement {PLACEMENT} {CHANNEL_NAMES} {LABEL_DIR} {FEATURE_CSV_DIR} {POINT_OBJECT_CHANNEL_NAMES}
+-y {Y_DIRECTION} -x {X_DIRECTION} --placement {PLACEMENT} {CHANNEL_NAMES} {LABEL_DIR} {FEATURE_CSV_DIR} {POINT_OBJECT_CHANNEL_NAMES} {ILLUMINATION_CORRECTION}
 
 conda deactivate

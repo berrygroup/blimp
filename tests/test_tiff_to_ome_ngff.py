@@ -14,6 +14,8 @@ from pathlib import Path
 import logging
 
 from ngio import open_ome_zarr_container
+from bioio import BioImage
+from bioio_base.types import PhysicalPixelSizes
 import numpy as np
 import pandas as pd
 import pytest
@@ -28,6 +30,7 @@ from blimp.preprocessing.tiff_to_ome_ngff import (
     convert_tiff_well_to_ome_ngff,
     get_field_layout_from_tiff_metadata,
 )
+from blimp.preprocessing.illumination_correction import IlluminationCorrection
 
 
 def _write_metadata_csv(tiff_dir: Path, nd2_stem: str, rows: list) -> None:
@@ -305,6 +308,99 @@ def test_convert_tiff_well_to_ome_ngff_writes_every_channel_only_parent_gets_fea
 
     assert "Nuclei_features" in container.list_tables()
     assert "Cell_features" not in container.list_tables()
+
+
+def _fit_illumination_correction(tmp_path: Path, channel_names: list) -> Path:
+    """A tiny, genuinely-fitted ``IlluminationCorrection`` for testing --
+    two uniform-but-different-valued in-memory reference images per
+    channel, matching the 16x16 tile size the other TIFF fixtures in this
+    file use. Two distinct values (not one) avoid a degenerate all-zero
+    per-pixel std, which ``_floor_zero_std`` would otherwise have to paper
+    over."""
+
+    def _reference(values: list):
+        data = np.stack([np.full((16, 16), v, dtype="uint16") for v in values])[np.newaxis, :, np.newaxis, :, :]
+        return BioImage(data, channel_names=channel_names, physical_pixel_sizes=PhysicalPixelSizes(1.0, 0.5, 0.5))
+
+    correction = IlluminationCorrection(
+        method="pixel_z_score",
+        reference_images=[_reference([100, 200]), _reference([300, 600])],
+        timelapse=False,
+    )
+    correction_path = tmp_path / "correction.pkl"
+    correction.save(str(correction_path))
+    return correction_path
+
+
+def test_convert_tiff_well_to_ome_ngff_applies_illumination_correction(tmp_path):
+    nd2_stem = "WellC09_Seq0001"
+    tiff_dir = tmp_path / "intensity"
+    tiff_dir.mkdir()
+    filename = f"{nd2_stem}_0001.ome.tiff"
+
+    field_data = np.stack([np.full((16, 16), 150, dtype="uint16"), np.full((16, 16), 400, dtype="uint16")])[
+        np.newaxis, :, np.newaxis, :, :
+    ]
+    from bioio_ome_tiff.writers import OmeTiffWriter
+
+    OmeTiffWriter.save(
+        data=field_data,
+        uri=str(tiff_dir / filename),
+        dim_order="TCZYX",
+        channel_names=["DAPI", "GFP"],
+        physical_pixel_sizes=PhysicalPixelSizes(1.0, 0.5, 0.5),
+    )
+    _write_metadata_csv(
+        tiff_dir,
+        nd2_stem,
+        rows=[{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}],
+    )
+
+    correction_path = _fit_illumination_correction(tmp_path, channel_names=["DAPI", "GFP"])
+    expected = IlluminationCorrection(from_file=str(correction_path)).correct(field_data)
+
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    convert_tiff_well_to_ome_ngff(
+        nd2_stem=nd2_stem,
+        tiff_dir=tiff_dir,
+        plate_path=plate_path,
+        illumination_correction=str(correction_path),
+    )
+
+    container = open_ome_zarr_container(str(plate_path / "C" / "09" / "mip"))
+    written = container.get_image().get_as_numpy()
+    np.testing.assert_array_equal(written, expected)
+
+
+def test_convert_tiff_well_to_ome_ngff_raises_for_mismatched_illumination_correction_channels(tmp_path):
+    """Channel matching inside ``IlluminationCorrection.correct()`` is
+    positional, not by name -- a correction fitted with a different channel
+    order/set must be refused with a clear error rather than silently
+    applying the wrong channel's statistics."""
+    nd2_stem = "WellC09_Seq0001"
+    tiff_dir = tmp_path / "intensity"
+    tiff_dir.mkdir()
+    filename = f"{nd2_stem}_0001.ome.tiff"
+    _write_blank_tiff(tiff_dir / filename)  # channels DAPI, GFP
+    _write_metadata_csv(
+        tiff_dir,
+        nd2_stem,
+        rows=[{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}],
+    )
+
+    # Fitted with channels in reversed order.
+    correction_path = _fit_illumination_correction(tmp_path, channel_names=["GFP", "DAPI"])
+
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    with pytest.raises(ValueError, match="do not match"):
+        convert_tiff_well_to_ome_ngff(
+            nd2_stem=nd2_stem,
+            tiff_dir=tiff_dir,
+            plate_path=plate_path,
+            illumination_correction=str(correction_path),
+        )
 
 
 def test_convert_tiff_well_to_ome_ngff_single_channel_needs_no_parent_label_name(tmp_path, caplog):

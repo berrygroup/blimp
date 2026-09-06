@@ -236,6 +236,11 @@ def _add_convert_tiff_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Label channel names, if any, with no stable per-pixel identity (see quantify()'s point_objects)",
     )
+    parser.add_argument(
+        "--illumination_correction",
+        default=None,
+        help="Path to an already-fitted IlluminationCorrection .pkl file, applied to every field before stitching",
+    )
     return None
 
 
@@ -251,6 +256,7 @@ def _convert_tiff(args) -> None:
         label_dir=args.label_dir,
         feature_csv_dir=args.feature_csv_dir,
         point_object_channel_names=args.point_object_channel_names,
+        illumination_correction=args.illumination_correction,
         n_batches=args.batch,
         y_direction=args.y_direction,
         x_direction=args.x_direction,

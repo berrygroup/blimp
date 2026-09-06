@@ -37,6 +37,7 @@ def generate_pbs_script_tiff_ngff(
     label_dir: Optional[str] = None,
     feature_csv_dir: Optional[str] = None,
     point_object_channel_names: Optional[List[str]] = None,
+    illumination_correction: Optional[str] = None,
     conda_env: str = "berrylab-py311",
 ) -> str:
     """Formats a PBS jobscript template using
@@ -65,7 +66,7 @@ def generate_pbs_script_tiff_ngff(
     channel_names
         List of channel names in case those found in the TIFF metadata are
         incorrect
-    label_dir, feature_csv_dir, point_object_channel_names
+    label_dir, feature_csv_dir, point_object_channel_names, illumination_correction
         see :func:`blimp.preprocessing.tiff_to_ome_ngff.convert_tiff_well_to_ome_ngff`
     conda_env
         name of the conda environment to activate on the compute node
@@ -104,6 +105,9 @@ def generate_pbs_script_tiff_ngff(
         LABEL_DIR=f"--label_dir {label_dir}" if label_dir else "",
         FEATURE_CSV_DIR=f"--feature_csv_dir {feature_csv_dir}" if feature_csv_dir else "",
         POINT_OBJECT_CHANNEL_NAMES=point_object_channel_names_str,
+        ILLUMINATION_CORRECTION=f"--illumination_correction {illumination_correction}"
+        if illumination_correction
+        else "",
         CONDA_ENV=conda_env,
     )
 
@@ -116,6 +120,7 @@ def convert_tiff(
     label_dir: Union[str, Path, None] = None,
     feature_csv_dir: Union[str, Path, None] = None,
     point_object_channel_names: Optional[List[str]] = None,
+    illumination_correction: Union[str, Path, None] = None,
     template_path: Union[str, Path, None] = None,
     n_batches: int = 1,
     y_direction: str = "down",
@@ -165,6 +170,13 @@ def convert_tiff(
         measurement CSV per field. Omit to skip feature tables entirely.
     point_object_channel_names
         See :func:`blimp.preprocessing.tiff_to_ome_ngff.convert_tiff_well_to_ome_ngff`.
+    illumination_correction
+        Path to an already-fitted ``IlluminationCorrection`` ``.pkl`` file,
+        applied to every field's intensity pixels before stitching. Omit to
+        skip correction entirely. Validated to exist up front, same reasoning
+        as ``label_dir``/``feature_csv_dir`` above; loading it (and checking
+        its channels match) happens once per well, in
+        :func:`blimp.preprocessing.tiff_to_ome_ngff.convert_tiff_well_to_ome_ngff`.
     template_path
         path to a template for the PBS jobscript (default
         ``templates/convert_tiff_ngff_pbs.sh``)
@@ -228,6 +240,8 @@ def convert_tiff(
             f"feature_csv_dir {feature_csv_dir} has no files matching any field across "
             f"{len(nd2_stems)} well(s) found under {in_path}"
         )
+    if illumination_correction is not None and not Path(illumination_correction).is_file():
+        raise FileNotFoundError(f"illumination_correction {illumination_correction} not found")
 
     # Created up front (idempotent, and cheap -- see ensure_plate_exists) so
     # the parallel batch tasks this jobscript's #PBS -J array launches never
@@ -254,6 +268,9 @@ def convert_tiff(
         label_dir=str(Path(label_dir).resolve()) if label_dir is not None else None,
         feature_csv_dir=str(Path(feature_csv_dir).resolve()) if feature_csv_dir is not None else None,
         point_object_channel_names=point_object_channel_names,
+        illumination_correction=str(Path(illumination_correction).resolve())
+        if illumination_correction is not None
+        else None,
         conda_env=conda_env,
     )
 
