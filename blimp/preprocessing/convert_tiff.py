@@ -9,11 +9,20 @@ already knows exactly which plate's output they want assembled, so
 plate -- matching ``tiff_to_ome_ngff()``'s own shape (it already takes an
 explicit ``in_path``/``plate_path`` and internally batches over however
 many wells' ``*_metadata.csv`` files live under that one ``in_path``).
+
+Every call deletes any existing, openable plate store at ``plate_path``
+and rebuilds it from scratch -- a ``plate.zarr`` holds either MIP or
+full-stack data, never both, so there is no supported way to combine them
+in one store by calling this twice; a second call replaces the first
+call's contents rather than adding to them.
 """
 from typing import List, Union, Optional
 from pathlib import Path
+import shutil
 import logging
 import subprocess
+
+from ngio import open_ome_zarr_plate
 
 from blimp.utils import read_template, pbs_array_directive
 from blimp.ome_ngff import ensure_plate_exists
@@ -138,6 +147,14 @@ def convert_tiff(
     pipeline output into a whole-plate OME-NGFF store. Optionally submits
     the job.
 
+    Deletes any existing, openable plate store already at ``plate_path``
+    and rebuilds it from scratch -- a ``plate.zarr`` holds either MIP or
+    full-stack data, never both, so calling this a second time against the
+    same ``plate_path`` replaces its contents rather than adding to them. A
+    ``plate_path`` that exists but isn't a valid plate store is left
+    untouched, and raises :func:`blimp.ome_ngff.ensure_plate_exists`'s own
+    clear error instead.
+
     Validates ``label_dir``/``feature_csv_dir`` up front, before writing
     anything: an HPC job can queue for hours before it actually runs, so a
     typo'd path should fail immediately here, not silently produce an empty
@@ -242,6 +259,15 @@ def convert_tiff(
         )
     if illumination_correction is not None and not Path(illumination_correction).is_file():
         raise FileNotFoundError(f"illumination_correction {illumination_correction} not found")
+
+    if plate_path.exists():
+        try:
+            open_ome_zarr_plate(store=str(plate_path), mode="r")
+        except Exception:
+            pass  # not an openable plate store, for any reason -- ensure_plate_exists handles this below
+        else:
+            logger.warning(f"Deleting existing plate store at {plate_path} to rebuild it fresh.")
+            shutil.rmtree(plate_path)
 
     # Created up front (idempotent, and cheap -- see ensure_plate_exists) so
     # the parallel batch tasks this jobscript's #PBS -J array launches never

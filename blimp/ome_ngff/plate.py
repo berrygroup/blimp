@@ -90,7 +90,8 @@ def ensure_plate_exists(
             raise FileExistsError(
                 f"{plate_path} already exists and is not empty, but does not contain a valid "
                 "OME-Zarr plate store. Pass a path to a new location, or to an existing plate "
-                "store created by this same pipeline."
+                "store created by this same pipeline. If you're sure it's safe to remove and "
+                f"want to rebuild fresh at this location, delete it yourself first: rm -rf {plate_path}"
             ) from e
 
     for row in _PLATE_ROWS[plate_size]:

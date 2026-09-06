@@ -200,19 +200,49 @@ def test_convert_tiff_writes_jobscript_and_creates_plate(tiff_pipeline_dir, tmp_
     assert plate.rows == [chr(c) for c in range(ord("A"), ord("A") + 16)]
 
 
-def test_convert_tiff_twice_with_same_plate_path_different_in_paths(tmp_path):
-    """The MIP+STACKS pattern from review: calling convert_tiff twice with
-    the same explicit plate_path but two different in_paths (e.g. an
-    OME-TIFF-MIP/ source and an OME-TIFF/ source) must both succeed."""
+def test_convert_tiff_twice_with_same_plate_path_rebuilds_fresh(tmp_path):
+    """A plate.zarr holds either MIP or full-stack data, never both -- a
+    second convert_tiff() call against the same plate_path deletes and
+    rebuilds it from scratch rather than combining with what's already
+    there."""
     plate_path = tmp_path / "plate.zarr"
     job_path = tmp_path / "jobs"
+    filename = "WellA01_0001.ome.tiff"
 
-    for name in ["OME-TIFF-MIP", "OME-TIFF"]:
-        in_path = tmp_path / name
-        in_path.mkdir()
-        filename = "WellA01_0001.ome.tiff"
-        pd.DataFrame([{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}]).to_csv(
-            in_path / "WellA01_metadata.csv", index=False
-        )
-        convert_tiff(in_path=in_path, plate_path=plate_path, job_path=job_path)
-        assert (job_path / f"batch_convert_tiff_{name}.pbs").exists()
+    in_path = tmp_path / "OME-TIFF-MIP"
+    in_path.mkdir()
+    pd.DataFrame([{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}]).to_csv(
+        in_path / "WellA01_metadata.csv", index=False
+    )
+    convert_tiff(in_path=in_path, plate_path=plate_path, job_path=job_path)
+
+    # convert_tiff() itself only creates the plate skeleton + jobscript --
+    # simulate a well having actually been written by a completed PBS run.
+    plate = open_ome_zarr_plate(store=str(plate_path), mode="r+")
+    plate.atomic_add_image(row="A", column=1, image_path="mip")
+    assert open_ome_zarr_plate(store=str(plate_path), mode="r").wells_paths() == ["A/01"]
+
+    in_path_2 = tmp_path / "OME-TIFF"
+    in_path_2.mkdir()
+    pd.DataFrame([{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}]).to_csv(
+        in_path_2 / "WellA01_metadata.csv", index=False
+    )
+    convert_tiff(in_path=in_path_2, plate_path=plate_path, job_path=job_path)
+
+    assert open_ome_zarr_plate(store=str(plate_path), mode="r").wells_paths() == []
+
+
+def test_convert_tiff_raises_for_non_plate_directory_at_plate_path(tiff_pipeline_dir, tmp_path):
+    """The new delete-before-create step must not swallow the case where
+    plate_path exists but isn't a valid plate store -- that still surfaces
+    ensure_plate_exists's own clear error, and the directory is left
+    untouched, not deleted."""
+    in_path, _ = tiff_pipeline_dir
+    plate_path = tmp_path / "not_a_plate"
+    plate_path.mkdir()
+    (plate_path / "some_unrelated_file.txt").write_text("hello")
+
+    with pytest.raises(FileExistsError, match="valid OME-Zarr plate store"):
+        convert_tiff(in_path=in_path, plate_path=plate_path, job_path=tmp_path / "jobs")
+
+    assert (plate_path / "some_unrelated_file.txt").exists()
