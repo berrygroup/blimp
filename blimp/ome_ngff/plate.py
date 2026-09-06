@@ -1,6 +1,6 @@
 """Shared OME-Zarr plate/well registration and image writing, used by every
 OME-NGFF writer (nd2-sourced, TIFF-sourced, and future Operetta-sourced)."""
-from typing import Any, List, Union, Literal, Callable
+from typing import Any, Dict, List, Union, Literal, Callable, Optional
 from pathlib import Path
 import string
 import logging
@@ -18,6 +18,7 @@ from bioio_ome_zarr import Reader as OmeZarrReader
 from ngio.hcs._plate import OmeZarrPlate
 import zarr
 import numpy as np
+import dask.array as da
 
 from blimp.ome_ngff.layout import FieldLayout, _WELL_NAME_RE, _build_fov_roi_table
 from blimp.ome_ngff.metadata import (
@@ -174,6 +175,111 @@ def open_well_image(plate_path: Union[str, Path], well_relative_path: str, kind:
             f"Re-run conversion with {other_flag} to add it."
         )
     return BioImage(str(image_path), reader=OmeZarrReader)
+
+
+def build_plate_pyramid(
+    plate_path: Union[str, Path],
+    kind: Literal["stack", "mip"] = "mip",
+    label_name: Optional[str] = None,
+    gap_fraction: float = 0.05,
+) -> List[da.Array]:
+    """Every pyramid level of the whole plate, as one lazy dask array per
+    level, for viewing (or otherwise computing over) all wells at once at
+    their true row/column position.
+
+    Real wells are placed at their true grid position, each surrounded by a
+    small empty margin (``gap_fraction`` of its own tile size, computed
+    separately per pyramid level) so adjacent wells stay visually distinct;
+    every other declared grid position is a zero-cost ``da.zeros``
+    placeholder. ``da.zeros`` is defined analytically -- it never touches
+    individual chunks at construction time -- and overlaying real wells via
+    chunk-aligned ``__setitem__`` only swaps which task computes those
+    chunks, so this costs ``O(populated wells)``, not ``O(declared grid
+    size)``, regardless of how sparse the plate is. This is what
+    ``ome_zarr.reader``'s own whole-plate stitching does not do -- it
+    eagerly allocates real zero arrays for every declared-but-empty
+    position, at every level and channel.
+
+    Every well is read through ``ngio``'s own ``OmeZarrPlate``/
+    ``OmeZarrContainer``/``Image`` API -- there's no separate "well zarr" to
+    open by hand; a well is just a subgroup of the same plate store.
+
+    Parameters
+    ----------
+    plate_path
+        Full path to the plate's .zarr store.
+    kind
+        Which image to build the pyramid from -- "stack" or "mip". Wells
+        that don't have this image are skipped.
+    label_name
+        Build a label's pyramid instead of the intensity image's (same
+        construction; wells without this label are skipped).
+    gap_fraction
+        Size of the empty margin between adjacent wells, as a fraction of
+        each pyramid level's own tile size.
+
+    Returns
+    -------
+    List[dask.array.Array]
+        One array per pyramid level, finest first.
+
+    Raises
+    ------
+    ValueError
+        If no well has the requested image/label.
+    """
+    plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
+
+    containers: Dict[str, OmeZarrContainer] = {}
+    for well_path in plate.wells_paths():
+        row, column = well_path.split("/")
+        try:
+            container = plate.get_image(row, column, kind)
+        except ValueError:
+            continue
+        if label_name is not None and label_name not in container.list_labels():
+            continue
+        containers[well_path] = container
+
+    if not containers:
+        what = f"label {label_name!r}" if label_name is not None else f"{kind!r} image"
+        raise ValueError(f"No well in {plate_path} has a {what}.")
+
+    def _get_array(container: OmeZarrContainer, level_path: str) -> da.Array:
+        # Drop the leading T axis (always size 1 for blimp's images -- these
+        # are static plates, not time series); keep C/Z (or just Z, for a
+        # label) exactly as ngio returns them, so this works unchanged for
+        # both a MIP (Z size 1) and a full stack (Z size N).
+        if label_name is not None:
+            return container.get_label(label_name, path=level_path).get_as_dask()[0]
+        return container.get_image(path=level_path).get_as_dask()[0]
+
+    n_rows, n_cols = len(plate.rows), len(plate.columns)
+    row_col_index = {}
+    for well_path in containers:
+        row, column = well_path.split("/")
+        row_col_index[well_path] = (plate.rows.index(row), plate.columns.index(column))
+
+    first_container = next(iter(containers.values()))
+    pyramid = []
+    for level_path in first_container.level_paths:
+        reference = _get_array(first_container, level_path)
+        *leading_shape, tile_h, tile_w = reference.shape
+        pitch_h = round(tile_h * (1 + gap_fraction))
+        pitch_w = round(tile_w * (1 + gap_fraction))
+
+        canvas = da.zeros(
+            (*leading_shape, n_rows * pitch_h, n_cols * pitch_w),
+            dtype=reference.dtype,
+            chunks=(*leading_shape, pitch_h, pitch_w),
+        )
+        for well_path, container in containers.items():
+            row_idx, col_idx = row_col_index[well_path]
+            y0, x0 = row_idx * pitch_h, col_idx * pitch_w
+            canvas[..., y0 : y0 + tile_h, x0 : x0 + tile_w] = _get_array(container, level_path)
+        pyramid.append(canvas)
+
+    return pyramid
 
 
 def _write_well_image(

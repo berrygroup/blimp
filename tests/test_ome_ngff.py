@@ -3,6 +3,7 @@ plate/well registration, label/point placement, feature tables), used by
 every source-format writer (nd2, TIFF-pipeline)."""
 from typing import Any, Dict
 from pathlib import Path
+import time
 import logging
 
 from ngio.ome_zarr_meta.ngio_specs import PixelSize
@@ -12,7 +13,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from blimp.ome_ngff.plate import open_well_image, ensure_plate_exists
+from blimp.ome_ngff.plate import (
+    open_well_image,
+    build_plate_pyramid,
+    ensure_plate_exists,
+)
 from blimp.ome_ngff.labels import (
     fov_object_id,
     _offset_label_ids,
@@ -30,6 +35,7 @@ from blimp.ome_ngff.layout import (
 )
 from blimp.ome_ngff.features import _write_well_features, _offset_feature_table_ids
 from blimp.ome_ngff.metadata import _downsample_yx, _build_ngff_v05_metadata
+from blimp.preprocessing.tiff_to_ome_ngff import convert_tiff_well_to_ome_ngff
 
 # --------------------------------------------------------------------------- #
 # layout.py -- field-of-view layout and grid-clustering math
@@ -286,6 +292,172 @@ def test_ensure_plate_exists_raises_clear_error_for_non_empty_non_plate_director
     (tmp_path / "some_unrelated_file.txt").write_text("hello")
     with pytest.raises(FileExistsError, match="valid OME-Zarr plate store"):
         ensure_plate_exists(tmp_path, "test_plate")
+
+
+def _write_intensity_tiff(path: Path, fill_value: int) -> None:
+    """A minimal real single-field OME-TIFF filled with a recognizable
+    constant, so a real well's data can be told apart from an untouched
+    (all-zero) declared grid position -- unlike a genuinely blank TIFF."""
+    from bioio_base.types import PhysicalPixelSizes
+    from bioio_ome_tiff.writers import OmeTiffWriter
+
+    OmeTiffWriter.save(
+        data=np.full((1, 2, 1, 16, 16), fill_value, dtype="uint16"),
+        uri=str(path),
+        dim_order="TCZYX",
+        channel_names=["DAPI", "GFP"],
+        physical_pixel_sizes=PhysicalPixelSizes(1.0, 0.5, 0.5),
+    )
+
+
+def _write_label_tiff_single_channel(path: Path, fill_value: int) -> None:
+    from bioio_base.types import PhysicalPixelSizes
+    from bioio_ome_tiff.writers import OmeTiffWriter
+
+    OmeTiffWriter.save(
+        data=np.full((1, 1, 1, 16, 16), fill_value, dtype="uint16"),
+        uri=str(path),
+        dim_order="TCZYX",
+        channel_names=["Nuclei"],
+        physical_pixel_sizes=PhysicalPixelSizes(1.0, 0.5, 0.5),
+    )
+
+
+def _write_one_well(
+    tmp_path: Path,
+    plate_path: Path,
+    nd2_stem: str,
+    fill_value: int,
+    with_label: bool = False,
+    num_levels: int = 2,
+) -> None:
+    """Write one real well into an already-``ensure_plate_exists``-created
+    plate, via the same public ``convert_tiff_well_to_ome_ngff`` pipeline a
+    real TIFF conversion run uses -- exercises ``build_plate_pyramid``
+    against a genuine multi-well plate store, not a hand-built stand-in."""
+    tiff_dir = tmp_path / nd2_stem / "intensity"
+    tiff_dir.mkdir(parents=True)
+    filename = f"{nd2_stem}_0001.ome.tiff"
+    _write_intensity_tiff(tiff_dir / filename, fill_value)
+    pd.DataFrame([{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}]).to_csv(
+        tiff_dir / f"{nd2_stem}_metadata.csv", index=False
+    )
+
+    label_dir = None
+    if with_label:
+        label_dir = tmp_path / nd2_stem / "labels"
+        label_dir.mkdir(parents=True)
+        _write_label_tiff_single_channel(label_dir / filename, fill_value)
+
+    convert_tiff_well_to_ome_ngff(
+        nd2_stem=nd2_stem,
+        tiff_dir=tiff_dir,
+        plate_path=plate_path,
+        label_dir=label_dir,
+        num_levels=num_levels,
+    )
+
+
+def test_build_plate_pyramid_places_real_wells_at_their_grid_position(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=7)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=42)
+
+    pyramid = build_plate_pyramid(plate_path, kind="mip")
+    assert len(pyramid) == 2  # num_levels passed to _write_one_well
+
+    level0 = pyramid[0]
+    tile = 16
+    pitch = round(tile * 1.05)
+    n_rows, n_cols = 16, 24  # ensure_plate_exists' default "384" grid
+    # (channels, z=1, y, x) -- a mip still keeps its own size-1 Z axis.
+    assert level0.shape == (2, 1, n_rows * pitch, n_cols * pitch)
+
+    def _well_slice(row: str, column: int):
+        row_idx, col_idx = ord(row) - ord("A"), column - 1
+        y0, x0 = row_idx * pitch, col_idx * pitch
+        return level0[:, 0, y0 : y0 + tile, x0 : x0 + tile].compute()
+
+    np.testing.assert_array_equal(_well_slice("C", 9), np.full((2, tile, tile), 7, dtype=level0.dtype))
+    np.testing.assert_array_equal(_well_slice("F", 14), np.full((2, tile, tile), 42, dtype=level0.dtype))
+
+    # An empty declared grid position (never written) stays exactly zero.
+    assert np.all(level0[:, 0, 0:5, 0:5].compute() == 0)
+    # So does the gap margin just past a real well's own tile, within its
+    # own pitch cell -- the whole point of the gap.
+    row_idx, col_idx = ord("C") - ord("A"), 9 - 1
+    y0, x0 = row_idx * pitch, col_idx * pitch
+    assert np.all(level0[:, 0, y0 + tile : y0 + pitch, x0 : x0 + pitch].compute() == 0)
+
+
+def test_build_plate_pyramid_label_name_variant(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True)
+    # No label on this well -- build_plate_pyramid should skip it (its grid
+    # position stays zero), not raise.
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=9, with_label=False)
+
+    pyramid = build_plate_pyramid(plate_path, kind="mip", label_name="Nuclei")
+    level0 = pyramid[0]
+    assert level0.dtype == np.uint32
+    # (z=1, y, x) -- no channel axis for a label.
+    assert level0.ndim == 3
+
+    tile = 16
+    pitch = round(tile * 1.05)
+    # _write_well_labels offsets local label IDs into a global,
+    # field-keyed range (global_id = field_id * MAX_OBJECTS_PER_FIELD +
+    # local_id) -- our single field is field_id 1, so the fill_value=3
+    # pixels land here, not as the raw local ID.
+    expected_global_id = 1 * MAX_OBJECTS_PER_FIELD + 3
+    row_idx, col_idx = ord("C") - ord("A"), 9 - 1
+    y0, x0 = row_idx * pitch, col_idx * pitch
+    np.testing.assert_array_equal(
+        level0[0, y0 : y0 + tile, x0 : x0 + tile].compute(), np.full((tile, tile), expected_global_id)
+    )
+
+    row_idx, col_idx = ord("F") - ord("A"), 14 - 1
+    y0, x0 = row_idx * pitch, col_idx * pitch
+    assert np.all(level0[0, y0 : y0 + tile, x0 : x0 + tile].compute() == 0)
+
+
+def test_build_plate_pyramid_raises_when_no_well_has_the_requested_label(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=7)
+
+    with pytest.raises(ValueError, match="Nonexistent"):
+        build_plate_pyramid(plate_path, kind="mip", label_name="Nonexistent")
+
+
+def test_build_plate_pyramid_construction_time_does_not_scale_with_declared_grid_size(tmp_path):
+    """Regression guard for the bug this function exists to fix
+    (``ome_zarr.reader.Plate.get_stitched_grid`` eagerly building a
+    per-declared-grid-cell array-concatenation graph): construction cost
+    should track the number of *real* wells, not the plate's declared
+    row/column grid size."""
+    small_plate_path = tmp_path / "small_plate.zarr"
+    ensure_plate_exists(small_plate_path, "small_plate", plate_size="96")
+    _write_one_well(tmp_path / "small", small_plate_path, "WellC09_Seq0001", fill_value=7)
+
+    large_plate_path = tmp_path / "large_plate.zarr"
+    ensure_plate_exists(large_plate_path, "large_plate", plate_size="384")
+    _write_one_well(tmp_path / "large", large_plate_path, "WellC09_Seq0001", fill_value=7)
+
+    t0 = time.time()
+    build_plate_pyramid(small_plate_path, kind="mip")
+    small_grid_time = time.time() - t0
+
+    t0 = time.time()
+    build_plate_pyramid(large_plate_path, kind="mip")
+    large_grid_time = time.time() - t0
+
+    # "384" declares 4x as many grid cells as "96" (16x24 vs 8x12) with the
+    # same single real well -- a generous multiple (not 1x) to absorb
+    # timing noise, but nowhere near proportional to declared grid size.
+    assert large_grid_time < max(small_grid_time * 4, 1.0)
 
 
 # --------------------------------------------------------------------------- #

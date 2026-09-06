@@ -5,11 +5,11 @@ depends on ``napari`` and ``ngio``, so it works from a lightweight interactive
 viewing environment that doesn't have blimp's full (much heavier) dependency
 set installed, e.g. via ``pip install -e /path/to/blimp --no-deps``.
 """
-from typing import Dict, List, Union, Callable, Optional
+from typing import Dict, List, Union, Literal, Callable, Optional
 from pathlib import Path
 import types
 
-from ngio import open_ome_zarr_container
+from ngio import open_ome_zarr_plate, open_ome_zarr_container
 import napari
 
 
@@ -221,6 +221,155 @@ def add_points_with_measurements(
     )
 
 
+def add_plate(
+    viewer: napari.Viewer,
+    plate_path: Union[str, Path],
+    kind: Literal["stack", "mip"] = "mip",
+) -> List["napari.layers.Layer"]:
+    """Add every populated well of a whole plate to the viewer at once, laid
+    out at its true row/column position -- a fast, full-resolution
+    alternative to opening the plate through the ``napari-ome-zarr`` plugin
+    directly (that plugin's own plate-stitching eagerly allocates a real
+    zero array for every *declared* grid position, at every pyramid level
+    and channel, which can take minutes; see ``build_plate_pyramid``).
+
+    Adds one multiscale ``Image`` layer per channel, one multiscale
+    ``Labels`` layer per label found on any well, one combined plate-wide
+    ``Shapes`` layer outlining each well's own outer boundary (visible by
+    default -- this is the useful overview at plate scale), and one combined
+    plate-wide ``Shapes`` layer outlining every well's own FOV boundaries
+    (each well's ``FOV_ROI_table`` rectangles, shifted to that well's grid
+    position; hidden by default -- only useful once zoomed into a single
+    well). Point-object tables are not included here -- that level of
+    per-object detail belongs in the per-well view (``add_points_with_measurements``).
+
+    Every layer here is in plain pixel units (unlike ``add_rois`` and
+    friends, there's no real-world-scaled layer from ``napari-ome-zarr`` in
+    this viewer to match) -- toggling a label on/off is just napari's own
+    layer-list visibility control, nothing this function needs to manage.
+
+    Parameters
+    ----------
+    viewer
+        The napari viewer to add the layers to.
+    plate_path
+        Full path to the plate's .zarr store.
+    kind
+        Which image to show -- "stack" or "mip".
+
+    Returns
+    -------
+    List[napari.layers.Layer]
+    """
+    # Deferred import: blimp.ome_ngff.plate pulls in blimp's full (much
+    # heavier) conversion dependency set (bioio, etc.), which this module's
+    # own docstring promises not to require just to import it.
+    from blimp.ome_ngff.plate import build_plate_pyramid
+
+    plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
+    well_paths = plate.wells_paths()
+    if not well_paths:
+        raise ValueError(f"Plate {plate_path} has no wells written yet.")
+
+    well_containers = {}
+    label_names = set()
+    for well_path in well_paths:
+        row, column = well_path.split("/")
+        container = open_ome_zarr_container(str(Path(plate_path) / well_path / kind))
+        well_containers[well_path] = container
+        label_names.update(container.list_labels())
+
+    reference_container = next(iter(well_containers.values()))
+    channel_names = reference_container.channel_labels
+    channel_colors = [
+        f"#{channel.channel_visualisation.color}" for channel in reference_container.meta.channels_meta.channels
+    ]
+
+    pyramid = build_plate_pyramid(plate_path, kind=kind)
+    layers = list(
+        viewer.add_image(
+            pyramid,
+            multiscale=True,
+            channel_axis=0,
+            name=channel_names,
+            colormap=channel_colors,
+            blending="additive",
+        )
+    )
+
+    n_rows, n_cols = len(plate.rows), len(plate.columns)
+    pitch_h = pyramid[0].shape[-2] // n_rows
+    pitch_w = pyramid[0].shape[-1] // n_cols
+
+    for label_name in sorted(label_names):
+        label_pyramid = build_plate_pyramid(plate_path, kind=kind, label_name=label_name)
+        # visible=False: a plate-scale label layer is expensive to render and
+        # rarely wanted immediately on load -- toggle it on from the layer
+        # list (napari's own visibility control) once you actually need it.
+        layers.append(viewer.add_labels(label_pyramid, multiscale=True, name=label_name, visible=False))
+
+    fov_rectangles = []
+    fov_names = []
+    well_rectangles = []
+    well_names = []
+    for well_path, container in well_containers.items():
+        if "FOV_ROI_table" not in container.list_tables():
+            continue
+        row, column = well_path.split("/")
+        y_offset = plate.rows.index(row) * pitch_h
+        x_offset = plate.columns.index(column) * pitch_w
+        table = container.get_table("FOV_ROI_table")
+        pixel_size = container.get_image().pixel_size
+
+        well_y0, well_x0 = float("inf"), float("inf")
+        well_y1, well_x1 = float("-inf"), float("-inf")
+        for roi in table.rois():
+            slices = roi.to_slicing_dict(pixel_size=pixel_size)
+            y0, y1 = slices["y"].start + y_offset, slices["y"].stop + y_offset
+            x0, x1 = slices["x"].start + x_offset, slices["x"].stop + x_offset
+            fov_rectangles.append([[y0, x0], [y0, x1], [y1, x1], [y1, x0]])
+            fov_names.append(roi.name)
+            well_y0, well_x0 = min(well_y0, y0), min(well_x0, x0)
+            well_y1, well_x1 = max(well_y1, y1), max(well_x1, x1)
+
+        well_rectangles.append([[well_y0, well_x0], [well_y0, well_x1], [well_y1, well_x1], [well_y1, well_x0]])
+        well_names.append(row + column)
+
+    if well_rectangles:
+        # visible=True: unlike the per-FOV boundaries below, a plate-scale
+        # view is exactly where you want to see which wells are which
+        # straight away -- FOV-level detail only becomes useful once zoomed
+        # into a single well.
+        layers.append(
+            viewer.add_shapes(
+                well_rectangles,
+                shape_type="rectangle",
+                name="Well_ROI_table",
+                edge_color="cyan",
+                face_color="transparent",
+                edge_width=8,
+                text={"string": well_names, "color": "cyan", "anchor": "center", "size": 14},
+                visible=True,
+            )
+        )
+
+    if fov_rectangles:
+        layers.append(
+            viewer.add_shapes(
+                fov_rectangles,
+                shape_type="rectangle",
+                name="FOV_ROI_table",
+                edge_color="yellow",
+                face_color="transparent",
+                edge_width=8,
+                text={"string": fov_names, "color": "yellow", "anchor": "center", "size": 14},
+                visible=False,
+            )
+        )
+
+    return layers
+
+
 # Functions bound onto a viewer instance by add_blimp_napari_methods(), keyed
 # by the method name they become. Add a new entry here to make a new
 # function available as viewer.<name>(...) too.
@@ -228,6 +377,7 @@ _VIEWER_METHODS: Dict[str, Callable] = {
     "add_rois": add_rois,
     "add_labels_with_measurements": add_labels_with_measurements,
     "add_points_with_measurements": add_points_with_measurements,
+    "add_plate": add_plate,
 }
 
 
