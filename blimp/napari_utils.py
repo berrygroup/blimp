@@ -10,6 +10,8 @@ from pathlib import Path
 import types
 
 from ngio import open_ome_zarr_plate, open_ome_zarr_container
+from napari.utils.colormaps import ensure_colormap, DirectLabelColormap
+import numpy as np
 import napari
 
 
@@ -389,25 +391,44 @@ def add_feature_heatmap(
     label_name: str,
     feature_name: str,
     kind: Literal["stack", "mip"] = "mip",
-    colormap: str = "viridis",
-    wells: Optional[Union[str, List[str]]] = None,
-) -> "napari.layers.Image":
-    """Add a plate-wide feature heatmap: a continuous-colormap ``Image``
-    layer where each object's own pixels hold its own ``feature_name``
-    measurement, not a label ID.
+    colormap: str = "magma",
+) -> "napari.layers.Labels":
+    """Add a plate-wide feature heatmap: a new ``Labels`` layer colored by
+    each object's own ``feature_name`` measurement instead of by label
+    identity.
 
-    A genuinely new layer, added alongside (not replacing) any ``Labels``
-    layer ``add_plate`` may have already added for ``label_name`` -- a
-    ``Labels`` layer's colormap only ever maps discrete label IDs to
-    colors, which is exactly what makes plate-wide viewing with a tool
-    like Napari Feature Visualizer crash (see ``build_feature_pyramid``'s
-    own docstring); a continuous heatmap needs ``Image``'s ordinary
-    colormap instead, so this is a different layer type by necessity.
+    Built with a ``DirectLabelColormap`` -- a dict from each object's own
+    plate-wide-unique pixel value (``global_id_numeric``) to a fixed RGBA
+    color, computed once (here, in Python) from the merged features table
+    via ``colormap`` and this heatmap's own contrast limits (1st/99th
+    percentile of ``feature_name``). This is deliberately *not* what a
+    tool like Napari Feature Visualizer does -- its own colormap
+    computation builds a dense array sized to the largest label ID
+    present, which is exactly what crashes at plate scale, since our
+    plate-wide IDs can run into the trillions (see
+    ``blimp.ome_ngff.labels.well_label_offset``). ``DirectLabelColormap``
+    is dict-based instead: napari remaps raw label values through a
+    compact GPU texture built from the dict's own keys, so cost scales
+    with the number of *objects*, not the ID magnitude -- and that remap
+    only touches whatever's actually visible at the current zoom, so a
+    full 384-well plate costs the same as a two-well one; no ``wells``
+    filter needed here the way a ``map_blocks``-based remap would need.
 
-    Contrast limits are computed cheaply from the small merged features
-    table itself (1st/99th percentile) rather than letting napari auto-scan
-    the full pyramid, which would mean touching every populated well just
-    to add the layer.
+    Any pixel with no entry in the dict -- background (label 0), or an
+    object with no matching feature row -- renders fully transparent, via
+    the same well-tested code path every ordinary ``Labels`` layer already
+    uses for its own background, revealing whatever's drawn underneath.
+    This sidesteps a real gap in an earlier attempt at this that built a
+    separate float-valued ``Image`` layer instead: confirmed live, under
+    napari's default "translucent" blending a *multiscale* ``Image``
+    layer's own ``NaN`` background pixels stayed opaque despite ``NaN``'s
+    alpha nominally being 0, and the "additive" blending that did fix
+    that distorted real objects' own colors wherever another layer was
+    visible underneath (colors summed instead of compositing correctly).
+
+    A genuinely new layer, added alongside (not replacing) any plain
+    ``Labels`` layer ``add_plate`` may have already added for
+    ``label_name``.
 
     Parameters
     ----------
@@ -423,32 +444,36 @@ def add_feature_heatmap(
         "stack" or "mip".
     colormap
         Any napari/vispy colormap name.
-    wells
-        Restrict to one well path (e.g. ``"C/09"``, the same format
-        ``ngio``'s ``plate.wells_paths()`` returns) or a list of them --
-        saves time when you only care about a subset (see
-        ``build_feature_pyramid``). ``None`` (the default) includes every
-        populated well.
 
     Returns
     -------
-    napari.layers.Image
+    napari.layers.Labels
     """
     # Deferred import: see add_plate's own comment above.
-    from blimp.ome_ngff.plate import build_feature_pyramid, _read_plate_wide_features
+    from blimp.ome_ngff.plate import build_plate_pyramid, _read_plate_wide_features
 
-    pyramid = build_feature_pyramid(plate_path, label_name, feature_name, kind=kind, wells=wells)
+    features_df = _read_plate_wide_features(plate_path, label_name, kind=kind)
+    if features_df is None:
+        raise ValueError(f"No well in {plate_path} has a {label_name}_features table.")
+    if feature_name not in features_df.columns:
+        raise ValueError(
+            f"{feature_name!r} is not a column of {label_name}_features; available: {sorted(features_df.columns)}"
+        )
 
-    features_df = _read_plate_wide_features(plate_path, label_name, kind=kind, wells=wells)
-    assert features_df is not None  # build_feature_pyramid above already raised otherwise
-    contrast_limits = features_df[feature_name].quantile([0.01, 0.99]).tolist()
+    values = features_df[feature_name].to_numpy(dtype=float)
+    clim_low, clim_high = np.nanpercentile(values, [1, 99])
+    normalized = np.clip((values - clim_low) / (clim_high - clim_low), 0.0, 1.0)
+    colors = ensure_colormap(colormap).map(normalized)
 
-    return viewer.add_image(
-        pyramid,
+    color_dict = dict(zip(features_df["label"].tolist(), colors))
+    color_dict[None] = "transparent"
+
+    label_pyramid = build_plate_pyramid(plate_path, kind=kind, label_name=label_name)
+    return viewer.add_labels(
+        label_pyramid,
         multiscale=True,
         name=f"{label_name}: {feature_name}",
-        colormap=colormap,
-        contrast_limits=contrast_limits,
+        colormap=DirectLabelColormap(color_dict=color_dict),
     )
 
 
