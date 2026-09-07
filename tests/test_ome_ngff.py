@@ -15,6 +15,7 @@ import pytest
 
 from blimp.ome_ngff.plate import (
     open_well_image,
+    resolve_plate_path,
     build_plate_pyramid,
     ensure_plate_exists,
 )
@@ -255,6 +256,14 @@ def test_open_well_image_raises_clear_error_for_missing_kind(tmp_path):
     assert "'stack'" in message
     assert "'mip'" in message
     assert "keep_stacks=True" in message
+
+
+def test_resolve_plate_path_uses_dot_zarr_path_as_is():
+    assert resolve_plate_path("/some/experiment.zarr") == Path("/some/experiment.zarr")
+
+
+def test_resolve_plate_path_appends_plate_dot_zarr_to_a_bare_folder():
+    assert resolve_plate_path("/some/experiment") == Path("/some/experiment/plate.zarr")
 
 
 def test_ensure_plate_exists_predeclares_full_384_well_grid(tmp_path):

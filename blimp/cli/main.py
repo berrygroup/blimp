@@ -159,8 +159,26 @@ def _add_convert_tiff_args(parser: argparse.ArgumentParser) -> None:
         help="Directory containing field TIFFs and metadata CSVs for one plate (required)",
         required=True,
     )
-    parser.add_argument("-o", "--plate_path", help="Path to the shared plate .zarr store (required)", required=True)
-    parser.add_argument("--plate_name", default=None, help="Name for the plate (default: derived from path)")
+    parser.add_argument(
+        "-o",
+        "--plate_path",
+        help="Path to the shared plate .zarr store (required). Also its name: a bare folder "
+        "becomes <folder>/plate.zarr (named 'plate'); a path ending in .zarr is used as-is "
+        "(named after its own stem)",
+        required=True,
+    )
+    parser.add_argument(
+        "-l",
+        "--label_dir",
+        default=None,
+        help="Directory containing one (possibly multi-channel) label TIFF per field",
+    )
+    parser.add_argument(
+        "-f",
+        "--feature_csv_dir",
+        default=None,
+        help="Directory containing one already-aggregated quantify() CSV per field",
+    )
     parser.add_argument(
         "-j",
         "--jobscript_path",
@@ -218,18 +236,6 @@ def _add_convert_tiff_args(parser: argparse.ArgumentParser) -> None:
         help="List of channel names",
     )
     parser.add_argument(
-        "-l",
-        "--label_dir",
-        default=None,
-        help="Directory containing one (possibly multi-channel) label TIFF per field",
-    )
-    parser.add_argument(
-        "-f",
-        "--feature_csv_dir",
-        default=None,
-        help="Directory containing one already-aggregated quantify() CSV per field",
-    )
-    parser.add_argument(
         "--point_object_channel_names",
         type=str,
         nargs="+",
@@ -252,7 +258,6 @@ def _convert_tiff(args) -> None:
         in_path=args.input_path,
         plate_path=args.plate_path,
         image_format=args.output_format,
-        plate_name=args.plate_name,
         label_dir=args.label_dir,
         feature_csv_dir=args.feature_csv_dir,
         point_object_channel_names=args.point_object_channel_names,

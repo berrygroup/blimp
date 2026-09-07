@@ -13,7 +13,12 @@ import numpy as np
 import pandas as pd
 
 from blimp.log import configure_logging
-from blimp.ome_ngff import locate_well, NUM_PYRAMID_LEVELS, ensure_plate_exists
+from blimp.ome_ngff import (
+    locate_well,
+    NUM_PYRAMID_LEVELS,
+    resolve_plate_path,
+    ensure_plate_exists,
+)
 from blimp.ome_ngff.plate import _write_well_image
 from blimp.ome_ngff.labels import _write_well_labels, _write_well_points
 from blimp.ome_ngff.layout import (
@@ -535,7 +540,6 @@ def convert_tiff_well_to_ome_ngff(
 def tiff_to_ome_ngff(
     in_path: Union[str, Path],
     plate_path: Union[str, Path],
-    plate_name: Optional[str] = None,
     n_batches: int = 1,
     batch_id: int = 0,
     label_dir: Optional[Union[str, Path]] = None,
@@ -562,9 +566,11 @@ def tiff_to_ome_ngff(
         Directory containing the intensity field TIFFs and metadata
         CSVs (e.g. an ``OME-TIFF-MIP/`` folder).
     plate_path
-        Full path to the shared plate .zarr store.
-    plate_name
-        Name for the plate, used only if it does not already exist.
+        Path to the shared plate .zarr store -- also determines its name:
+        a path already ending in ``.zarr`` is used as-is (named after its
+        own stem); anything else is treated as a parent directory, with the
+        actual store placed at ``plate_path/plate.zarr`` (named "plate").
+        See :func:`blimp.ome_ngff.resolve_plate_path`.
     n_batches, batch_id
         PBS-style batch splitting, by well.
     label_dir, feature_csv_dir, point_object_channel_names, illumination_correction
@@ -576,9 +582,9 @@ def tiff_to_ome_ngff(
         incorrect.
     """
     in_path = Path(in_path)
-    plate_path = Path(plate_path)
+    plate_path = resolve_plate_path(plate_path)
 
-    ensure_plate_exists(plate_path, plate_name or plate_path.stem)
+    ensure_plate_exists(plate_path, plate_path.stem)
 
     nd2_stems = sorted(p.stem[: -len("_metadata")] for p in in_path.glob("*_metadata.csv"))
     n_wells_per_batch = -(-len(nd2_stems) // n_batches)
@@ -611,8 +617,13 @@ if __name__ == "__main__":
     convert_parser.add_argument(
         "-i", "--in_path", help="directory containing field TIFFs and metadata CSVs", required=True
     )
-    convert_parser.add_argument("-o", "--plate_path", help="path to the shared plate .zarr store", required=True)
-    convert_parser.add_argument("--plate_name", default=None, help="name for the plate (default: derived from path)")
+    convert_parser.add_argument(
+        "-o",
+        "--plate_path",
+        help="path to the shared plate .zarr store (also its name: a bare folder becomes "
+        "<folder>/plate.zarr, named 'plate'; a path ending in .zarr is used as-is, named after its own stem)",
+        required=True,
+    )
     convert_parser.add_argument(
         "--batch",
         nargs=2,
@@ -663,8 +674,12 @@ if __name__ == "__main__":
     convert_parser.add_argument("-v", "--verbose", action="count", default=0, help="increase verbosity (e.g. -vvv)")
 
     ensure_parser = subparsers.add_parser("ensure-plate", help="Idempotently create a plate store if it doesn't exist")
-    ensure_parser.add_argument("-o", "--plate_path", help="path to the shared plate .zarr store", required=True)
-    ensure_parser.add_argument("--plate_name", default=None, help="name for the plate (default: derived from path)")
+    ensure_parser.add_argument(
+        "-o",
+        "--plate_path",
+        help="path to the shared plate .zarr store (also its name -- see 'convert's own help)",
+        required=True,
+    )
     ensure_parser.add_argument("-v", "--verbose", action="count", default=0, help="increase verbosity (e.g. -vvv)")
 
     locate_parser = subparsers.add_parser("locate-well", help="Print the on-disk path of one well")
@@ -679,7 +694,6 @@ if __name__ == "__main__":
         tiff_to_ome_ngff(
             in_path=args.in_path,
             plate_path=args.plate_path,
-            plate_name=args.plate_name,
             n_batches=args.batch[0],
             batch_id=args.batch[1],
             label_dir=args.label_dir,
@@ -692,6 +706,7 @@ if __name__ == "__main__":
             illumination_correction=args.illumination_correction,
         )
     elif args.command == "ensure-plate":
-        ensure_plate_exists(args.plate_path, args.plate_name or Path(args.plate_path).stem)
+        resolved_plate_path = resolve_plate_path(args.plate_path)
+        ensure_plate_exists(resolved_plate_path, resolved_plate_path.stem)
     elif args.command == "locate-well":
-        locate_well(args.plate_path, args.well)
+        locate_well(resolve_plate_path(args.plate_path), args.well)

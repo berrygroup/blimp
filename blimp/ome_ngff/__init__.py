@@ -2,6 +2,7 @@ from blimp.ome_ngff.plate import (
     locate_well,
     open_well_image,
     _write_well_image,
+    resolve_plate_path,
     ensure_plate_exists,
 )
 from blimp.ome_ngff.labels import (
@@ -32,6 +33,7 @@ __all__ = [
     "NUM_PYRAMID_LEVELS",
     "MAX_OBJECTS_PER_FIELD",
     "ensure_plate_exists",
+    "resolve_plate_path",
     "locate_well",
     "open_well_image",
     "fov_object_id",

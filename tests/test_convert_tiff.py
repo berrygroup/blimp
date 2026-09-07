@@ -171,7 +171,7 @@ def test_convert_tiff_writes_jobscript_and_creates_plate(tiff_pipeline_dir, tmp_
     (feature_dir / f"{Path(filename).stem}.csv").write_bytes(b"")
 
     job_path = tmp_path / "jobs"
-    plate_path = tmp_path / "plate.zarr"
+    plate_path = tmp_path / "my_plate.zarr"
     convert_tiff(
         in_path=in_path,
         plate_path=plate_path,
@@ -196,8 +196,32 @@ def test_convert_tiff_writes_jobscript_and_creates_plate(tiff_pipeline_dir, tmp_
     # ensure_plate_exists is called up front (job-generation time), not
     # deferred to the PBS array job itself -- so the plate skeleton must
     # already exist on disk without ever running the generated jobscript.
+    # plate_path already ends in .zarr, so it's used as the store location
+    # directly, named after its own stem.
     plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
     assert plate.rows == [chr(c) for c in range(ord("A"), ord("A") + 16)]
+    assert plate.meta.plate.name == "my_plate"
+
+
+def test_convert_tiff_places_bare_folder_plate_path_at_plate_dot_zarr(tiff_pipeline_dir, tmp_path):
+    """A plate_path that doesn't end in .zarr is a parent directory, not
+    the store itself -- the actual store goes at <plate_path>/plate.zarr,
+    named "plate" (see resolve_plate_path)."""
+    in_path, _ = tiff_pipeline_dir
+    job_path = tmp_path / "jobs"
+    bare_plate_path = tmp_path / "some_experiment"
+
+    convert_tiff(in_path=in_path, plate_path=bare_plate_path, job_path=job_path)
+
+    resolved_plate_path = bare_plate_path / "plate.zarr"
+    assert resolved_plate_path.exists()
+    assert not (bare_plate_path / "zarr.json").exists()  # the bare folder itself is not the store
+
+    content = (job_path / f"batch_convert_tiff_{in_path.stem}.pbs").read_text()
+    assert f'PLATE_PATH="{resolved_plate_path.resolve()}"' in content
+
+    plate = open_ome_zarr_plate(store=str(resolved_plate_path), mode="r")
+    assert plate.meta.plate.name == "plate"
 
 
 def test_convert_tiff_twice_with_same_plate_path_rebuilds_fresh(tmp_path):
@@ -236,9 +260,11 @@ def test_convert_tiff_raises_for_non_plate_directory_at_plate_path(tiff_pipeline
     """The new delete-before-create step must not swallow the case where
     plate_path exists but isn't a valid plate store -- that still surfaces
     ensure_plate_exists's own clear error, and the directory is left
-    untouched, not deleted."""
+    untouched, not deleted. Uses a .zarr-suffixed path so it's treated as
+    the store location itself, not a parent folder to place plate.zarr
+    inside of."""
     in_path, _ = tiff_pipeline_dir
-    plate_path = tmp_path / "not_a_plate"
+    plate_path = tmp_path / "not_a_plate.zarr"
     plate_path.mkdir()
     (plate_path / "some_unrelated_file.txt").write_text("hello")
 

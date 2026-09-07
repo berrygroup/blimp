@@ -33,6 +33,22 @@ _PLATE_ROWS = {"96": list(string.ascii_uppercase[:8]), "384": list(string.ascii_
 _PLATE_COLUMNS = {"96": list(range(1, 13)), "384": list(range(1, 25))}
 
 
+def resolve_plate_path(plate_path: Union[str, Path]) -> Path:
+    """Resolve a user-given path to the actual plate .zarr store location.
+
+    A path already ending in ``.zarr`` is used as-is; anything else is
+    treated as a parent directory, inside which the store is named
+    ``plate.zarr``. Pass the result to :func:`ensure_plate_exists` (using
+    its own ``.stem`` as the plate name) so a bare folder still ends up
+    with a sensible, derived name rather than the literal string "plate":
+    ``-o some/experiment.zarr`` names the plate "experiment"; ``-o
+    some/experiment`` places it at ``some/experiment/plate.zarr``, named
+    "plate".
+    """
+    plate_path = Path(plate_path)
+    return plate_path if plate_path.suffix == ".zarr" else plate_path / "plate.zarr"
+
+
 def ensure_plate_exists(
     plate_path: Union[str, Path], plate_name: str, plate_size: Literal["96", "384"] = "384"
 ) -> OmeZarrPlate:

@@ -25,7 +25,7 @@ import subprocess
 from ngio import open_ome_zarr_plate
 
 from blimp.utils import read_template, pbs_array_directive
-from blimp.ome_ngff import ensure_plate_exists
+from blimp.ome_ngff import resolve_plate_path, ensure_plate_exists
 from blimp.preprocessing.tiff_to_ome_ngff import _discover_well_manifest
 
 logger = logging.getLogger(__name__)
@@ -60,8 +60,10 @@ def generate_pbs_script_tiff_ngff(
     input_dir
         full path to the directory of field TIFFs + metadata CSVs
     plate_path
-        full path to the shared plate .zarr store (created up front by
-        :func:`convert_tiff` before this jobscript is written)
+        full path to the shared plate .zarr store (already resolved to an
+        actual ``.zarr`` location, and already created, by :func:`convert_tiff`
+        before this jobscript is written -- there is no separate plate name
+        to pass through here, the plate's name is always this path's stem)
     log_dir
         full path to where output logs should be written
     user
@@ -125,7 +127,6 @@ def convert_tiff(
     in_path: Union[str, Path],
     plate_path: Union[str, Path],
     image_format: str = "NGFF",
-    plate_name: Optional[str] = None,
     label_dir: Union[str, Path, None] = None,
     feature_csv_dir: Union[str, Path, None] = None,
     point_object_channel_names: Optional[List[str]] = None,
@@ -147,13 +148,21 @@ def convert_tiff(
     pipeline output into a whole-plate OME-NGFF store. Optionally submits
     the job.
 
-    Deletes any existing, openable plate store already at ``plate_path``
-    and rebuilds it from scratch -- a ``plate.zarr`` holds either MIP or
-    full-stack data, never both, so calling this a second time against the
-    same ``plate_path`` replaces its contents rather than adding to them. A
-    ``plate_path`` that exists but isn't a valid plate store is left
-    untouched, and raises :func:`blimp.ome_ngff.ensure_plate_exists`'s own
-    clear error instead.
+    ``plate_path`` doubles as the plate's name: a path already ending in
+    ``.zarr`` (e.g. ``some/experiment.zarr``) is used as the store location
+    directly, named after its own stem ("experiment"); anything else (e.g.
+    ``some/experiment``) is treated as a parent directory, with the actual
+    store placed at ``some/experiment/plate.zarr`` (named "plate") -- see
+    :func:`blimp.ome_ngff.resolve_plate_path`. There is no separate name to
+    pass in; give the plate the name you want directly in ``plate_path``.
+
+    Deletes any existing, openable plate store already at the resolved
+    ``plate_path`` and rebuilds it from scratch -- a ``plate.zarr`` holds
+    either MIP or full-stack data, never both, so calling this a second
+    time against the same ``plate_path`` replaces its contents rather than
+    adding to them. A ``plate_path`` that exists but isn't a valid plate
+    store is left untouched, and raises
+    :func:`blimp.ome_ngff.ensure_plate_exists`'s own clear error instead.
 
     Validates ``label_dir``/``feature_csv_dir`` up front, before writing
     anything: an HPC job can queue for hours before it actually runs, so a
@@ -171,14 +180,12 @@ def convert_tiff(
         CSVs for one plate (e.g. an ``OME-TIFF-MIP/`` folder) -- may
         hold many wells, one ``*_metadata.csv`` file each.
     plate_path
-        Full path to the shared plate .zarr store to create/write to.
+        Path to the shared plate .zarr store to create/write to -- see
+        above for how this also determines the plate's name.
     image_format
         Must be ``"NGFF"`` -- kept as a parameter for consistency with
         ``convert_nd2``/``convert_operetta``'s own ``image_format``, even
         though there is currently only one sensible value for this path.
-    plate_name
-        Name for the plate, used only if it does not already exist
-        (default: derived from ``plate_path``'s own stem).
     label_dir
         Directory containing one (possibly multi-channel) label TIFF per
         field. Omit to skip labels entirely.
@@ -222,7 +229,7 @@ def convert_tiff(
         raise NotImplementedError(f'image_format = "{image_format}", only "NGFF" is supported')
 
     in_path = Path(in_path)
-    plate_path = Path(plate_path)
+    plate_path = resolve_plate_path(plate_path)
     job_path = Path(job_path)
     log_path = job_path / "log"
     if not log_path.exists():
@@ -272,7 +279,7 @@ def convert_tiff(
     # Created up front (idempotent, and cheap -- see ensure_plate_exists) so
     # the parallel batch tasks this jobscript's #PBS -J array launches never
     # race to create it.
-    ensure_plate_exists(plate_path, plate_name or plate_path.stem)
+    ensure_plate_exists(plate_path, plate_path.stem)
 
     if template_path is None:
         jobscript_template = read_template("convert_tiff_ngff_pbs.sh")
