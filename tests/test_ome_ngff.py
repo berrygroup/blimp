@@ -18,6 +18,9 @@ from blimp.ome_ngff.plate import (
     resolve_plate_path,
     build_plate_pyramid,
     ensure_plate_exists,
+    build_feature_pyramid,
+    _read_plate_wide_features,
+    _discover_wells_with_label,
 )
 from blimp.ome_ngff.labels import (
     global_id,
@@ -342,11 +345,19 @@ def _write_one_well(
     fill_value: int,
     with_label: bool = False,
     num_levels: int = 2,
+    feature_value: Any = None,
+    feature_name: str = "Nuclei_area",
 ) -> None:
     """Write one real well into an already-``ensure_plate_exists``-created
     plate, via the same public ``convert_tiff_well_to_ome_ngff`` pipeline a
     real TIFF conversion run uses -- exercises ``build_plate_pyramid``
-    against a genuine multi-well plate store, not a hand-built stand-in."""
+    against a genuine multi-well plate store, not a hand-built stand-in.
+
+    ``feature_value`` (only meaningful together with ``with_label=True``)
+    additionally writes a one-row features CSV for this well's single
+    object (raw local label ``fill_value``), so ``build_feature_pyramid``/
+    ``_read_plate_wide_features`` have a real ``Nuclei_features`` table to
+    read -- ``feature_name`` names that CSV's own measurement column."""
     tiff_dir = tmp_path / nd2_stem / "intensity"
     tiff_dir.mkdir(parents=True)
     filename = f"{nd2_stem}_0001.ome.tiff"
@@ -361,11 +372,25 @@ def _write_one_well(
         label_dir.mkdir(parents=True)
         _write_label_tiff_single_channel(label_dir / filename, fill_value)
 
+    feature_csv_dir = None
+    if feature_value is not None:
+        feature_csv_dir = tmp_path / nd2_stem / "features"
+        feature_csv_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "label": [fill_value],
+                "parent_label_name": ["Nuclei"],
+                "is_point_object": [False],
+                feature_name: [feature_value],
+            }
+        ).to_csv(feature_csv_dir / f"{Path(filename).stem}.csv", index=False)
+
     convert_tiff_well_to_ome_ngff(
         nd2_stem=nd2_stem,
         tiff_dir=tiff_dir,
         plate_path=plate_path,
         label_dir=label_dir,
+        feature_csv_dir=feature_csv_dir,
         num_levels=num_levels,
     )
 
@@ -482,6 +507,163 @@ def test_build_plate_pyramid_construction_time_does_not_scale_with_declared_grid
     # same single real well -- a generous multiple (not 1x) to absorb
     # timing noise, but nowhere near proportional to declared grid size.
     assert large_grid_time < max(small_grid_time * 4, 1.0)
+
+
+def test_read_plate_wide_features_returns_none_when_no_matching_table(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True)  # no feature_value
+
+    assert _read_plate_wide_features(plate_path, "Nuclei", kind="mip") is None
+
+
+def test_read_plate_wide_features_merges_wells_with_correct_offsets(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    # Same raw local label (3) in both wells -- only each well's own offset
+    # tells their global_id_numeric apart.
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=3, with_label=True, feature_value=222.0)
+
+    df = _read_plate_wide_features(plate_path, "Nuclei", kind="mip")
+    assert df is not None
+    assert len(df) == 2
+    assert set(df["Nuclei_area"].tolist()) == {111.0, 222.0}
+
+    raw_global_id = 1 * MAX_OBJECTS_PER_FIELD + 3
+    c09_offset = well_label_offset(ord("C") - ord("A"), 9 - 1)
+    f14_offset = well_label_offset(ord("F") - ord("A"), 14 - 1)
+    expected = {c09_offset + raw_global_id: 111.0, f14_offset + raw_global_id: 222.0}
+    assert dict(zip(df["label"], df["Nuclei_area"])) == expected
+
+
+def test_build_feature_pyramid_shows_correct_value_and_nan_elsewhere(tmp_path):
+    """Mirrors test_build_plate_pyramid_label_name_variant's collision
+    regression: C09 and F14 share the same raw local label (3), so only
+    each well's own well_label_offset -- applied identically to the pixel
+    array and to the features table's "label" column -- keeps their
+    heatmap values from bleeding into each other. K16 has the label but no
+    matching feature row at all (no feature_csv_dir given), so its region
+    must read back NaN despite having real label pixels."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=3, with_label=True, feature_value=222.0)
+    _write_one_well(tmp_path, plate_path, "WellK16_Seq0001", fill_value=3, with_label=True)  # no feature_value
+
+    pyramid = build_feature_pyramid(plate_path, "Nuclei", "Nuclei_area", kind="mip")
+    level0 = pyramid[0]
+    assert level0.dtype == np.float32
+    assert level0.ndim == 3  # (z=1, y, x), matching build_plate_pyramid's own label variant
+
+    tile = 16
+    pitch = round(tile * 1.05)
+
+    def _well_slice(row: str, column: int):
+        row_idx, col_idx = ord(row) - ord("A"), column - 1
+        y0, x0 = row_idx * pitch, col_idx * pitch
+        return level0[0, y0 : y0 + tile, x0 : x0 + tile].compute()
+
+    np.testing.assert_array_equal(_well_slice("C", 9), np.full((tile, tile), 111.0, dtype=np.float32))
+    np.testing.assert_array_equal(_well_slice("F", 14), np.full((tile, tile), 222.0, dtype=np.float32))
+    assert np.all(np.isnan(_well_slice("K", 16)))  # labeled, but no matching feature row
+    assert np.all(np.isnan(level0[0, 0:5, 0:5].compute()))  # never-written declared grid position
+
+
+def test_build_feature_pyramid_raises_when_no_well_has_the_requested_table(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True)  # no feature_value
+
+    with pytest.raises(ValueError, match="Nuclei_features"):
+        build_feature_pyramid(plate_path, "Nuclei", "Nuclei_area", kind="mip")
+
+
+def test_build_feature_pyramid_raises_when_feature_name_is_not_a_column(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    with pytest.raises(ValueError, match="Nonexistent_feature"):
+        build_feature_pyramid(plate_path, "Nuclei", "Nonexistent_feature", kind="mip")
+
+
+def test_build_feature_pyramid_construction_time_does_not_scale_with_declared_grid_size(tmp_path):
+    small_plate_path = tmp_path / "small_plate.zarr"
+    ensure_plate_exists(small_plate_path, "small_plate", plate_size="96")
+    _write_one_well(
+        tmp_path / "small", small_plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0
+    )
+
+    large_plate_path = tmp_path / "large_plate.zarr"
+    ensure_plate_exists(large_plate_path, "large_plate", plate_size="384")
+    _write_one_well(
+        tmp_path / "large", large_plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0
+    )
+
+    t0 = time.time()
+    build_feature_pyramid(small_plate_path, "Nuclei", "Nuclei_area", kind="mip")
+    small_grid_time = time.time() - t0
+
+    t0 = time.time()
+    build_feature_pyramid(large_plate_path, "Nuclei", "Nuclei_area", kind="mip")
+    large_grid_time = time.time() - t0
+
+    assert large_grid_time < max(small_grid_time * 4, 1.0)
+
+
+def test_build_feature_pyramid_wells_filter_restricts_to_a_single_well(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=3, with_label=True, feature_value=222.0)
+
+    pyramid = build_feature_pyramid(plate_path, "Nuclei", "Nuclei_area", kind="mip", wells="C/09")
+    level0 = pyramid[0]
+    tile = 16
+    pitch = round(tile * 1.05)
+
+    def _well_slice(row: str, column: int):
+        row_idx, col_idx = ord(row) - ord("A"), column - 1
+        y0, x0 = row_idx * pitch, col_idx * pitch
+        return level0[0, y0 : y0 + tile, x0 : x0 + tile].compute()
+
+    np.testing.assert_array_equal(_well_slice("C", 9), np.full((tile, tile), 111.0, dtype=np.float32))
+    # F14 has real data on disk, but is outside the `wells` filter -- its
+    # region must read back NaN, exactly like a never-written grid position.
+    assert np.all(np.isnan(_well_slice("F", 14)))
+
+
+def test_build_feature_pyramid_wells_filter_accepts_a_list(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=3, with_label=True, feature_value=222.0)
+    _write_one_well(tmp_path, plate_path, "WellK16_Seq0001", fill_value=3, with_label=True, feature_value=333.0)
+
+    pyramid = build_feature_pyramid(plate_path, "Nuclei", "Nuclei_area", kind="mip", wells=["C/09", "F/14"])
+    level0 = pyramid[0]
+    tile = 16
+    pitch = round(tile * 1.05)
+
+    def _well_slice(row: str, column: int):
+        row_idx, col_idx = ord(row) - ord("A"), column - 1
+        y0, x0 = row_idx * pitch, col_idx * pitch
+        return level0[0, y0 : y0 + tile, x0 : x0 + tile].compute()
+
+    np.testing.assert_array_equal(_well_slice("C", 9), np.full((tile, tile), 111.0, dtype=np.float32))
+    np.testing.assert_array_equal(_well_slice("F", 14), np.full((tile, tile), 222.0, dtype=np.float32))
+    assert np.all(np.isnan(_well_slice("K", 16)))
+
+
+def test_discover_wells_with_label_raises_for_a_well_not_in_the_plate(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    plate = ngio.open_ome_zarr_plate(store=str(plate_path), mode="r")
+    with pytest.raises(ValueError, match="Z/99"):
+        _discover_wells_with_label(plate, "mip", "Nuclei", wells="Z/99")
 
 
 # --------------------------------------------------------------------------- #

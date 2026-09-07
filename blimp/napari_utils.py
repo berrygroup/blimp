@@ -11,9 +11,6 @@ import types
 
 from ngio import open_ome_zarr_plate, open_ome_zarr_container
 import napari
-import pandas as pd
-
-from blimp.ome_ngff.labels import well_label_offset
 
 
 def add_rois(
@@ -271,7 +268,7 @@ def add_plate(
     # Deferred import: blimp.ome_ngff.plate pulls in blimp's full (much
     # heavier) conversion dependency set (bioio, etc.), which this module's
     # own docstring promises not to require just to import it.
-    from blimp.ome_ngff.plate import build_plate_pyramid
+    from blimp.ome_ngff.plate import build_plate_pyramid, _read_plate_wide_features
 
     plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
     well_paths = plate.wells_paths()
@@ -318,26 +315,11 @@ def add_plate(
 
         # Merge every contributing well's own measurements into one
         # plate-wide features table, keyed to match this layer's own
-        # (plate-wide-unique) pixel values -- prefer each well's already
-        # persisted global_id_numeric column when present, else derive the
-        # identical value on the fly (build_plate_pyramid applies the same
-        # well_label_offset to the pixels above).
-        feature_frames = []
-        for well_path, container in well_containers.items():
-            if label_name not in container.list_labels():
-                continue
-            table_name = f"{label_name}_features"
-            if table_name not in container.list_tables():
-                continue
-            row, column = well_path.split("/")
-            df = container.get_feature_table(table_name).dataframe.reset_index()
-            if "global_id_numeric" in df.columns:
-                df["label"] = df["global_id_numeric"]
-            else:
-                df["label"] = df["label"] + well_label_offset(plate.rows.index(row), plate.columns.index(column))
-            feature_frames.append(df)
-        if feature_frames:
-            label_layer.features = pd.concat(feature_frames, ignore_index=True)
+        # (plate-wide-unique) pixel values -- build_plate_pyramid applies
+        # the same well_label_offset to the pixels above.
+        features_df = _read_plate_wide_features(plate_path, label_name, kind=kind)
+        if features_df is not None:
+            label_layer.features = features_df
 
     fov_rectangles = []
     fov_names = []
@@ -401,6 +383,75 @@ def add_plate(
     return layers
 
 
+def add_feature_heatmap(
+    viewer: napari.Viewer,
+    plate_path: Union[str, Path],
+    label_name: str,
+    feature_name: str,
+    kind: Literal["stack", "mip"] = "mip",
+    colormap: str = "viridis",
+    wells: Optional[Union[str, List[str]]] = None,
+) -> "napari.layers.Image":
+    """Add a plate-wide feature heatmap: a continuous-colormap ``Image``
+    layer where each object's own pixels hold its own ``feature_name``
+    measurement, not a label ID.
+
+    A genuinely new layer, added alongside (not replacing) any ``Labels``
+    layer ``add_plate`` may have already added for ``label_name`` -- a
+    ``Labels`` layer's colormap only ever maps discrete label IDs to
+    colors, which is exactly what makes plate-wide viewing with a tool
+    like Napari Feature Visualizer crash (see ``build_feature_pyramid``'s
+    own docstring); a continuous heatmap needs ``Image``'s ordinary
+    colormap instead, so this is a different layer type by necessity.
+
+    Contrast limits are computed cheaply from the small merged features
+    table itself (1st/99th percentile) rather than letting napari auto-scan
+    the full pyramid, which would mean touching every populated well just
+    to add the layer.
+
+    Parameters
+    ----------
+    viewer
+        The napari viewer to add the layer to.
+    plate_path
+        Full path to the plate's .zarr store.
+    label_name
+        Which label's own measurements to show (``f"{label_name}_features"``).
+    feature_name
+        Which column of that features table to show.
+    kind
+        "stack" or "mip".
+    colormap
+        Any napari/vispy colormap name.
+    wells
+        Restrict to one well path (e.g. ``"C/09"``, the same format
+        ``ngio``'s ``plate.wells_paths()`` returns) or a list of them --
+        saves time when you only care about a subset (see
+        ``build_feature_pyramid``). ``None`` (the default) includes every
+        populated well.
+
+    Returns
+    -------
+    napari.layers.Image
+    """
+    # Deferred import: see add_plate's own comment above.
+    from blimp.ome_ngff.plate import build_feature_pyramid, _read_plate_wide_features
+
+    pyramid = build_feature_pyramid(plate_path, label_name, feature_name, kind=kind, wells=wells)
+
+    features_df = _read_plate_wide_features(plate_path, label_name, kind=kind, wells=wells)
+    assert features_df is not None  # build_feature_pyramid above already raised otherwise
+    contrast_limits = features_df[feature_name].quantile([0.01, 0.99]).tolist()
+
+    return viewer.add_image(
+        pyramid,
+        multiscale=True,
+        name=f"{label_name}: {feature_name}",
+        colormap=colormap,
+        contrast_limits=contrast_limits,
+    )
+
+
 # Functions bound onto a viewer instance by add_blimp_napari_methods(), keyed
 # by the method name they become. Add a new entry here to make a new
 # function available as viewer.<name>(...) too.
@@ -409,6 +460,7 @@ _VIEWER_METHODS: Dict[str, Callable] = {
     "add_labels_with_measurements": add_labels_with_measurements,
     "add_points_with_measurements": add_points_with_measurements,
     "add_plate": add_plate,
+    "add_feature_heatmap": add_feature_heatmap,
 }
 
 
