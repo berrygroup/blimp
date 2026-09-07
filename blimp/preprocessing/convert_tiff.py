@@ -42,7 +42,7 @@ def generate_pbs_script_tiff_ngff(
     y_direction: str,
     x_direction: str,
     placement: str,
-    channel_names: Union[str, List[str], None] = None,
+    exclude_channel_names: Optional[List[str]] = None,
     label_dir: Optional[str] = None,
     feature_csv_dir: Optional[str] = None,
     point_object_channel_names: Optional[List[str]] = None,
@@ -74,10 +74,7 @@ def generate_pbs_script_tiff_ngff(
         how many batches (by well) into which processing should be split
     y_direction, x_direction, placement
         see :func:`blimp.preprocessing.tiff_to_ome_ngff.get_field_layout_from_tiff_metadata`
-    channel_names
-        List of channel names in case those found in the TIFF metadata are
-        incorrect
-    label_dir, feature_csv_dir, point_object_channel_names, illumination_correction
+    exclude_channel_names, label_dir, feature_csv_dir, point_object_channel_names, illumination_correction
         see :func:`blimp.preprocessing.tiff_to_ome_ngff.convert_tiff_well_to_ome_ngff`
     conda_env
         name of the conda environment to activate on the compute node
@@ -86,12 +83,10 @@ def generate_pbs_script_tiff_ngff(
     -------
     Template as a formatted string to be written to file
     """
-    if channel_names is None:
-        channel_names_str = ""
+    if exclude_channel_names is None:
+        exclude_channel_names_str = ""
     else:
-        if isinstance(channel_names, str):
-            channel_names = [channel_names]
-        channel_names_str = "--channel_names " + (" ".join(channel_names))
+        exclude_channel_names_str = "--exclude_channel_names " + (" ".join(exclude_channel_names))
 
     if point_object_channel_names is None:
         point_object_channel_names_str = ""
@@ -112,7 +107,7 @@ def generate_pbs_script_tiff_ngff(
         Y_DIRECTION=y_direction,
         X_DIRECTION=x_direction,
         PLACEMENT=placement,
-        CHANNEL_NAMES=channel_names_str,
+        EXCLUDE_CHANNEL_NAMES=exclude_channel_names_str,
         LABEL_DIR=f"--label_dir {label_dir}" if label_dir else "",
         FEATURE_CSV_DIR=f"--feature_csv_dir {feature_csv_dir}" if feature_csv_dir else "",
         POINT_OBJECT_CHANNEL_NAMES=point_object_channel_names_str,
@@ -136,7 +131,7 @@ def convert_tiff(
     y_direction: str = "down",
     x_direction: str = "left",
     placement: str = "grid",
-    channel_names: Union[str, List[str], None] = None,
+    exclude_channel_names: Optional[List[str]] = None,
     job_path: Union[str, Path] = ".",
     submit: bool = False,
     user: str = "z1234567",
@@ -208,9 +203,8 @@ def convert_tiff(
         number of batches (by well) into which the processing should be split
     y_direction, x_direction, placement
         See :func:`blimp.preprocessing.tiff_to_ome_ngff.get_field_layout_from_tiff_metadata`.
-    channel_names
-        List of channel names in case those found in the TIFF metadata are
-        incorrect
+    exclude_channel_names
+        See :func:`blimp.preprocessing.tiff_to_ome_ngff.convert_tiff_well_to_ome_ngff`.
     job_path
         path where the jobscript should be saved (logs are saved in the
         ``log`` subdirectory of this path)
@@ -297,7 +291,7 @@ def convert_tiff(
         y_direction=y_direction,
         x_direction=x_direction,
         placement=placement,
-        channel_names=channel_names,
+        exclude_channel_names=exclude_channel_names,
         label_dir=str(Path(label_dir).resolve()) if label_dir is not None else None,
         feature_csv_dir=str(Path(feature_csv_dir).resolve()) if feature_csv_dir is not None else None,
         point_object_channel_names=point_object_channel_names,

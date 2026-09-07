@@ -316,6 +316,98 @@ def test_convert_tiff_well_to_ome_ngff_writes_every_channel_only_parent_gets_fea
     assert features_df["global_id_numeric"].dtype == np.int64
 
 
+def _write_two_channel_intensity_tiff(path: Path, dapi_value: int, gfp_value: int) -> None:
+    """A real 2-channel (DAPI, GFP) OME-TIFF with distinct, recognizable
+    per-channel values -- unlike _write_blank_tiff's all-zero data, this
+    lets a test tell channels apart by their own pixel values."""
+    from bioio_ome_tiff.writers import OmeTiffWriter
+
+    data = np.stack([np.full((16, 16), dapi_value, dtype="uint16"), np.full((16, 16), gfp_value, dtype="uint16")])[
+        np.newaxis, :, np.newaxis, :, :
+    ]
+    OmeTiffWriter.save(
+        data=data,
+        uri=str(path),
+        dim_order="TCZYX",
+        channel_names=["DAPI", "GFP"],
+        physical_pixel_sizes=PhysicalPixelSizes(1.0, 0.5, 0.5),
+    )
+
+
+def test_convert_tiff_well_to_ome_ngff_exclude_channel_names_drops_a_channel(tmp_path):
+    nd2_stem = "WellC09_Seq0001"
+    tiff_dir = tmp_path / "intensity"
+    tiff_dir.mkdir()
+    filename = f"{nd2_stem}_0001.ome.tiff"
+    _write_two_channel_intensity_tiff(tiff_dir / filename, dapi_value=150, gfp_value=400)
+    _write_metadata_csv(
+        tiff_dir,
+        nd2_stem,
+        rows=[{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}],
+    )
+
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    convert_tiff_well_to_ome_ngff(
+        nd2_stem=nd2_stem,
+        tiff_dir=tiff_dir,
+        plate_path=plate_path,
+        exclude_channel_names=["GFP"],
+    )
+
+    container = open_ome_zarr_container(str(plate_path / "C" / "09" / "mip"))
+    assert container.channel_labels == ["DAPI"]
+    written = container.get_image().get_as_numpy()
+    assert written.shape == (1, 1, 1, 16, 16)  # T, C, Z, Y, X -- C reduced from 2 to 1
+    np.testing.assert_array_equal(written, np.full((1, 1, 1, 16, 16), 150, dtype="uint16"))
+
+
+def test_convert_tiff_well_to_ome_ngff_raises_for_unknown_exclude_channel_name(tmp_path):
+    nd2_stem = "WellC09_Seq0001"
+    tiff_dir = tmp_path / "intensity"
+    tiff_dir.mkdir()
+    filename = f"{nd2_stem}_0001.ome.tiff"
+    _write_blank_tiff(tiff_dir / filename)  # channels DAPI, GFP
+    _write_metadata_csv(
+        tiff_dir,
+        nd2_stem,
+        rows=[{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}],
+    )
+
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    with pytest.raises(ValueError, match="Nonexistent"):
+        convert_tiff_well_to_ome_ngff(
+            nd2_stem=nd2_stem,
+            tiff_dir=tiff_dir,
+            plate_path=plate_path,
+            exclude_channel_names=["Nonexistent"],
+        )
+
+
+def test_convert_tiff_well_to_ome_ngff_raises_when_excluding_all_channels(tmp_path):
+    nd2_stem = "WellC09_Seq0001"
+    tiff_dir = tmp_path / "intensity"
+    tiff_dir.mkdir()
+    filename = f"{nd2_stem}_0001.ome.tiff"
+    _write_blank_tiff(tiff_dir / filename)  # channels DAPI, GFP
+    _write_metadata_csv(
+        tiff_dir,
+        nd2_stem,
+        rows=[{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}],
+    )
+
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    with pytest.raises(ValueError, match="at least one channel must remain"):
+        convert_tiff_well_to_ome_ngff(
+            nd2_stem=nd2_stem,
+            tiff_dir=tiff_dir,
+            plate_path=plate_path,
+            exclude_channel_names=["DAPI", "GFP"],
+        )
+
+
 def _fit_illumination_correction(tmp_path: Path, channel_names: list) -> Path:
     """A tiny, genuinely-fitted ``IlluminationCorrection`` for testing --
     two uniform-but-different-valued in-memory reference images per
@@ -407,6 +499,54 @@ def test_convert_tiff_well_to_ome_ngff_raises_for_mismatched_illumination_correc
             plate_path=plate_path,
             illumination_correction=str(correction_path),
         )
+
+
+def test_convert_tiff_well_to_ome_ngff_excludes_channel_after_illumination_correction(tmp_path):
+    """exclude_channel_names is applied after illumination correction, not
+    before: correction is fitted and validated against the full original
+    (DAPI, GFP) channel set, unaffected by GFP later being excluded from
+    the write -- and the written DAPI data must match its own *corrected*
+    value, confirming the ordering directly rather than just the shape."""
+    nd2_stem = "WellC09_Seq0001"
+    tiff_dir = tmp_path / "intensity"
+    tiff_dir.mkdir()
+    filename = f"{nd2_stem}_0001.ome.tiff"
+
+    field_data = np.stack([np.full((16, 16), 150, dtype="uint16"), np.full((16, 16), 400, dtype="uint16")])[
+        np.newaxis, :, np.newaxis, :, :
+    ]
+    from bioio_ome_tiff.writers import OmeTiffWriter
+
+    OmeTiffWriter.save(
+        data=field_data,
+        uri=str(tiff_dir / filename),
+        dim_order="TCZYX",
+        channel_names=["DAPI", "GFP"],
+        physical_pixel_sizes=PhysicalPixelSizes(1.0, 0.5, 0.5),
+    )
+    _write_metadata_csv(
+        tiff_dir,
+        nd2_stem,
+        rows=[{"field_id": 1, "stage_x_abs": 0.0, "stage_y_abs": 0.0, "filename_ome_tiff": filename}],
+    )
+
+    correction_path = _fit_illumination_correction(tmp_path, channel_names=["DAPI", "GFP"])
+    expected_corrected = IlluminationCorrection(from_file=str(correction_path)).correct(field_data)
+
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    convert_tiff_well_to_ome_ngff(
+        nd2_stem=nd2_stem,
+        tiff_dir=tiff_dir,
+        plate_path=plate_path,
+        illumination_correction=str(correction_path),
+        exclude_channel_names=["GFP"],
+    )
+
+    container = open_ome_zarr_container(str(plate_path / "C" / "09" / "mip"))
+    assert container.channel_labels == ["DAPI"]
+    written = container.get_image().get_as_numpy()
+    np.testing.assert_array_equal(written, expected_corrected[:, [0], :, :, :])
 
 
 def test_convert_tiff_well_to_ome_ngff_single_channel_needs_no_parent_label_name(tmp_path, caplog):

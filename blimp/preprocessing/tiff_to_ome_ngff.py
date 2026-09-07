@@ -5,6 +5,7 @@ OME-TIFF pipeline: per-field intensity TIFFs, segmentation label TIFFs, and
 """
 from typing import Dict, List, Union, Optional
 from pathlib import Path
+import copy
 import logging
 
 from ngio import open_ome_zarr_plate
@@ -307,7 +308,7 @@ def convert_tiff_well_to_ome_ngff(
     y_direction: str = "down",
     x_direction: str = "left",
     placement: str = "grid",
-    channel_names: Union[str, List[str], None] = None,
+    exclude_channel_names: Optional[List[str]] = None,
     num_levels: int = NUM_PYRAMID_LEVELS,
     illumination_correction: Optional[Union[str, Path]] = None,
 ) -> None:
@@ -355,9 +356,16 @@ def convert_tiff_well_to_ome_ngff(
         all), or to force a channel either way.
     y_direction, x_direction, placement
         See :func:`get_field_layout_from_tiff_metadata`.
-    channel_names
-        List of channel names in case those found in the TIFF metadata are
-        incorrect.
+    exclude_channel_names
+        Channel names (matching the TIFF's own embedded metadata exactly)
+        to leave out of the written intensity image entirely -- e.g. a
+        brightfield or QC channel nobody wants carried into the plate.zarr
+        store. Applied *after* illumination correction: correction is still
+        validated against and applied to every originally-acquired channel
+        exactly as if this were ``None``; excluding a channel only affects
+        what ends up written, not what gets corrected. Raises ``ValueError``
+        if a name isn't among the well's own channels, or if excluding these
+        would leave no channels at all.
     num_levels
         Number of pyramid levels to write.
     illumination_correction
@@ -367,10 +375,11 @@ def convert_tiff_well_to_ome_ngff(
         stitching -- ``None`` skips correction entirely. Fitting a
         correction is a separate, already-implemented concern; this only
         applies one that already exists. The correction's own fitted
-        channel names must match ``channel_names`` exactly (same order) --
-        channel matching inside ``IlluminationCorrection.correct()`` is
-        purely positional (by index, not name), so a mismatch here would
-        otherwise silently apply the wrong channel's statistics.
+        channel names must match the well's own (full, pre-exclusion)
+        channels exactly (same order) -- channel matching inside
+        ``IlluminationCorrection.correct()`` is purely positional (by index,
+        not name), so a mismatch here would otherwise silently apply the
+        wrong channel's statistics.
 
     Notes
     -----
@@ -391,10 +400,7 @@ def convert_tiff_well_to_ome_ngff(
     is_mip = layout.tile_shape[2] == 1
     manifest = _discover_well_manifest(nd2_stem, tiff_dir, label_dir, feature_csv_dir)
 
-    if channel_names is None:
-        channel_names = layout.channel_names
-    elif isinstance(channel_names, str):
-        channel_names = [channel_names]
+    channel_names = layout.channel_names
 
     illumination_correction_obj = None
     if illumination_correction is not None:
@@ -407,6 +413,21 @@ def convert_tiff_well_to_ome_ngff(
                 "channel matching in IlluminationCorrection.correct() is positional, not by name."
             )
 
+    unknown_exclude_channel_names = set(exclude_channel_names or []) - set(channel_names)
+    if unknown_exclude_channel_names:
+        raise ValueError(
+            f"exclude_channel_names {sorted(unknown_exclude_channel_names)} not found among well "
+            f"{nd2_stem}'s own channels {channel_names}"
+        )
+    retained_indices = [i for i, name in enumerate(channel_names) if name not in (exclude_channel_names or [])]
+    if not retained_indices:
+        raise ValueError(
+            f"exclude_channel_names {exclude_channel_names} would exclude every channel found for well "
+            f"{nd2_stem} ({channel_names}) -- at least one channel must remain."
+        )
+    retained_channel_names = [channel_names[i] for i in retained_indices]
+    retained_channel_colors = [layout.channel_colors[i] for i in retained_indices]
+
     plate = open_ome_zarr_plate(store=str(plate_path), mode="r+")
 
     manifest_by_field = manifest.set_index("field_id")
@@ -415,12 +436,16 @@ def convert_tiff_well_to_ome_ngff(
         field_id = layout.field_ids[field_index]
         row = manifest_by_field.loc[field_id]
         if not row["intensity_exists"]:
-            return np.zeros(layout.tile_shape, dtype=reference_dtype)
-        path = Path(tiff_dir) / row["filename_ome_tiff"]
-        tile = BioImage(str(path)).get_image_data("TCZYX")
-        if illumination_correction_obj is not None:
-            tile = illumination_correction_obj.correct(tile)
-        return tile
+            tile = np.zeros(layout.tile_shape, dtype=reference_dtype)
+        else:
+            path = Path(tiff_dir) / row["filename_ome_tiff"]
+            tile = BioImage(str(path)).get_image_data("TCZYX")
+            if illumination_correction_obj is not None:
+                tile = illumination_correction_obj.correct(tile)
+        # Excluding channels is a pure post-processing step, applied only
+        # here, after correction has already seen/produced the full
+        # originally-acquired channel set (both branches above).
+        return tile[:, retained_indices, :, :, :]
 
     # dtype for blank-substitution: read from the first available field.
     first_available = manifest.loc[manifest["intensity_exists"], "filename_ome_tiff"]
@@ -428,14 +453,27 @@ def convert_tiff_well_to_ome_ngff(
         raise FileNotFoundError(f"No intensity TIFFs found at all for well {nd2_stem} in {tiff_dir}")
     reference_dtype = BioImage(str(Path(tiff_dir) / first_available.iloc[0])).dtype
 
+    # A channel-reduced copy of layout, just for _write_well_image's own use
+    # below -- it reads tile_shape/canvas_shape internally to create the
+    # zarr arrays and assign each field's (already-reduced) tile into them,
+    # so these must already reflect the reduced channel count. The label-
+    # writing code further down keeps using the original, unmodified
+    # layout -- labels are discovered separately and are not affected by
+    # excluding an intensity channel.
+    write_layout = copy.copy(layout)
+    write_layout.tile_shape = (*layout.tile_shape[:1], len(retained_indices), *layout.tile_shape[2:])
+    write_layout.canvas_shape = (*layout.canvas_shape[:1], len(retained_indices), *layout.canvas_shape[2:])
+    write_layout.channel_names = retained_channel_names
+    write_layout.channel_colors = retained_channel_colors
+
     container = _write_well_image(
         get_tile=get_tile,
-        layout=layout,
+        layout=write_layout,
         plate=plate,
         plate_path=plate_path,
         image_path="mip" if is_mip else "stack",
-        channel_names=channel_names,
-        channel_colors=layout.channel_colors,
+        channel_names=retained_channel_names,
+        channel_colors=retained_channel_colors,
         dtype=reference_dtype,
         num_levels=num_levels,
         # A no-op when is_mip (already Z==1); tied to the same check used
@@ -557,7 +595,7 @@ def tiff_to_ome_ngff(
     y_direction: str = "down",
     x_direction: str = "left",
     placement: str = "grid",
-    channel_names: Union[str, List[str], None] = None,
+    exclude_channel_names: Optional[List[str]] = None,
     illumination_correction: Optional[Union[str, Path]] = None,
 ) -> None:
     """Read a folder of field TIFFs + metadata CSVs (one well each,
@@ -586,9 +624,8 @@ def tiff_to_ome_ngff(
         See :func:`convert_tiff_well_to_ome_ngff`.
     y_direction, x_direction, placement
         See :func:`get_field_layout_from_tiff_metadata`.
-    channel_names
-        List of channel names in case those found in the TIFF metadata are
-        incorrect.
+    exclude_channel_names
+        See :func:`convert_tiff_well_to_ome_ngff`.
     """
     in_path = Path(in_path)
     plate_path = resolve_plate_path(plate_path)
@@ -611,7 +648,7 @@ def tiff_to_ome_ngff(
             y_direction=y_direction,
             x_direction=x_direction,
             placement=placement,
-            channel_names=channel_names,
+            exclude_channel_names=exclude_channel_names,
             illumination_correction=illumination_correction,
         )
 
@@ -654,7 +691,12 @@ if __name__ == "__main__":
         help='"grid" snaps fields to a tile grid (default); "exact" uses the raw stage offset directly',
     )
     convert_parser.add_argument(
-        "-c", "--channel_names", type=str, nargs="+", default=None, help="list of channel names"
+        "--exclude_channel_names",
+        type=str,
+        nargs="+",
+        default=None,
+        help="channel names to leave out of the written intensity image entirely (applied after "
+        "illumination correction, if any)",
     )
     convert_parser.add_argument(
         "-l",
@@ -711,7 +753,7 @@ if __name__ == "__main__":
             y_direction=args.y_direction,
             x_direction=args.x_direction,
             placement=args.placement,
-            channel_names=args.channel_names,
+            exclude_channel_names=args.exclude_channel_names,
             illumination_correction=args.illumination_correction,
         )
     elif args.command == "ensure-plate":

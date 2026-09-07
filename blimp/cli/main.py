@@ -228,12 +228,12 @@ def _add_convert_tiff_args(parser: argparse.ArgumentParser) -> None:
         '"exact" uses the raw stage offset directly',
     )
     parser.add_argument(
-        "-c",
-        "--channel_names",
+        "--exclude_channel_names",
         type=str,
         nargs="+",
         default=None,
-        help="List of channel names",
+        help="Channel names to leave out of the written intensity image entirely (applied after "
+        "illumination correction, if any)",
     )
     parser.add_argument(
         "--point_object_channel_names",
@@ -266,7 +266,7 @@ def _convert_tiff(args) -> None:
         y_direction=args.y_direction,
         x_direction=args.x_direction,
         placement=args.placement,
-        channel_names=args.channel_names,
+        exclude_channel_names=args.exclude_channel_names,
         job_path=args.jobscript_path,
         submit=args.submit,
         user=args.user,

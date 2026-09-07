@@ -14,7 +14,7 @@ from blimp.preprocessing.convert_tiff import convert_tiff, generate_pbs_script_t
 def test_generate_pbs_script_tiff_ngff_formats_template_with_everything():
     template = (
         "{INPUT_DIR}|{PLATE_PATH}|{LOG_DIR}|{USER}|{USER_EMAIL}|{N_BATCHES}|{ARRAY_DIRECTIVE}|{BATCH_ID_EXPR}|"
-        "{Y_DIRECTION}|{X_DIRECTION}|{PLACEMENT}|{CHANNEL_NAMES}|{LABEL_DIR}|{FEATURE_CSV_DIR}|"
+        "{Y_DIRECTION}|{X_DIRECTION}|{PLACEMENT}|{EXCLUDE_CHANNEL_NAMES}|{LABEL_DIR}|{FEATURE_CSV_DIR}|"
         "{POINT_OBJECT_CHANNEL_NAMES}|{ILLUMINATION_CORRECTION}"
     )
     result = generate_pbs_script_tiff_ngff(
@@ -28,7 +28,7 @@ def test_generate_pbs_script_tiff_ngff_formats_template_with_everything():
         y_direction="down",
         x_direction="left",
         placement="grid",
-        channel_names=["DAPI", "GFP"],
+        exclude_channel_names=["DAPI", "GFP"],
         label_dir="/labels",
         feature_csv_dir="/features",
         point_object_channel_names=["Spots"],
@@ -36,7 +36,7 @@ def test_generate_pbs_script_tiff_ngff_formats_template_with_everything():
     )
     assert result == (
         "/in|/plate.zarr|/log|z1234567|a@b.com|4|#PBS -J 0-3|${PBS_ARRAY_INDEX}|down|left|grid|"
-        "--channel_names DAPI GFP|--label_dir /labels|--feature_csv_dir /features|"
+        "--exclude_channel_names DAPI GFP|--label_dir /labels|--feature_csv_dir /features|"
         "--point_object_channel_names Spots|--illumination_correction /correction.pkl"
     )
 
@@ -61,7 +61,9 @@ def test_generate_pbs_script_tiff_ngff_skips_array_directive_for_one_batch():
 
 
 def test_generate_pbs_script_tiff_ngff_formats_template_with_nothing_optional():
-    template = "{LABEL_DIR}|{FEATURE_CSV_DIR}|{CHANNEL_NAMES}|{POINT_OBJECT_CHANNEL_NAMES}|{ILLUMINATION_CORRECTION}"
+    template = (
+        "{LABEL_DIR}|{FEATURE_CSV_DIR}|{EXCLUDE_CHANNEL_NAMES}|{POINT_OBJECT_CHANNEL_NAMES}|{ILLUMINATION_CORRECTION}"
+    )
     result = generate_pbs_script_tiff_ngff(
         template=template,
         input_dir="/in",
