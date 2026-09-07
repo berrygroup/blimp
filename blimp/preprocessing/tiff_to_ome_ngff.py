@@ -20,7 +20,11 @@ from blimp.ome_ngff import (
     ensure_plate_exists,
 )
 from blimp.ome_ngff.plate import _write_well_image
-from blimp.ome_ngff.labels import _write_well_labels, _write_well_points
+from blimp.ome_ngff.labels import (
+    well_label_offset,
+    _write_well_labels,
+    _write_well_points,
+)
 from blimp.ome_ngff.layout import (
     FieldLayout,
     _parse_well_name,
@@ -492,6 +496,7 @@ def convert_tiff_well_to_ome_ngff(
             )
 
     well_name = f"{layout.row}{layout.column:02d}"
+    well_offset = well_label_offset(plate.rows.index(layout.row), plate.columns.index(f"{layout.column:02d}"))
 
     for channel_index, label_name in enumerate(label_channel_names):
         is_point_object = _is_point_object_channel(
@@ -533,7 +538,11 @@ def convert_tiff_well_to_ome_ngff(
             _write_well_labels(container=container, layout=layout, label_name=label_name, field_arrays=field_arrays)
             if is_parent:
                 _write_well_features(
-                    container=container, label_name=label_name, field_dataframes=field_features, well_name=well_name
+                    container=container,
+                    label_name=label_name,
+                    field_dataframes=field_features,
+                    well_name=well_name,
+                    well_offset=well_offset,
                 )
 
 

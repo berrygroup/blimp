@@ -20,6 +20,7 @@ import zarr
 import numpy as np
 import dask.array as da
 
+from blimp.ome_ngff.labels import well_label_offset
 from blimp.ome_ngff.layout import FieldLayout, _WELL_NAME_RE, _build_fov_roi_table
 from blimp.ome_ngff.metadata import (
     NGFF_VERSION,
@@ -229,8 +230,12 @@ def build_plate_pyramid(
         Which image to build the pyramid from -- "stack" or "mip". Wells
         that don't have this image are skipped.
     label_name
-        Build a label's pyramid instead of the intensity image's (same
-        construction; wells without this label are skipped).
+        Build a label's pyramid instead of the intensity image's. Every
+        well's own IDs get a well-specific offset first
+        (:func:`blimp.ome_ngff.labels.well_label_offset`), so IDs are
+        unique across the whole plate, not just within one well -- the
+        canvas dtype becomes ``int64`` for this reason (wells without this
+        label are skipped).
     gap_fraction
         Size of the empty margin between adjacent wells, as a fraction of
         each pyramid level's own tile size.
@@ -262,20 +267,27 @@ def build_plate_pyramid(
         what = f"label {label_name!r}" if label_name is not None else f"{kind!r} image"
         raise ValueError(f"No well in {plate_path} has a {what}.")
 
-    def _get_array(container: OmeZarrContainer, level_path: str) -> da.Array:
+    def _get_array(container: OmeZarrContainer, level_path: str, offset: int = 0) -> da.Array:
         # Drop the leading T axis (always size 1 for blimp's images -- these
         # are static plates, not time series); keep C/Z (or just Z, for a
         # label) exactly as ngio returns them, so this works unchanged for
         # both a MIP (Z size 1) and a full stack (Z size N).
         if label_name is not None:
-            return container.get_label(label_name, path=level_path).get_as_dask()[0]
+            arr = container.get_label(label_name, path=level_path).get_as_dask()[0]
+            if offset:
+                arr = arr.astype(np.int64)
+                arr = da.where(arr == 0, 0, arr + offset)
+            return arr
         return container.get_image(path=level_path).get_as_dask()[0]
 
     n_rows, n_cols = len(plate.rows), len(plate.columns)
     row_col_index = {}
+    well_offsets = {}
     for well_path in containers:
         row, column = well_path.split("/")
-        row_col_index[well_path] = (plate.rows.index(row), plate.columns.index(column))
+        row_idx, col_idx = plate.rows.index(row), plate.columns.index(column)
+        row_col_index[well_path] = (row_idx, col_idx)
+        well_offsets[well_path] = well_label_offset(row_idx, col_idx) if label_name is not None else 0
 
     first_container = next(iter(containers.values()))
     pyramid = []
@@ -285,15 +297,16 @@ def build_plate_pyramid(
         pitch_h = round(tile_h * (1 + gap_fraction))
         pitch_w = round(tile_w * (1 + gap_fraction))
 
+        canvas_dtype = np.int64 if label_name is not None else reference.dtype
         canvas = da.zeros(
             (*leading_shape, n_rows * pitch_h, n_cols * pitch_w),
-            dtype=reference.dtype,
+            dtype=canvas_dtype,
             chunks=(*leading_shape, pitch_h, pitch_w),
         )
         for well_path, container in containers.items():
             row_idx, col_idx = row_col_index[well_path]
             y0, x0 = row_idx * pitch_h, col_idx * pitch_w
-            canvas[..., y0 : y0 + tile_h, x0 : x0 + tile_w] = _get_array(container, level_path)
+            canvas[..., y0 : y0 + tile_h, x0 : x0 + tile_w] = _get_array(container, level_path, well_offsets[well_path])
         pyramid.append(canvas)
 
     return pyramid

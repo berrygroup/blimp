@@ -22,7 +22,7 @@ import pytest
 
 from blimp.ome_ngff import ensure_plate_exists
 from blimp.constants import blimp_config
-from blimp.ome_ngff.labels import MAX_OBJECTS_PER_FIELD
+from blimp.ome_ngff.labels import well_label_offset, MAX_OBJECTS_PER_FIELD
 from blimp.preprocessing.tiff_to_ome_ngff import (
     _discover_well_manifest,
     _get_parent_channel_name,
@@ -308,6 +308,12 @@ def test_convert_tiff_well_to_ome_ngff_writes_every_channel_only_parent_gets_fea
 
     assert "Nuclei_features" in container.list_tables()
     assert "Cell_features" not in container.list_tables()
+
+    features_df = container.get_feature_table("Nuclei_features").dataframe.reset_index()
+    assert set(features_df["global_id"].tolist()) == {"C09_0001_0000001", "C09_0001_0000002"}
+    expected_well_offset = well_label_offset(row_idx=2, col_idx=8)  # well "C09" in a standard 384-well plate
+    assert features_df["global_id_numeric"].tolist() == [expected_well_offset + label for label in features_df["label"]]
+    assert features_df["global_id_numeric"].dtype == np.int64
 
 
 def _fit_illumination_correction(tmp_path: Path, channel_names: list) -> Path:

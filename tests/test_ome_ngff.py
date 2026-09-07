@@ -20,11 +20,14 @@ from blimp.ome_ngff.plate import (
     ensure_plate_exists,
 )
 from blimp.ome_ngff.labels import (
-    fov_object_id,
+    global_id,
     _offset_label_ids,
+    well_label_offset,
     _write_well_labels,
     _write_well_points,
     MAX_OBJECTS_PER_FIELD,
+    WELL_LABEL_OFFSET_STEP,
+    _validate_field_offset_capacity,
 )
 from blimp.ome_ngff.layout import (
     FieldLayout,
@@ -401,16 +404,21 @@ def test_build_plate_pyramid_places_real_wells_at_their_grid_position(tmp_path):
 
 
 def test_build_plate_pyramid_label_name_variant(tmp_path):
+    """Also the actual collision regression this feature fixes: C09 and F14
+    are given the *same* fill_value, so their raw within-well global IDs
+    collide -- build_plate_pyramid must still tell them apart by applying
+    each well's own well_label_offset. A third well with no label at all
+    (K16) must still be skipped (its grid position stays zero), not
+    raise."""
     plate_path = tmp_path / "plate.zarr"
     ensure_plate_exists(plate_path, "test_plate")
     _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True)
-    # No label on this well -- build_plate_pyramid should skip it (its grid
-    # position stays zero), not raise.
-    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=9, with_label=False)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=3, with_label=True)
+    _write_one_well(tmp_path, plate_path, "WellK16_Seq0001", fill_value=9, with_label=False)
 
     pyramid = build_plate_pyramid(plate_path, kind="mip", label_name="Nuclei")
     level0 = pyramid[0]
-    assert level0.dtype == np.uint32
+    assert level0.dtype == np.int64
     # (z=1, y, x) -- no channel axis for a label.
     assert level0.ndim == 3
 
@@ -419,17 +427,24 @@ def test_build_plate_pyramid_label_name_variant(tmp_path):
     # _write_well_labels offsets local label IDs into a global,
     # field-keyed range (global_id = field_id * MAX_OBJECTS_PER_FIELD +
     # local_id) -- our single field is field_id 1, so the fill_value=3
-    # pixels land here, not as the raw local ID.
-    expected_global_id = 1 * MAX_OBJECTS_PER_FIELD + 3
-    row_idx, col_idx = ord("C") - ord("A"), 9 - 1
-    y0, x0 = row_idx * pitch, col_idx * pitch
-    np.testing.assert_array_equal(
-        level0[0, y0 : y0 + tile, x0 : x0 + tile].compute(), np.full((tile, tile), expected_global_id)
-    )
+    # pixels land here, not as the raw local ID. Both wells share this same
+    # raw value -- only well_label_offset tells them apart at plate scale.
+    raw_global_id = 1 * MAX_OBJECTS_PER_FIELD + 3
 
-    row_idx, col_idx = ord("F") - ord("A"), 14 - 1
-    y0, x0 = row_idx * pitch, col_idx * pitch
-    assert np.all(level0[0, y0 : y0 + tile, x0 : x0 + tile].compute() == 0)
+    def _well_slice(row: str, column: int):
+        row_idx, col_idx = ord(row) - ord("A"), column - 1
+        y0, x0 = row_idx * pitch, col_idx * pitch
+        return level0[0, y0 : y0 + tile, x0 : x0 + tile].compute()
+
+    c09_offset = well_label_offset(ord("C") - ord("A"), 9 - 1)
+    f14_offset = well_label_offset(ord("F") - ord("A"), 14 - 1)
+    assert c09_offset != f14_offset  # the offsets themselves must differ...
+    np.testing.assert_array_equal(_well_slice("C", 9), np.full((tile, tile), c09_offset + raw_global_id))
+    np.testing.assert_array_equal(_well_slice("F", 14), np.full((tile, tile), f14_offset + raw_global_id))
+    # ...so despite an identical raw ID, the two wells never collide.
+    assert not np.array_equal(_well_slice("C", 9), _well_slice("F", 14))
+
+    assert np.all(_well_slice("K", 16) == 0)
 
 
 def test_build_plate_pyramid_raises_when_no_well_has_the_requested_label(tmp_path):
@@ -519,8 +534,31 @@ def test_offset_label_ids_raises_when_local_id_exceeds_max_objects_per_field():
         _offset_label_ids(local, field_id=1, max_objects_per_field=MAX_OBJECTS_PER_FIELD)
 
 
-def test_fov_object_id_format():
-    assert fov_object_id("C09", 4, 123) == "C09_0004_0000123"
+def test_global_id_format():
+    assert global_id("C09", 4, 123) == "C09_0004_0000123"
+
+
+def test_validate_field_offset_capacity_passes_for_a_safe_field_id():
+    _validate_field_offset_capacity(field_id=1, max_objects_per_field=MAX_OBJECTS_PER_FIELD)
+
+
+def test_validate_field_offset_capacity_raises_when_range_exceeds_well_capacity():
+    huge_field_id = WELL_LABEL_OFFSET_STEP // MAX_OBJECTS_PER_FIELD
+    with pytest.raises(ValueError, match="global_id range"):
+        _validate_field_offset_capacity(field_id=huge_field_id, max_objects_per_field=MAX_OBJECTS_PER_FIELD)
+
+
+def test_well_label_offset_is_zero_at_the_origin():
+    assert well_label_offset(0, 0) == 0
+
+
+def test_well_label_offset_uses_default_24_columns():
+    assert well_label_offset(1, 0) == WELL_LABEL_OFFSET_STEP * 24
+    assert well_label_offset(0, 1) == WELL_LABEL_OFFSET_STEP
+
+
+def test_well_label_offset_n_cols_is_configurable():
+    assert well_label_offset(1, 0, n_cols=12) == WELL_LABEL_OFFSET_STEP * 12
 
 
 def test_write_well_labels_offsets_and_stitches_two_fields(tmp_path):
@@ -712,26 +750,35 @@ def test_write_well_points_supports_3d_masks_with_a_z_slice(tmp_path):
 
 def test_offset_feature_table_ids_shifts_label_and_parent_label():
     df = pd.DataFrame({"label": [1, 2], "parent_label": [1, 1], "area": [10, 20]})
-    out = _offset_feature_table_ids(df, field_id=3, well_name="C09")
+    out = _offset_feature_table_ids(df, field_id=3, well_name="C09", well_offset=0)
     offset = 3 * MAX_OBJECTS_PER_FIELD
     assert out["label"].tolist() == [1 + offset, 2 + offset]
     assert out["parent_label"].tolist() == [1 + offset, 1 + offset]
     assert out["area"].tolist() == [10, 20]
 
 
-def test_offset_feature_table_ids_adds_human_readable_fov_object_id():
+def test_offset_feature_table_ids_adds_human_readable_global_id():
     """The numeric label/parent_label offset has no way to carry the well
-    name (it's an integer pixel value) -- fov_object_id is the traceability
-    companion, built from the same (well, field_id, local_id), so it should
-    never disagree with the numeric global_id."""
+    name (it's an integer pixel value) -- global_id (text) is the
+    traceability companion, built from the same (well, field_id, local_id),
+    so it should never disagree with the numeric label."""
     df = pd.DataFrame({"label": [1, 2]})
-    out = _offset_feature_table_ids(df, field_id=4, well_name="C09")
-    assert out["fov_object_id"].tolist() == ["C09_0004_0000001", "C09_0004_0000002"]
+    out = _offset_feature_table_ids(df, field_id=4, well_name="C09", well_offset=0)
+    assert out["global_id"].tolist() == ["C09_0004_0000001", "C09_0004_0000002"]
+
+
+def test_offset_feature_table_ids_adds_plate_wide_global_id_numeric():
+    df = pd.DataFrame({"label": [1, 2]})
+    well_offset = WELL_LABEL_OFFSET_STEP * 5
+    out = _offset_feature_table_ids(df, field_id=1, well_name="C09", well_offset=well_offset)
+    expected_label = 1 * MAX_OBJECTS_PER_FIELD
+    assert out["global_id_numeric"].tolist() == [well_offset + expected_label + 1, well_offset + expected_label + 2]
+    assert out["global_id_numeric"].dtype == np.int64
 
 
 def test_offset_feature_table_ids_does_not_mutate_input():
     df = pd.DataFrame({"label": [1]})
-    _offset_feature_table_ids(df, field_id=1, well_name="C09")
+    _offset_feature_table_ids(df, field_id=1, well_name="C09", well_offset=0)
     assert df["label"].tolist() == [1]
 
 
@@ -749,18 +796,21 @@ def test_write_well_features_matches_label_ids(tmp_path):
 
     features0 = pd.DataFrame({"label": [1, 2], "Nuclei_area": [16, 16]})
     features1 = pd.DataFrame({"label": [1], "Nuclei_area": [16]})
+    well_offset = well_label_offset(row_idx=2, col_idx=8)
     _write_well_features(
         container=container,
         label_name="Nuclei",
         field_dataframes={1: features0, 2: features1},
         well_name="C09",
+        well_offset=well_offset,
     )
 
     table = container.get_feature_table("Nuclei_features")
     df = table.dataframe.reset_index()
     label_ids = set(np.unique(container.get_label("Nuclei").get_as_numpy()).tolist()) - {0}
     assert set(df["label"].tolist()) == label_ids
-    assert set(df["fov_object_id"].tolist()) == {"C09_0001_0000001", "C09_0001_0000002", "C09_0002_0000001"}
+    assert set(df["global_id"].tolist()) == {"C09_0001_0000001", "C09_0001_0000002", "C09_0002_0000001"}
+    assert set(df["global_id_numeric"].tolist()) == {well_offset + label_id for label_id in label_ids}
 
 
 def test_write_well_features_field_with_missing_measurements_contributes_no_rows(tmp_path):
@@ -777,7 +827,11 @@ def test_write_well_features_field_with_missing_measurements_contributes_no_rows
     features0 = pd.DataFrame({"label": [1], "Nuclei_area": [16]})
     # field 2's measurements are missing entirely (e.g. quantification failed)
     _write_well_features(
-        container=container, label_name="Nuclei", field_dataframes={1: features0, 2: None}, well_name="C09"
+        container=container,
+        label_name="Nuclei",
+        field_dataframes={1: features0, 2: None},
+        well_name="C09",
+        well_offset=0,
     )
 
     table = container.get_feature_table("Nuclei_features")

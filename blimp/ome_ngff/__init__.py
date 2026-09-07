@@ -6,11 +6,13 @@ from blimp.ome_ngff.plate import (
     ensure_plate_exists,
 )
 from blimp.ome_ngff.labels import (
-    fov_object_id,
+    global_id,
     _offset_label_ids,
+    well_label_offset,
     _write_well_labels,
     _write_well_points,
     MAX_OBJECTS_PER_FIELD,
+    WELL_LABEL_OFFSET_STEP,
 )
 from blimp.ome_ngff.layout import (
     FieldLayout,
@@ -32,9 +34,11 @@ __all__ = [
     "NGFF_VERSION",
     "NUM_PYRAMID_LEVELS",
     "MAX_OBJECTS_PER_FIELD",
+    "WELL_LABEL_OFFSET_STEP",
     "ensure_plate_exists",
     "resolve_plate_path",
     "locate_well",
     "open_well_image",
-    "fov_object_id",
+    "global_id",
+    "well_label_offset",
 ]

@@ -10,24 +10,37 @@ import logging
 from ngio import FeatureTable, OmeZarrContainer
 import pandas as pd
 
-from blimp.ome_ngff.labels import fov_object_id, MAX_OBJECTS_PER_FIELD
+from blimp.ome_ngff.labels import (
+    global_id,
+    MAX_OBJECTS_PER_FIELD,
+    _validate_field_offset_capacity,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def _offset_feature_table_ids(
-    df: pd.DataFrame, field_id: int, well_name: str, max_objects_per_field: int = MAX_OBJECTS_PER_FIELD
+    df: pd.DataFrame,
+    field_id: int,
+    well_name: str,
+    well_offset: int,
+    max_objects_per_field: int = MAX_OBJECTS_PER_FIELD,
 ) -> pd.DataFrame:
-    """Apply the same ``global_id = field_id * max_objects_per_field +
-    local_id`` formula used for label placement to a feature dataframe's
-    ``label`` column, and its ``parent_label`` column if present (the same
-    field, so the same offset).
+    """Apply the same ``global_id_numeric = well_offset + field_id *
+    max_objects_per_field + local_id`` formula used for label placement to
+    a feature dataframe's ``label`` column, and its ``parent_label`` column
+    if present (the same field, so the same offset).
 
-    Also adds a ``fov_object_id`` column (e.g. ``"C09_0004_0000123"``, see
-    :func:`blimp.ome_ngff.labels.fov_object_id`) computed from each row's
-    *own* (pre-offset) local id -- a human-readable companion to the numeric
-    ``label``, which as an integer pixel value has no way to carry the well
-    name.
+    Also adds:
+    - ``global_id`` (text, e.g. ``"C09_0004_0000123"``, see
+      :func:`blimp.ome_ngff.labels.global_id`) computed from each row's
+      *own* (pre-offset) local id -- a human-readable companion to the
+      numeric ``label``, which as an integer pixel value has no way to
+      carry the well name.
+    - ``global_id_numeric`` (``int64``), plate-wide unique -- ``label``
+      (after its own per-field offset) plus ``well_offset``, matching the
+      plate-level Labels layer's own pixel values
+      (:func:`blimp.ome_ngff.plate.build_plate_pyramid`).
 
     Parameters
     ----------
@@ -38,8 +51,12 @@ def _offset_feature_table_ids(
         The field's stable, source-assigned identifier (see
         ``FieldLayout.field_ids``).
     well_name
-        e.g. ``"C09"`` -- used only to build ``fov_object_id``, not the
+        e.g. ``"C09"`` -- used only to build ``global_id``, not the
         numeric ``label``/``parent_label`` offset itself.
+    well_offset
+        This well's own plate-wide offset (see
+        :func:`blimp.ome_ngff.labels.well_label_offset`), added on top of
+        the existing per-field offset to build ``global_id_numeric``.
     max_objects_per_field
         Must match the value used when placing the corresponding ``Label``
         array (:func:`blimp.ome_ngff.labels._offset_label_ids`).
@@ -48,14 +65,17 @@ def _offset_feature_table_ids(
     -------
     pd.DataFrame
         A copy of ``df`` with ``label``/``parent_label`` shifted into this
-        field's global ID range, and a new ``fov_object_id`` column.
+        field's global ID range, and new ``global_id``/``global_id_numeric``
+        columns.
     """
+    _validate_field_offset_capacity(field_id, max_objects_per_field)
     df = df.copy()
-    df["fov_object_id"] = [fov_object_id(well_name, field_id, int(local_id)) for local_id in df["label"]]
+    df["global_id"] = [global_id(well_name, field_id, int(local_id)) for local_id in df["label"]]
     offset = field_id * max_objects_per_field
     df["label"] = df["label"] + offset
     if "parent_label" in df.columns:
         df["parent_label"] = df["parent_label"] + offset
+    df["global_id_numeric"] = (df["label"] + well_offset).astype("int64")
     return df
 
 
@@ -64,6 +84,7 @@ def _write_well_features(
     label_name: str,
     field_dataframes: Dict[int, Optional[pd.DataFrame]],
     well_name: str,
+    well_offset: int,
     table_name: Optional[str] = None,
     max_objects_per_field: int = MAX_OBJECTS_PER_FIELD,
 ) -> None:
@@ -90,13 +111,15 @@ def _write_well_features(
         missing.
     well_name
         e.g. ``"C09"`` -- see :func:`_offset_feature_table_ids`.
+    well_offset
+        See :func:`_offset_feature_table_ids`.
     table_name
         Table name (default: ``f"{label_name}_features"``).
     max_objects_per_field
         See :func:`_offset_feature_table_ids`.
     """
     offset_dfs = [
-        _offset_feature_table_ids(df, field_id, well_name, max_objects_per_field)
+        _offset_feature_table_ids(df, field_id, well_name, well_offset, max_objects_per_field)
         for field_id, df in field_dataframes.items()
         if df is not None
     ]

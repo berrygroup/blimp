@@ -33,6 +33,50 @@ logger = logging.getLogger(__name__)
 # bound.
 MAX_OBJECTS_PER_FIELD = 10_000_000
 
+# One well's entire reserved address space for combining wells into a
+# single plate-wide numeric ID (see well_label_offset below) -- exactly
+# uint32's own ceiling, since on-disk label arrays are uint32 and every
+# valid within-well global_id therefore already fits under it by
+# construction, regardless of field count.
+WELL_LABEL_OFFSET_STEP = 2**32
+
+
+def _validate_field_offset_capacity(field_id: int, max_objects_per_field: int) -> None:
+    """Raise if this field's own global_id range would exceed
+    WELL_LABEL_OFFSET_STEP, the per-well capacity both the on-disk
+    (uint32-cast) within-well scheme and the plate-wide numeric offset
+    (well_label_offset) assume -- a well with enough distinct fields could
+    otherwise silently wrap around instead of raising."""
+    if (field_id + 1) * max_objects_per_field > WELL_LABEL_OFFSET_STEP:
+        raise ValueError(
+            f"field_id {field_id} with max_objects_per_field {max_objects_per_field} would push this "
+            f"field's global_id range past {WELL_LABEL_OFFSET_STEP} (2**32), this well's own reserved "
+            "capacity -- too many fields in this well for the current MAX_OBJECTS_PER_FIELD."
+        )
+
+
+def well_label_offset(row_idx: int, col_idx: int, n_cols: int = 24) -> int:
+    """Stable, collision-free per-well offset for combining label IDs
+    across an entire plate.
+
+    Reserves one full ``WELL_LABEL_OFFSET_STEP`` (``2**32``) address block
+    per well -- since every within-well ``global_id`` already fits under
+    that ceiling (see ``WELL_LABEL_OFFSET_STEP``), no two wells' offset
+    ID ranges can ever overlap, for any field count.
+
+    ``n_cols`` defaults to 24 (a standard 384-well plate) rather than being
+    derived from any one plate's own declared grid, so the same physical
+    well (row, column) always maps to the same offset regardless of
+    incidental plate-creation parameters -- override it for a wider layout.
+
+    Shared by ``_write_well_features`` (persisted into
+    ``global_id_numeric``) and ``blimp.ome_ngff.plate.build_plate_pyramid``/
+    ``blimp.napari_utils.add_plate`` (applied to pixel values, and
+    re-derived for merged features when a table predates this column), so
+    all three always agree.
+    """
+    return (row_idx * n_cols + col_idx) * WELL_LABEL_OFFSET_STEP
+
 
 def _offset_label_ids(
     local_array: np.ndarray, field_id: int, max_objects_per_field: int = MAX_OBJECTS_PER_FIELD
@@ -73,13 +117,14 @@ def _offset_label_ids(
             f"MAX_OBJECTS_PER_FIELD ({max_objects_per_field}) -- global IDs would collide "
             "with the next field's range. Increase MAX_OBJECTS_PER_FIELD."
         )
+    _validate_field_offset_capacity(field_id, max_objects_per_field)
     offset = field_id * max_objects_per_field
     return np.where(local_array > 0, local_array.astype(np.int64) + offset, 0).astype(np.uint32)
 
 
-def fov_object_id(well_name: str, field_id: int, local_id: int) -> str:
+def global_id(well_name: str, field_id: int, local_id: int) -> str:
     """Human-readable, traceable object identifier, e.g. ``"C09_0004_0000123"``
-    -- derived from the same two numbers as the numeric ``global_id``
+    -- derived from the same two numbers as the numeric well-local id
     (:func:`_offset_label_ids`), so the two never disagree."""
     return f"{well_name}_{field_id:04d}_{local_id:07d}"
 
@@ -195,14 +240,15 @@ def _write_well_points(
 
         coords = np.argwhere(mask > 0)
         is_3d = mask.ndim == 3
+        _validate_field_offset_capacity(field_id, max_objects_per_field)
         offset = field_id * max_objects_per_field
         features_df = field_features.get(field_id)
 
         for local_id_minus_one, coord in enumerate(coords):
             z, y, x = (int(coord[0]), int(coord[1]), int(coord[2])) if is_3d else (0, int(coord[0]), int(coord[1]))
             local_id = local_id_minus_one + 1
-            global_id = int(offset + local_id)
-            name = fov_object_id(well_name, field_id, local_id)
+            local_global_id = int(offset + local_id)
+            name = global_id(well_name, field_id, local_id)
             world_y = float((y0 + y) * pixel_size_y)
             world_x = float((x0 + x) * pixel_size_x)
             slices = {
@@ -212,7 +258,7 @@ def _write_well_points(
             if is_3d:
                 world_z = float(z * pixel_size_z)
                 slices["z"] = slice(world_z, world_z + pixel_size_z)
-            rois.append(Roi.from_values(slices=slices, name=name, label=global_id, space="world"))
+            rois.append(Roi.from_values(slices=slices, name=name, label=local_global_id, space="world"))
             if features_df is not None:
                 row = features_df.loc[features_df["label"] == local_id]
                 if not row.empty:

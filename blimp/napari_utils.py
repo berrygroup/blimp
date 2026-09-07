@@ -11,6 +11,9 @@ import types
 
 from ngio import open_ome_zarr_plate, open_ome_zarr_container
 import napari
+import pandas as pd
+
+from blimp.ome_ngff.labels import well_label_offset
 
 
 def add_rois(
@@ -234,14 +237,18 @@ def add_plate(
     and channel, which can take minutes; see ``build_plate_pyramid``).
 
     Adds one multiscale ``Image`` layer per channel, one multiscale
-    ``Labels`` layer per label found on any well, one combined plate-wide
-    ``Shapes`` layer outlining each well's own outer boundary (visible by
-    default -- this is the useful overview at plate scale), and one combined
-    plate-wide ``Shapes`` layer outlining every well's own FOV boundaries
-    (each well's ``FOV_ROI_table`` rectangles, shifted to that well's grid
-    position; hidden by default -- only useful once zoomed into a single
-    well). Point-object tables are not included here -- that level of
-    per-object detail belongs in the per-well view (``add_points_with_measurements``).
+    ``Labels`` layer per label found on any well (each with every
+    contributing well's own measurements merged into its ``.features``,
+    keyed to match the layer's plate-wide-unique pixel values -- usable
+    directly with a tool like Napari Feature Visualizer, across every well
+    at once, not just one), one combined plate-wide ``Shapes`` layer
+    outlining each well's own outer boundary (visible by default -- this is
+    the useful overview at plate scale), and one combined plate-wide
+    ``Shapes`` layer outlining every well's own FOV boundaries (each well's
+    ``FOV_ROI_table`` rectangles, shifted to that well's grid position;
+    hidden by default -- only useful once zoomed into a single well).
+    Point-object tables are not included here -- that level of per-object
+    detail belongs in the per-well view (``add_points_with_measurements``).
 
     Every layer here is in plain pixel units (unlike ``add_rois`` and
     friends, there's no real-world-scaled layer from ``napari-ome-zarr`` in
@@ -306,7 +313,31 @@ def add_plate(
         # visible=False: a plate-scale label layer is expensive to render and
         # rarely wanted immediately on load -- toggle it on from the layer
         # list (napari's own visibility control) once you actually need it.
-        layers.append(viewer.add_labels(label_pyramid, multiscale=True, name=label_name, visible=False))
+        label_layer = viewer.add_labels(label_pyramid, multiscale=True, name=label_name, visible=False)
+        layers.append(label_layer)
+
+        # Merge every contributing well's own measurements into one
+        # plate-wide features table, keyed to match this layer's own
+        # (plate-wide-unique) pixel values -- prefer each well's already
+        # persisted global_id_numeric column when present, else derive the
+        # identical value on the fly (build_plate_pyramid applies the same
+        # well_label_offset to the pixels above).
+        feature_frames = []
+        for well_path, container in well_containers.items():
+            if label_name not in container.list_labels():
+                continue
+            table_name = f"{label_name}_features"
+            if table_name not in container.list_tables():
+                continue
+            row, column = well_path.split("/")
+            df = container.get_feature_table(table_name).dataframe.reset_index()
+            if "global_id_numeric" in df.columns:
+                df["label"] = df["global_id_numeric"]
+            else:
+                df["label"] = df["label"] + well_label_offset(plate.rows.index(row), plate.columns.index(column))
+            feature_frames.append(df)
+        if feature_frames:
+            label_layer.features = pd.concat(feature_frames, ignore_index=True)
 
     fov_rectangles = []
     fov_names = []
