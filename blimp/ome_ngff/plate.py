@@ -163,7 +163,8 @@ def locate_well(plate_path: Union[str, Path], well_name: str) -> str:
 
 class _NoTrailingSlashHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """A static-file handler whose directory listings link to child
-    directories by their bare name, not ``name + "/"``.
+    directories by their bare name, not ``name + "/"``, and that stays
+    quiet on every ordinary request.
 
     Every standard directory listing (this stdlib handler included, and
     Apache/nginx autoindex the same way) links to a subdirectory with a
@@ -179,7 +180,17 @@ class _NoTrailingSlashHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     while the very same store read perfectly locally). Only the trailing
     slash actually needs to go for this reader's benefit; nothing else here
     parses these listings by hand.
+
+    ``BaseHTTPRequestHandler``'s own default also logs every single request
+    to stderr -- fine for a handful of files, but a real plate touches many
+    chunks and metadata probes per view, which floods an on-demand session's
+    notebook output at well over 100 lines/second (found by testing against
+    a real ~120-well plate). Silenced unconditionally: this is meant to run
+    unattended for the length of a viewing session, not to be watched.
     """
+
+    def log_message(self, format: str, *args: Any) -> None:
+        pass
 
     def list_directory(self, path: Union[str, "os.PathLike[str]"]):
         try:
