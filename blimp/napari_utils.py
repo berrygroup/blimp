@@ -223,7 +223,7 @@ def add_points_with_measurements(
 
 def add_plate(
     viewer: napari.Viewer,
-    plate_path: Union[str, Path],
+    plate_path: Union[str, Path, List[Union[str, Path]]],
     kind: Literal["stack", "mip"] = "mip",
     include_measurements: bool = False,
     max_workers: int = 8,
@@ -262,7 +262,14 @@ def add_plate(
     viewer
         The napari viewer to add the layers to.
     plate_path
-        Full path to the plate's .zarr store.
+        Full path to the plate's .zarr store -- or several mirror URLs for
+        the same store, each reached through its own separate ssh tunnel
+        (see ``blimp.ome_ngff.plate.open_mirrored_tunnels``), to spread
+        per-well reads across more than one connection. A single ``ssh -L``
+        tunnel multiplexes over one connection -- a real cap on throughput
+        once many small requests need to move concurrently (confirmed
+        against real cluster traffic); several independent tunnels don't
+        share that cap.
     kind
         Which image to show -- "stack" or "mip".
     include_measurements
@@ -290,21 +297,26 @@ def add_plate(
     # heavier) conversion dependency set (bioio, etc.), which this module's
     # own docstring promises not to require just to import it.
     from blimp.ome_ngff.plate import (
+        _well_mirror_map,
         _map_concurrently,
         build_plate_pyramid,
+        _normalize_mirror_urls,
         _read_plate_wide_features,
     )
 
-    plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
+    mirror_urls = _normalize_mirror_urls(plate_path)
+    plate = open_ome_zarr_plate(store=mirror_urls[0], mode="r")
     well_paths = plate.wells_paths()
     if not well_paths:
         raise ValueError(f"Plate {plate_path} has no wells written yet.")
+
+    well_mirror = _well_mirror_map(well_paths, mirror_urls)
 
     def _open_one_well(well_path: str) -> Any:
         # Plain string join, not pathlib -- Path() silently collapses a URL's
         # "http://host/..." into "http:/host/..." (single slash) on any /-join,
         # which breaks open_ome_zarr_container for a remote (http://) plate_path.
-        container = open_ome_zarr_container(f"{plate_path}/{well_path}/{kind}")
+        container = open_ome_zarr_container(f"{well_mirror[well_path]}/{well_path}/{kind}")
         return container, set(container.list_labels())
 
     opened = _map_concurrently(_open_one_well, well_paths, max_workers=max_workers)
@@ -424,7 +436,7 @@ def add_plate(
 
 def attach_plate_wide_measurements(
     viewer: napari.Viewer,
-    plate_path: Union[str, Path],
+    plate_path: Union[str, Path, List[Union[str, Path]]],
     label_name: str,
     kind: Literal["stack", "mip"] = "mip",
     max_workers: int = 8,
@@ -448,7 +460,8 @@ def attach_plate_wide_measurements(
     viewer
         The napari viewer ``add_plate`` was called on.
     plate_path
-        Full path to the plate's .zarr store.
+        Full path to the plate's .zarr store -- or several mirror URLs for
+        the same store, see ``add_plate``'s own ``plate_path``.
     label_name
         Which label's own measurements to attach -- must match the name of
         a ``Labels`` layer ``add_plate`` already added.
@@ -508,7 +521,7 @@ def _find_existing_label_pyramid_layer(viewer: napari.Viewer, label_name: str) -
 
 def add_feature_heatmap(
     viewer: napari.Viewer,
-    plate_path: Union[str, Path],
+    plate_path: Union[str, Path, List[Union[str, Path]]],
     label_name: str,
     feature_name: str,
     kind: Literal["stack", "mip"] = "mip",
@@ -554,7 +567,8 @@ def add_feature_heatmap(
     viewer
         The napari viewer to add the layer to.
     plate_path
-        Full path to the plate's .zarr store.
+        Full path to the plate's .zarr store -- or several mirror URLs for
+        the same store, see ``add_plate``'s own ``plate_path``.
     label_name
         Which label's own measurements to show (``f"{label_name}_features"``).
     feature_name

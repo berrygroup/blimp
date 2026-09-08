@@ -14,6 +14,7 @@ import logging
 import functools
 import itertools
 import threading
+import subprocess
 import http.server
 import urllib.parse
 import concurrent.futures
@@ -71,6 +72,33 @@ def _map_concurrently(func: Callable[[_T], _R], items: List[_T], max_workers: in
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(func, item) for item in items]
         return [future.result() for future in futures]
+
+
+def _normalize_mirror_urls(plate_path: Union[str, Path, List[Union[str, Path]]]) -> List[str]:
+    """A ``plate_path`` accepted as either one path/URL or several mirror
+    URLs for the same store (see :func:`open_mirrored_tunnels`), normalized
+    to a plain list of strings -- a single value becomes a one-element
+    list, so every mirror-aware function below behaves exactly as before
+    when only one is given."""
+    if isinstance(plate_path, (str, Path)):
+        return [str(plate_path)]
+    return [str(mirror) for mirror in plate_path]
+
+
+def _well_mirror_map(all_well_paths: List[str], mirror_urls: List[str]) -> Dict[str, str]:
+    """Which of ``mirror_urls`` each well path opens through, round-robined
+    by its position in ``all_well_paths`` -- computed the same way
+    everywhere it's needed (:func:`_discover_wells_with_label`'s own
+    opening loop, ``add_plate``'s, and ``_read_plate_wide_feature_raw``'s
+    raw-path construction) so a given well always resolves to the same
+    mirror, regardless of which of those call it.
+
+    Always keyed off the plate's *full* well list, not a caller's
+    ``wells=`` filter -- otherwise the same well could map to a different
+    mirror depending on which subset of wells a particular call happened
+    to restrict itself to.
+    """
+    return {well_path: mirror_urls[i % len(mirror_urls)] for i, well_path in enumerate(all_well_paths)}
 
 
 def resolve_plate_path(plate_path: Union[str, Path]) -> Path:
@@ -481,6 +509,171 @@ def summarize_request_log(served: ServedPlate) -> pd.DataFrame:
     return df.groupby(["node_kind", "request_kind"]).agg(requests=("path", "count"), total_ms=("duration_ms", "sum"))
 
 
+@dataclass
+class MirroredTunnels:
+    """Handle for several independent ``ssh -L`` tunnel processes, all
+    forwarding to the same remote host:port, started by
+    :func:`open_mirrored_tunnels`.
+
+    A single ``ssh -L`` port forward multiplexes over one encrypted TCP
+    connection -- fine for interactive use, but a real ceiling on
+    throughput once many small requests need to move concurrently
+    (confirmed against real cluster traffic: splitting the same total
+    concurrency across several separate ssh connections roughly halved
+    wall-clock time versus one connection carrying it all). Each of this
+    handle's ``local_ports`` is its own separate ``ssh`` process -- a
+    genuinely independent connection, not just another ``-L`` flag on one
+    -- so per-well reads can be spread across them via
+    :func:`_well_mirror_map`.
+
+    A background thread polls each process every ``check_interval``
+    seconds and restarts any that has died (network drop, laptop sleep, VPN
+    reconnect) -- a tunnel dying mid-session degrades to fewer working
+    mirrors for a few seconds, not a silent, permanent stall.
+    """
+
+    local_ports: List[int]
+    remote_host: str
+    remote_port: int
+    login_alias: str
+    check_interval: float = 5.0
+    _processes: List[subprocess.Popen] = field(default_factory=list, repr=False, compare=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    _stop_event: threading.Event = field(default_factory=threading.Event, repr=False, compare=False)
+    _monitor_thread: Optional[threading.Thread] = field(default=None, repr=False, compare=False)
+
+    def urls(self, plate_name: str) -> List[str]:
+        """The mirror URLs to pass as ``plate_path`` to e.g. ``add_plate``/
+        ``build_plate_pyramid`` -- one per tunnel. ``plate_name`` is
+        whatever :func:`serve_plate_over_http` printed after the port
+        (e.g. ``"my_plate.zarr"``)."""
+        return [f"http://localhost:{port}/{plate_name}" for port in self.local_ports]
+
+    def _spawn(self, local_port: int) -> subprocess.Popen:
+        return subprocess.Popen(
+            [
+                "ssh",
+                "-N",
+                "-J",
+                self.login_alias,
+                "-L",
+                f"{local_port}:localhost:{self.remote_port}",
+                self.remote_host,
+                "-o",
+                "ServerAliveInterval=15",
+                "-o",
+                "ServerAliveCountMax=3",
+                "-o",
+                "ExitOnForwardFailure=yes",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def _monitor(self) -> None:
+        while not self._stop_event.wait(self.check_interval):
+            with self._lock:
+                for i, proc in enumerate(self._processes):
+                    if proc.poll() is not None:
+                        logger.warning(
+                            f"Tunnel on local port {self.local_ports[i]} exited "
+                            f"(code {proc.returncode}); restarting."
+                        )
+                        self._processes[i] = self._spawn(self.local_ports[i])
+
+    def stop(self, timeout: float = 5.0) -> None:
+        """Stop monitoring and terminate every tunnel process."""
+        self._stop_event.set()
+        if self._monitor_thread is not None:
+            self._monitor_thread.join(timeout=timeout)
+        with self._lock:
+            for proc in self._processes:
+                proc.terminate()
+            for proc in self._processes:
+                try:
+                    proc.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+
+    def __enter__(self) -> "MirroredTunnels":
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self.stop()
+
+
+def open_mirrored_tunnels(
+    remote_host: str,
+    remote_port: int,
+    login_alias: str = "kdm",
+    n_mirrors: int = 4,
+    local_ports: Optional[List[int]] = None,
+    check_interval: float = 5.0,
+) -> MirroredTunnels:
+    """Start ``n_mirrors`` independent ``ssh -L`` tunnels from this machine
+    to ``remote_host:remote_port`` (the same remote port
+    :func:`serve_plate_over_http` printed), each on its own local port, so
+    reads can be spread across genuinely separate SSH connections instead
+    of hitting one connection's own multiplexing ceiling -- see
+    :class:`MirroredTunnels` for why this matters and how a dropped tunnel
+    is handled. Run this on the machine that will actually view the plate
+    (i.e. from ``view_remote_plate_in_napari.ipynb`` itself, not the
+    cluster-side serving notebook) -- it needs its own outbound SSH access
+    to the cluster, same as the single-tunnel instructions
+    :func:`serve_plate_over_http` prints.
+
+    Parameters
+    ----------
+    remote_host
+        The compute node hostname :func:`serve_plate_over_http` printed.
+    remote_port
+        The port :func:`serve_plate_over_http` printed (the same number
+        the single-tunnel instructions already use).
+    login_alias
+        Your ssh config's ``Host`` alias for the cluster's login node
+        (passed to ``-J``) -- see :func:`serve_plate_over_http`.
+    n_mirrors
+        How many independent tunnels to open.
+    local_ports
+        Explicit local ports to use, one per mirror -- ``None`` (the
+        default) picks ``n_mirrors`` free ports automatically (briefly
+        binding each to find one, then releasing it for ``ssh`` to bind in
+        turn -- a small, generally-safe race, same tradeoff ``port=0``
+        makes elsewhere in this module).
+    check_interval
+        How often (seconds) the background monitor thread checks for a
+        dead tunnel and restarts it.
+
+    Returns
+    -------
+    MirroredTunnels
+        ``.urls(plate_name)`` gives the mirror URL list to pass as
+        ``plate_path`` to ``add_plate`` and friends. Call ``.stop()`` (or
+        use as a context manager) when done viewing.
+    """
+    if local_ports is None:
+        local_ports = []
+        for _ in range(n_mirrors):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind(("127.0.0.1", 0))
+                local_ports.append(probe.getsockname()[1])
+    elif len(local_ports) != n_mirrors:
+        raise ValueError(f"local_ports has {len(local_ports)} entries but n_mirrors={n_mirrors}.")
+
+    tunnels = MirroredTunnels(
+        local_ports=local_ports,
+        remote_host=remote_host,
+        remote_port=remote_port,
+        login_alias=login_alias,
+        check_interval=check_interval,
+    )
+    tunnels._processes = [tunnels._spawn(port) for port in local_ports]
+    tunnels._monitor_thread = threading.Thread(target=tunnels._monitor, daemon=True)
+    tunnels._monitor_thread.start()
+    print(f"Opened {n_mirrors} independent ssh tunnels to {remote_host}:{remote_port} on local ports {local_ports}.")
+    return tunnels
+
+
 def open_well_image(plate_path: Union[str, Path], well_relative_path: str, kind: Literal["stack", "mip"]) -> BioImage:
     """Open one well's "stack" or "mip" image (e.g. ``plate.zarr/C/09/mip``)
     as a ``BioImage``.
@@ -531,6 +724,7 @@ def _discover_wells_with_label(
     label_name: Optional[str] = None,
     wells: Optional[Union[str, List[str]]] = None,
     open_containers: Optional[Dict[str, OmeZarrContainer]] = None,
+    mirror_urls: Optional[List[str]] = None,
     max_workers: int = 8,
 ) -> Dict[str, OmeZarrContainer]:
     """Open every well's own ``kind`` image, restricted to wells that have
@@ -560,6 +754,13 @@ def _discover_wells_with_label(
         its own image pyramid, again for every label's pyramid, and again
         for every label's feature table. ``None`` (the default) opens each
         well itself, same as every caller other than ``add_plate``.
+    mirror_urls
+        Several base URLs for the same plate, each reached through its own
+        separate ssh tunnel (see :func:`open_mirrored_tunnels`) -- when
+        given (and ``open_containers`` is ``None``), each well opens
+        through one of these instead of through ``plate``, round-robined
+        by :func:`_well_mirror_map`. ``None`` (the default) opens every
+        well through ``plate`` itself, same as before.
     max_workers
         Open/check up to this many wells concurrently, across threads --
         see :func:`_map_concurrently`. ``1`` opens them one at a time, in
@@ -585,10 +786,17 @@ def _discover_wells_with_label(
             raise ValueError(f"Well(s) {unknown} not found in plate; available wells: {sorted(all_well_paths)}")
         well_paths = requested
 
+    well_mirror = _well_mirror_map(all_well_paths, mirror_urls) if mirror_urls else None
+
     def _open_one(well_path: str) -> Optional[OmeZarrContainer]:
         if open_containers is not None:
             container = open_containers.get(well_path)
             if container is None:
+                return None
+        elif well_mirror is not None:
+            try:
+                container = open_ome_zarr_container(f"{well_mirror[well_path]}/{well_path}/{kind}")
+            except (ValueError, NgioFileNotFoundError, FileNotFoundError):
                 return None
         else:
             row, column = well_path.split("/")
@@ -605,7 +813,7 @@ def _discover_wells_with_label(
 
 
 def build_plate_pyramid(
-    plate_path: Union[str, Path],
+    plate_path: Union[str, Path, List[Union[str, Path]]],
     kind: Literal["stack", "mip"] = "mip",
     label_name: Optional[str] = None,
     gap_fraction: float = 0.05,
@@ -629,7 +837,10 @@ def build_plate_pyramid(
     Parameters
     ----------
     plate_path
-        Full path to the plate's .zarr store.
+        Full path to the plate's .zarr store -- or several mirror URLs for
+        the same store (see :func:`open_mirrored_tunnels`), each reached
+        through its own separate ssh tunnel, to spread per-well reads
+        across more than one connection.
     kind
         Which image to build the pyramid from -- "stack" or "mip". Wells
         that don't have this image are skipped.
@@ -663,10 +874,11 @@ def build_plate_pyramid(
     ValueError
         If no well has the requested image/label.
     """
+    mirror_urls = _normalize_mirror_urls(plate_path)
     if plate is None:
-        plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
+        plate = open_ome_zarr_plate(store=mirror_urls[0], mode="r")
     containers = _discover_wells_with_label(
-        plate, kind, label_name, open_containers=open_containers, max_workers=max_workers
+        plate, kind, label_name, open_containers=open_containers, mirror_urls=mirror_urls, max_workers=max_workers
     )
 
     if not containers:
@@ -725,7 +937,7 @@ def build_plate_pyramid(
 
 
 def _read_plate_wide_features(
-    plate_path: Union[str, Path],
+    plate_path: Union[str, Path, List[Union[str, Path]]],
     label_name: str,
     kind: Literal["stack", "mip"] = "mip",
     wells: Optional[Union[str, List[str]]] = None,
@@ -755,7 +967,9 @@ def _read_plate_wide_features(
     Parameters
     ----------
     plate_path
-        Full path to the plate's .zarr store.
+        Full path to the plate's .zarr store -- or several mirror URLs for
+        the same store (see :func:`open_mirrored_tunnels`); see
+        :func:`build_plate_pyramid`'s own ``plate_path`` for details.
     label_name
         Which label's own measurements to read (``f"{label_name}_features"``).
     kind
@@ -788,10 +1002,17 @@ def _read_plate_wide_features(
     Optional[pandas.DataFrame]
         ``None`` if no (selected) well has a matching features table.
     """
+    mirror_urls = _normalize_mirror_urls(plate_path)
     if plate is None:
-        plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
+        plate = open_ome_zarr_plate(store=mirror_urls[0], mode="r")
     containers = _discover_wells_with_label(
-        plate, kind, label_name, wells, open_containers=open_containers, max_workers=max_workers
+        plate,
+        kind,
+        label_name,
+        wells,
+        open_containers=open_containers,
+        mirror_urls=mirror_urls,
+        max_workers=max_workers,
     )
 
     def _read_one(well_path: str) -> Optional[pd.DataFrame]:
@@ -888,7 +1109,7 @@ def _read_one_feature_column_raw(table_group_path: str, feature_name: str) -> Op
 
 
 def _read_plate_wide_feature_raw(
-    plate_path: Union[str, Path],
+    plate_path: Union[str, Path, List[Union[str, Path]]],
     label_name: str,
     feature_name: str,
     kind: Literal["stack", "mip"] = "mip",
@@ -914,7 +1135,12 @@ def _read_plate_wide_feature_raw(
     Parameters
     ----------
     plate_path
-        Full path to the plate's .zarr store.
+        Full path to the plate's .zarr store -- or several mirror URLs for
+        the same store (see :func:`open_mirrored_tunnels`); see
+        :func:`build_plate_pyramid`'s own ``plate_path`` for details. Each
+        well's raw-zarr read below goes through whichever mirror
+        :func:`_well_mirror_map` assigns it, matching whichever mirror
+        actually opened its container.
     label_name
         Which label's own measurements to read (``f"{label_name}_features"``).
     feature_name
@@ -934,19 +1160,27 @@ def _read_plate_wide_feature_raw(
         -- or ``None`` if no (selected) well has a matching features table
         with this column.
     """
+    mirror_urls = _normalize_mirror_urls(plate_path)
     if plate is None:
-        plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
+        plate = open_ome_zarr_plate(store=mirror_urls[0], mode="r")
     containers = _discover_wells_with_label(
-        plate, kind, label_name, wells, open_containers=open_containers, max_workers=max_workers
+        plate,
+        kind,
+        label_name,
+        wells,
+        open_containers=open_containers,
+        mirror_urls=mirror_urls,
+        max_workers=max_workers,
     )
     table_name = f"{label_name}_features"
+    well_mirror = _well_mirror_map(plate.wells_paths(), mirror_urls)
 
     def _read_one(well_path: str) -> Optional[pd.DataFrame]:
         container = containers[well_path]
         if table_name not in container.list_tables():
             return None
 
-        table_group_path = f"{plate_path}/{well_path}/{kind}/tables/{table_name}"
+        table_group_path = f"{well_mirror[well_path]}/{well_path}/{kind}/tables/{table_name}"
         df = _read_one_feature_column_raw(table_group_path, feature_name)
         if df is None:
             full_df = container.get_feature_table(table_name).dataframe.reset_index()

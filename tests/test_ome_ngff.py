@@ -19,11 +19,13 @@ import pytest
 import filelock
 
 from blimp.ome_ngff.plate import (
+    MirroredTunnels,
     open_well_image,
     resolve_plate_path,
     build_plate_pyramid,
     ensure_plate_exists,
     build_feature_pyramid,
+    open_mirrored_tunnels,
     serve_plate_over_http,
     _read_plate_wide_features,
     _discover_wells_with_label,
@@ -586,6 +588,47 @@ def test_max_workers_concurrent_reads_match_sequential(tmp_path):
     sequential_raw = _read_plate_wide_feature_raw(plate_path, "Nuclei", "Nuclei_area", kind="mip", max_workers=1)
     concurrent_raw = _read_plate_wide_feature_raw(plate_path, "Nuclei", "Nuclei_area", kind="mip", max_workers=4)
     pd.testing.assert_frame_equal(_sorted(sequential_raw), _sorted(concurrent_raw))
+
+
+def test_multi_mirror_reads_match_single_mirror_and_use_every_mirror(tmp_path):
+    """plate_path accepted as a list of mirror URLs (see MirroredTunnels)
+    round-robins wells across them -- results must match the single-URL
+    path exactly, and every mirror given must actually get used, not just
+    the first one."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=3, with_label=True, feature_value=222.0)
+    _write_one_well(tmp_path, plate_path, "WellK16_Seq0001", fill_value=5, with_label=True, feature_value=333.0)
+
+    mirror_a = serve_plate_over_http(plate_path, port=0, log_requests=True)
+    mirror_b = serve_plate_over_http(plate_path, port=0, log_requests=True)
+    try:
+        mirror_urls = [mirror_a.url, mirror_b.url]
+
+        single_pyramid = build_plate_pyramid(mirror_a.url, kind="mip", label_name="Nuclei")
+        multi_pyramid = build_plate_pyramid(mirror_urls, kind="mip", label_name="Nuclei")
+        for single_level, multi_level in zip(single_pyramid, multi_pyramid):
+            np.testing.assert_array_equal(single_level.compute(), multi_level.compute())
+
+        def _sorted(df):
+            return df.sort_values("label").reset_index(drop=True)
+
+        single_df = _read_plate_wide_features(mirror_a.url, "Nuclei", kind="mip")
+        multi_df = _read_plate_wide_features(mirror_urls, "Nuclei", kind="mip")
+        pd.testing.assert_frame_equal(_sorted(single_df), _sorted(multi_df))
+
+        single_raw = _read_plate_wide_feature_raw(mirror_a.url, "Nuclei", "Nuclei_area", kind="mip")
+        multi_raw = _read_plate_wide_feature_raw(mirror_urls, "Nuclei", "Nuclei_area", kind="mip")
+        pd.testing.assert_frame_equal(_sorted(single_raw), _sorted(multi_raw))
+
+        # 3 wells round-robined across 2 mirrors -- both must have actually
+        # been used, not just mirror 0 (which every single-mirror call above
+        # also hit, so this only checks mirror_b).
+        assert len(mirror_b.request_log) > 0
+    finally:
+        mirror_a.stop()
+        mirror_b.stop()
 
 
 def test_build_feature_pyramid_shows_correct_value_and_nan_elsewhere(tmp_path):
@@ -1334,3 +1377,89 @@ def test_served_plate_stop_frees_the_port(tmp_path):
 
 def test_serve_plate_over_http_defaults_to_localhost_only():
     assert inspect.signature(serve_plate_over_http).parameters["host"].default == "127.0.0.1"
+
+
+class _FakeTunnelProcess:
+    """Stands in for a real ssh subprocess.Popen -- CI has no sshd to
+    connect to, so MirroredTunnels's own restart-on-failure logic is
+    tested against a controllable fake instead of a real ssh process."""
+
+    def __init__(self):
+        self.returncode = None
+        self.terminated = False
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def kill(self):
+        self.terminated = True
+
+
+def test_open_mirrored_tunnels_rejects_mismatched_local_ports_length():
+    with pytest.raises(ValueError, match="n_mirrors"):
+        open_mirrored_tunnels(remote_host="compute-node", remote_port=12345, n_mirrors=3, local_ports=[9001, 9002])
+
+
+def test_mirrored_tunnels_urls_builds_one_url_per_local_port(monkeypatch):
+    monkeypatch.setattr(MirroredTunnels, "_spawn", lambda self, local_port: _FakeTunnelProcess())
+    tunnels = open_mirrored_tunnels(
+        remote_host="compute-node", remote_port=12345, local_ports=[9001, 9002], n_mirrors=2, check_interval=60
+    )
+    try:
+        assert tunnels.urls("my_plate.zarr") == [
+            "http://localhost:9001/my_plate.zarr",
+            "http://localhost:9002/my_plate.zarr",
+        ]
+    finally:
+        tunnels.stop()
+
+
+def test_mirrored_tunnels_restarts_a_dead_tunnel(monkeypatch):
+    fake_processes = []
+
+    def fake_spawn(self, local_port):
+        proc = _FakeTunnelProcess()
+        fake_processes.append(proc)
+        return proc
+
+    monkeypatch.setattr(MirroredTunnels, "_spawn", fake_spawn)
+
+    tunnels = open_mirrored_tunnels(
+        remote_host="compute-node", remote_port=12345, local_ports=[9001, 9002], n_mirrors=2, check_interval=0.05
+    )
+    try:
+        assert len(fake_processes) == 2
+        original_second_mirror = tunnels._processes[1]
+
+        # Simulate the first tunnel's ssh process dying (network drop, etc.).
+        fake_processes[0].returncode = 255
+        for _ in range(50):  # generous margin over check_interval=0.05s
+            if len(fake_processes) == 3:
+                break
+            time.sleep(0.05)
+
+        assert len(fake_processes) == 3  # the monitor thread respawned it
+        assert tunnels._processes[0] is fake_processes[2]  # replaced with a fresh process
+        assert tunnels._processes[1] is original_second_mirror  # untouched -- it never died
+    finally:
+        tunnels.stop()
+
+    assert all(proc.terminated for proc in fake_processes[1:])  # stop() terminates every current process
+
+
+def test_mirrored_tunnels_stop_terminates_processes_and_joins_monitor(monkeypatch):
+    monkeypatch.setattr(MirroredTunnels, "_spawn", lambda self, local_port: _FakeTunnelProcess())
+    tunnels = open_mirrored_tunnels(
+        remote_host="compute-node", remote_port=12345, local_ports=[9001], n_mirrors=1, check_interval=0.05
+    )
+    proc = tunnels._processes[0]
+    tunnels.stop(timeout=2.0)
+
+    assert proc.terminated
+    assert not tunnels._monitor_thread.is_alive()
