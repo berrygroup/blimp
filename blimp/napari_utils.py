@@ -372,32 +372,48 @@ def add_plate(
             if features_df is not None:
                 label_layer.features = features_df
 
-    fov_rectangles = []
-    fov_names = []
-    well_rectangles = []
-    well_names = []
-    for well_path, container in well_containers.items():
+    def _well_shapes(item: Any) -> Optional[Any]:
+        # Reading FOV_ROI_table costs a real request per well, same as the
+        # pyramid/feature reads above -- computed here so it can go through
+        # the same _map_concurrently pool instead of running one well at a
+        # time regardless of max_workers.
+        well_path, container = item
         if "FOV_ROI_table" not in container.list_tables():
-            continue
+            return None
         row, column = well_path.split("/")
         y_offset = plate.rows.index(row) * pitch_h
         x_offset = plate.columns.index(column) * pitch_w
         table = container.get_table("FOV_ROI_table")
         pixel_size = container.get_image().pixel_size
 
+        this_well_fov_rectangles = []
+        this_well_fov_names = []
         well_y0, well_x0 = float("inf"), float("inf")
         well_y1, well_x1 = float("-inf"), float("-inf")
         for roi in table.rois():
             slices = roi.to_slicing_dict(pixel_size=pixel_size)
             y0, y1 = slices["y"].start + y_offset, slices["y"].stop + y_offset
             x0, x1 = slices["x"].start + x_offset, slices["x"].stop + x_offset
-            fov_rectangles.append([[y0, x0], [y0, x1], [y1, x1], [y1, x0]])
-            fov_names.append(roi.name)
+            this_well_fov_rectangles.append([[y0, x0], [y0, x1], [y1, x1], [y1, x0]])
+            this_well_fov_names.append(roi.name)
             well_y0, well_x0 = min(well_y0, y0), min(well_x0, x0)
             well_y1, well_x1 = max(well_y1, y1), max(well_x1, x1)
 
-        well_rectangles.append([[well_y0, well_x0], [well_y0, well_x1], [well_y1, well_x1], [well_y1, well_x0]])
-        well_names.append(row + column)
+        well_rectangle = [[well_y0, well_x0], [well_y0, well_x1], [well_y1, well_x1], [well_y1, well_x0]]
+        return this_well_fov_rectangles, this_well_fov_names, well_rectangle, row + column
+
+    fov_rectangles = []
+    fov_names = []
+    well_rectangles = []
+    well_names = []
+    for result in _map_concurrently(_well_shapes, list(well_containers.items()), max_workers=max_workers):
+        if result is None:
+            continue
+        this_well_fov_rectangles, this_well_fov_names, well_rectangle, well_name = result
+        fov_rectangles.extend(this_well_fov_rectangles)
+        fov_names.extend(this_well_fov_names)
+        well_rectangles.append(well_rectangle)
+        well_names.append(well_name)
 
     if well_rectangles:
         # visible=True: unlike the per-FOV boundaries below, a plate-scale
