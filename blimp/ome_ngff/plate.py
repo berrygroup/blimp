@@ -2,6 +2,8 @@
 OME-NGFF writer (nd2-sourced, TIFF-sourced, and future Operetta-sourced)."""
 from typing import Any, Dict, List, Union, Literal, Callable, Optional
 from pathlib import Path
+import time
+import random
 import string
 import logging
 
@@ -19,6 +21,7 @@ from ngio.hcs._plate import OmeZarrPlate
 import zarr
 import numpy as np
 import pandas as pd
+import filelock
 import dask.array as da
 
 from blimp.ome_ngff.labels import well_label_offset
@@ -510,6 +513,65 @@ def build_feature_pyramid(
     return pyramid
 
 
+def _atomic_add_image_with_retry(
+    plate: OmeZarrPlate,
+    row: str,
+    column: int,
+    image_path: str,
+    max_attempts: int = 5,
+    initial_backoff: float = 1.0,
+) -> str:
+    """Call ``plate.atomic_add_image``, retrying with exponential backoff
+    (plus jitter) if it fails because the plate's own lock couldn't be
+    acquired.
+
+    ``atomic_add_image``'s internal lock has a fixed 10-second timeout
+    inside ``ngio`` itself (``ngio/utils/_zarr_utils.py``'s
+    ``FileLock(_lock_path, timeout=10)`` -- no parameter blimp or any other
+    caller can override). A PBS array job registers many wells into the
+    same plate concurrently, one per task; under heavy enough contention
+    for this single shared lock, a task can exhaust that fixed timeout and
+    crash outright rather than simply waiting its turn. Retrying here (ngio
+    exposes no retry hook for this lock) gives contention time to clear
+    across the whole array job, at the cost of a longer worst-case runtime
+    for whichever tasks actually hit it.
+
+    Parameters
+    ----------
+    plate
+        The already-open plate.
+    row, column, image_path
+        Passed straight through to ``plate.atomic_add_image``.
+    max_attempts
+        Total attempts before giving up and letting the ``filelock.Timeout``
+        propagate.
+    initial_backoff
+        Seconds to wait before the second attempt; doubles (plus up to 50%
+        random jitter, to desynchronize many simultaneously-retrying tasks
+        rather than have them all wake up and collide again at once) each
+        attempt after that.
+
+    Returns
+    -------
+    str
+        The well's path, as returned by ``atomic_add_image``.
+    """
+    for attempt in range(1, max_attempts):
+        try:
+            return plate.atomic_add_image(row=row, column=column, image_path=image_path)
+        except filelock.Timeout:
+            backoff = initial_backoff * (2 ** (attempt - 1)) * (1 + random.random() * 0.5)
+            logger.warning(
+                f"Timed out acquiring the plate's own lock while registering well "
+                f"{row}{column:02d} (attempt {attempt}/{max_attempts}); retrying in "
+                f"{backoff:.1f}s. Expected under heavy concurrent write load (e.g. many "
+                "PBS array tasks writing to the same plate at once) -- ngio's own lock "
+                "timeout is a fixed 10s, not configurable."
+            )
+            time.sleep(backoff)
+    return plate.atomic_add_image(row=row, column=column, image_path=image_path)
+
+
 def _write_well_image(
     get_tile: Callable[[int], np.ndarray],
     layout: FieldLayout,
@@ -566,7 +628,7 @@ def _write_well_image(
         canvas_shape = (canvas_shape[0], canvas_shape[1], 1, canvas_shape[3], canvas_shape[4])
 
     logger.info(f"Registering well {layout.row}{layout.column:02d} image '{image_path}' in {plate_path}")
-    well_relative_path = plate.atomic_add_image(row=layout.row, column=layout.column, image_path=image_path)
+    well_relative_path = _atomic_add_image_with_retry(plate, layout.row, layout.column, image_path)
 
     image_name = f"{layout.row}{layout.column:02d}" + ("_mip" if project_z else "")
     attributes = _build_ngff_v05_metadata(

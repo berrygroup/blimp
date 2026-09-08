@@ -12,6 +12,7 @@ import zarr
 import numpy as np
 import pandas as pd
 import pytest
+import filelock
 
 from blimp.ome_ngff.plate import (
     open_well_image,
@@ -21,6 +22,7 @@ from blimp.ome_ngff.plate import (
     build_feature_pyramid,
     _read_plate_wide_features,
     _discover_wells_with_label,
+    _atomic_add_image_with_retry,
 )
 from blimp.ome_ngff.labels import (
     global_id,
@@ -662,6 +664,36 @@ def test_discover_wells_with_label_raises_for_a_well_not_in_the_plate(tmp_path):
     plate = ngio.open_ome_zarr_plate(store=str(plate_path), mode="r")
     with pytest.raises(ValueError, match="Z/99"):
         _discover_wells_with_label(plate, "mip", "Nuclei", wells="Z/99")
+
+
+def test_atomic_add_image_with_retry_succeeds_after_transient_lock_timeouts():
+    call_count = 0
+
+    class _FlakyPlate:
+        def atomic_add_image(self, row, column, image_path):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise filelock.Timeout("fake-lock-path")
+            return f"{row}/{column:02d}"
+
+    result = _atomic_add_image_with_retry(_FlakyPlate(), "C", 9, "mip", max_attempts=5, initial_backoff=0.001)
+    assert result == "C/09"
+    assert call_count == 3
+
+
+def test_atomic_add_image_with_retry_raises_after_exhausting_attempts():
+    call_count = 0
+
+    class _AlwaysLockedPlate:
+        def atomic_add_image(self, row, column, image_path):
+            nonlocal call_count
+            call_count += 1
+            raise filelock.Timeout("fake-lock-path")
+
+    with pytest.raises(filelock.Timeout):
+        _atomic_add_image_with_retry(_AlwaysLockedPlate(), "C", 9, "mip", max_attempts=3, initial_backoff=0.001)
+    assert call_count == 3
 
 
 # --------------------------------------------------------------------------- #
