@@ -1,6 +1,10 @@
 bioio>=3.5.0
 bioio-nd2>=2.4.0
 bioio-ome-tiff>=1.4.0
+# Read-only: lets BioImage(path) open .ome.zarr the same way it already
+# opens .ome.tiff. blimp writes OME-NGFF itself (see nd2_to_ome_ngff.py);
+# only this package's reader plugin is used, never its writer.
+bioio-ome-zarr>=3.8.0
 cellpose>=4.0.0
 importlib_metadata>=5.1.0
 # 0.18.0 has no abi3 or arm64 wheels, so it cannot install on Python >=3.12 or
@@ -8,7 +12,14 @@ importlib_metadata>=5.1.0
 itk-elastix>=0.19.2
 mahotas>=1.4.13
 matplotlib>=3.6.3
+# nd2_to_ome_ngff.py reads stage-position/voxel-size metadata directly from
+# this package's structured API (nd2.ND2File.experiment / .voxel_size()).
+nd2>=0.11.0
 nd2reader>=3.3.0
+# Pinned to an exact release, not a range: blimp depends only on its
+# plate/well atomic file-locking (see nd2_to_ome_ngff.py); a future ngio
+# release changing that API should not silently change blimp's behaviour.
+ngio==1.1.0
 numpy>=1.23.0
 packaging>=23.0
 pandas>=1.5.2

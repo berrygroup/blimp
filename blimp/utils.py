@@ -243,6 +243,35 @@ def read_template(template_name: str) -> str:
     return pkg_resources.read_text(templates, template_name)
 
 
+def pbs_array_directive(n_batches: int) -> Tuple[str, str]:
+    """Build the ``#PBS -J`` array directive and the batch-index expression
+    for a PBS jobscript template, given how many batches it splits work into.
+
+    A single-batch job (``n_batches == 1``) skips the ``-J`` directive
+    entirely and hardcodes batch index ``0``, rather than submitting a
+    single-subjob array via ``-J 0-0`` -- confirmed against a real cluster
+    that some PBS Pro deployments reject that as an "illegal -J value"
+    (start must be strictly less than end), so relying on it would break
+    the common, default single-batch case outright.
+
+    Parameters
+    ----------
+    n_batches
+        Number of batches the job splits its work into.
+
+    Returns
+    -------
+    Tuple[str, str]
+        ``(array_directive, batch_id_expr)`` -- the first is either
+        ``"#PBS -J 0-{n_batches - 1}"`` or ``""``; the second is either
+        ``"${PBS_ARRAY_INDEX}"`` (to be read from the array environment at
+        runtime) or the literal ``"0"``.
+    """
+    if n_batches > 1:
+        return f"#PBS -J 0-{n_batches - 1}", "${PBS_ARRAY_INDEX}"
+    return "", "0"
+
+
 def check_correct_dimension_order(images: Union[BioImage, List[BioImage]]) -> bool:
     """
     Check that the order of dimensions is 'TCZYX'.

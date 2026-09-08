@@ -13,8 +13,8 @@ Create the development environment, which installs the compiled
 scientific stack (numpy, pandas, scikit-image, SimpleITK, mahotas) from
 conda-forge along with `tox`, `pytest` and `pre-commit`:
 
-    conda env create -f environment-dev.yml    # or: mamba env create -f ...
-    conda activate blimp-dev
+    conda env create -f environment.yml    # or: mamba env create -f ...
+    conda activate berrylab-py311
 
 Then install blimp itself, plus the dependencies conda cannot supply
 (`bioio`, `bioio-nd2`, `bioio-ome-tiff`, `cellpose`, `itk-elastix`,
@@ -23,7 +23,7 @@ Then install blimp itself, plus the dependencies conda cannot supply
     pip install -e '.[dev,test]'
 
 Two steps because the dependencies straddle conda and pip. Do not move
-the pip-only packages into `environment-dev.yml`: listing a dependency in
+the pip-only packages into `environment.yml`: listing a dependency in
 both places installs it twice, and imports resolve to whichever came
 last.
 

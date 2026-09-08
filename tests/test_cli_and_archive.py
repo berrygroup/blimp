@@ -49,10 +49,56 @@ def test_convert_requires_input_type():
         _parse(["convert", "-i", "."])
 
 
+def test_convert_tiff_minimal_invocation(tmp_path):
+    args = _parse(["convert", "tiff", "-i", str(tmp_path), "-o", str(tmp_path / "plate.zarr"), "--user", "z1234567"])
+    assert args.input_type == "tiff"
+    assert callable(args.func)
+
+
+def test_convert_tiff_requires_user(tmp_path):
+    with pytest.raises(SystemExit):
+        _parse(["convert", "tiff", "-i", str(tmp_path), "-o", str(tmp_path / "plate.zarr")])
+
+
+def test_convert_tiff_requires_plate_path(tmp_path):
+    with pytest.raises(SystemExit):
+        _parse(["convert", "tiff", "-i", str(tmp_path), "--user", "z1234567"])
+
+
+def test_convert_tiff_accepts_label_and_feature_flags(tmp_path):
+    args = _parse(
+        [
+            "convert",
+            "tiff",
+            "-i",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "plate.zarr"),
+            "--user",
+            "z1234567",
+            "-l",
+            "/labels",
+            "-f",
+            "/features",
+            "--point_object_channel_names",
+            "Spots",
+            "Blobs",
+        ]
+    )
+    assert args.label_dir == "/labels"
+    assert args.feature_csv_dir == "/features"
+    assert args.point_object_channel_names == ["Spots", "Blobs"]
+
+
+def test_convert_tiff_output_format_defaults_to_ngff(tmp_path):
+    args = _parse(["convert", "tiff", "-i", str(tmp_path), "-o", str(tmp_path / "plate.zarr"), "--user", "z1234567"])
+    assert args.output_format == "NGFF"
+
+
 @pytest.mark.parametrize("input_type", ["nd2", "operetta"])
 def test_archive_subcommands_parse(input_type, tmp_path):
-    """Regression: -j/--jobscript_path was marked required=True despite
-    documenting a default, so these invocations exited with code 2."""
+    """-j/--jobscript_path must parse with no explicit value given (default
+    ``None``, resolved to cwd at call time), not be required."""
     args = _parse(["archive", input_type, "-i", str(tmp_path), "--first_name", "Ada"])
     assert args.subcommand == "archive"
     assert args.input_type == input_type
@@ -66,8 +112,8 @@ def test_archive_accepts_explicit_jobscript_path(tmp_path):
 
 
 def test_setup_accepts_quiet_flag():
-    """Regression: `blimp setup --quiet` was rejected by the top-level parser
-    because --quiet was only registered on a separate, unreachable parser."""
+    """`blimp setup --quiet` must parse via the top-level parser -- --quiet
+    is registered there, not only on a separate subparser."""
     args = _parse(["setup", "--quiet"])
     assert args.quiet is True
 
@@ -153,9 +199,8 @@ def test_write_archiving_script_nd2_produces_runnable_header(tmp_path):
 
 
 def test_write_archiving_script_operetta_without_archive_dir(tmp_path):
-    """Regression: ``archive_path``/``archive_batch_files`` were only bound
-    inside a conditional, so a file list with no 'Archive' directory raised
-    UnboundLocalError."""
+    """A file list with no 'Archive' directory must still produce a valid
+    script, not raise ``UnboundLocalError`` for unset archive variables."""
     script = tmp_path / "archive_operetta.sh"
     write_archiving_script_operetta(
         script_path=script,
