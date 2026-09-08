@@ -16,6 +16,7 @@ import zarr
 import numpy as np
 import pandas as pd
 import pytest
+import filelock
 
 from blimp.ome_ngff.plate import (
     open_well_image,
@@ -26,6 +27,7 @@ from blimp.ome_ngff.plate import (
     serve_plate_over_http,
     _read_plate_wide_features,
     _discover_wells_with_label,
+    _atomic_add_image_with_retry,
     _read_one_feature_column_raw,
     _read_plate_wide_feature_raw,
     _NoTrailingSlashHTTPRequestHandler,
@@ -719,6 +721,36 @@ def test_build_plate_pyramid_and_read_features_reuse_open_containers_without_reo
 
     assert call_count == 0
     assert df is not None and len(df) == 1  # the reuse path still produces correct results, not just fewer calls
+
+
+def test_atomic_add_image_with_retry_succeeds_after_transient_lock_timeouts():
+    call_count = 0
+
+    class _FlakyPlate:
+        def atomic_add_image(self, row, column, image_path):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise filelock.Timeout("fake-lock-path")
+            return f"{row}/{column:02d}"
+
+    result = _atomic_add_image_with_retry(_FlakyPlate(), "C", 9, "mip", max_attempts=5, initial_backoff=0.001)
+    assert result == "C/09"
+    assert call_count == 3
+
+
+def test_atomic_add_image_with_retry_raises_after_exhausting_attempts():
+    call_count = 0
+
+    class _AlwaysLockedPlate:
+        def atomic_add_image(self, row, column, image_path):
+            nonlocal call_count
+            call_count += 1
+            raise filelock.Timeout("fake-lock-path")
+
+    with pytest.raises(filelock.Timeout):
+        _atomic_add_image_with_retry(_AlwaysLockedPlate(), "C", 9, "mip", max_attempts=3, initial_backoff=0.001)
+    assert call_count == 3
 
 
 # --------------------------------------------------------------------------- #
