@@ -6,6 +6,9 @@ bioio-ome-tiff>=1.4.0
 # only this package's reader plugin is used, never its writer.
 bioio-ome-zarr>=3.8.0
 cellpose>=4.0.0
+# blimp/ome_ngff/plate.py catches filelock.Timeout directly, when
+# retrying a well registration under heavy concurrent-write contention.
+filelock>=3.32.5
 importlib_metadata>=5.1.0
 # 0.18.0 has no abi3 or arm64 wheels, so it cannot install on Python >=3.12 or
 # Apple Silicon. 0.19.2 is the first release with both.
