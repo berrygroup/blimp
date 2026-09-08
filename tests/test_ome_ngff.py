@@ -26,6 +26,8 @@ from blimp.ome_ngff.plate import (
     serve_plate_over_http,
     _read_plate_wide_features,
     _discover_wells_with_label,
+    _read_one_feature_column_raw,
+    _read_plate_wide_feature_raw,
     _NoTrailingSlashHTTPRequestHandler,
 )
 from blimp.ome_ngff.labels import (
@@ -540,6 +542,20 @@ def test_read_plate_wide_features_merges_wells_with_correct_offsets(tmp_path):
     f14_offset = well_label_offset(ord("F") - ord("A"), 14 - 1)
     expected = {c09_offset + raw_global_id: 111.0, f14_offset + raw_global_id: 222.0}
     assert dict(zip(df["label"], df["Nuclei_area"])) == expected
+
+
+def test_read_plate_wide_features_feature_names_restricts_returned_columns(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    unfiltered = _read_plate_wide_features(plate_path, "Nuclei", kind="mip")
+    assert "Nuclei_area" in unfiltered.columns
+    assert len(unfiltered.columns) > 2  # more than just label + Nuclei_area
+
+    filtered = _read_plate_wide_features(plate_path, "Nuclei", kind="mip", feature_names=["Nuclei_area"])
+    assert set(filtered.columns) == {"label", "Nuclei_area"}
+    assert filtered["Nuclei_area"].tolist() == unfiltered["Nuclei_area"].tolist()
 
 
 def test_build_feature_pyramid_shows_correct_value_and_nan_elsewhere(tmp_path):
@@ -1108,6 +1124,92 @@ def test_serve_plate_over_http_serves_feature_tables_correctly(tmp_path):
         assert df["Nuclei_area"].tolist() == [111.0]
     finally:
         served.stop()
+
+
+def test_read_plate_wide_feature_raw_matches_full_read(tmp_path):
+    """_read_plate_wide_feature_raw (plain zarr, skipping ngio.FeatureTable's
+    directory listing and unused obs columns) must produce identical values
+    to _read_plate_wide_features (the full ngio-based read) for the one
+    column it targets -- correctness, not just "doesn't crash". Checked
+    both locally and over a served HTTP store, since the whole point is
+    remote correctness."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=3, with_label=True, feature_value=222.0)
+
+    def _sorted(df):
+        return df[["label", "Nuclei_area"]].sort_values("label").reset_index(drop=True)
+
+    full = _sorted(_read_plate_wide_features(plate_path, "Nuclei", kind="mip"))
+    raw = _sorted(_read_plate_wide_feature_raw(plate_path, "Nuclei", "Nuclei_area", kind="mip"))
+    pd.testing.assert_frame_equal(full, raw, check_dtype=False)
+
+    served = serve_plate_over_http(plate_path, port=0)
+    try:
+        raw_remote = _sorted(_read_plate_wide_feature_raw(served.url, "Nuclei", "Nuclei_area", kind="mip"))
+        pd.testing.assert_frame_equal(full, raw_remote, check_dtype=False)
+    finally:
+        served.stop()
+
+
+def test_read_one_feature_column_raw_returns_none_for_unrecognized_table_version(tmp_path):
+    """A table with an attrs["table_version"] this raw reader doesn't know
+    about (e.g. a future ngio table version) must return None -- signaling
+    the caller to fall back to a full ngio read -- not raise or silently
+    return wrong data. (Note: ngio's own table-opening is equally strict
+    about table_version, so an unrecognized version isn't actually a case
+    where a full ngio read could succeed either -- see the sibling test
+    below for the realistic "raw reader can't handle it, ngio still can"
+    fallback path, using a mismatch this reader specifically checks for
+    rather than one ngio itself refuses too.)"""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    table_group_path = str(plate_path / "C" / "09" / "mip" / "tables" / "Nuclei_features")
+    group = zarr.open_group(store=table_group_path, mode="a")
+    group.attrs["table_version"] = "999"  # simulate an unrecognized future layout
+
+    assert _read_one_feature_column_raw(table_group_path, "Nuclei_area") is None
+
+
+def test_read_plate_wide_feature_raw_falls_back_to_full_read_when_raw_path_fails(tmp_path, monkeypatch):
+    """When _read_one_feature_column_raw can't handle a given well's table
+    (for any reason -- an unexpected layout it doesn't recognize), the
+    plate-wide reader must still produce the correct result via a full
+    ngio-based read for that well, not skip it or raise."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    monkeypatch.setattr("blimp.ome_ngff.plate._read_one_feature_column_raw", lambda *args, **kwargs: None)
+
+    df = _read_plate_wide_feature_raw(plate_path, "Nuclei", "Nuclei_area", kind="mip")
+    assert df is not None
+    assert df["Nuclei_area"].tolist() == [111.0]
+
+
+def test_read_plate_wide_feature_raw_over_http_reads_far_fewer_requests(tmp_path):
+    """The actual point of this reader: reading one feature must cost far
+    fewer requests than reading the whole table (measured live against a
+    real plate this session: ~172 requests/well down to ~10-20)."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    served = serve_plate_over_http(plate_path, port=0, log_requests=True)
+    try:
+        _read_plate_wide_feature_raw(served.url, "Nuclei", "Nuclei_area", kind="mip")
+        raw_requests = len([e for e in served.request_log if "/tables/" in e["path"]])
+        served.request_log.clear()
+
+        _read_plate_wide_features(served.url, "Nuclei", kind="mip")
+        full_requests = len([e for e in served.request_log if "/tables/" in e["path"]])
+    finally:
+        served.stop()
+
+    assert raw_requests < full_requests / 2, f"raw={raw_requests}, full={full_requests}"
 
 
 def test_build_plate_pyramid_over_http_only_fetches_the_viewed_wells_chunks(tmp_path):

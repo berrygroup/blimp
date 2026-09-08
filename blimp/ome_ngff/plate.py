@@ -686,6 +686,7 @@ def _read_plate_wide_features(
     wells: Optional[Union[str, List[str]]] = None,
     plate: Optional[OmeZarrPlate] = None,
     open_containers: Optional[Dict[str, OmeZarrContainer]] = None,
+    feature_names: Optional[List[str]] = None,
 ) -> Optional[pd.DataFrame]:
     """Every contributing well's own ``f"{label_name}_features"`` table,
     merged into one plate-wide dataframe with its ``"label"`` column
@@ -693,6 +694,17 @@ def _read_plate_wide_features(
     (see :func:`blimp.ome_ngff.labels.well_label_offset`) -- prefers each
     well's already-persisted ``global_id_numeric`` column when present,
     else derives the identical value on the fly.
+
+    This is the plate-wide feature-loading helper for classifier training
+    (load a set of features, or every feature, across every contributing
+    well) -- it's also how a caller discovers which feature names are even
+    available in the first place (call once with ``feature_names=None``
+    and inspect ``.columns``, as both viewing notebooks already document);
+    ``ngio`` has no cheaper way to list column names, so there's no faster
+    path for that discovery step. For the narrower "just one named feature,
+    plus object ids, for a colormap" case, see
+    :func:`_read_plate_wide_feature_raw` instead, which reads far less per
+    well.
 
     Parameters
     ----------
@@ -712,6 +724,15 @@ def _read_plate_wide_features(
         :func:`_discover_wells_with_label`'s own ``open_containers`` for
         why. ``None`` (the default) opens ``plate_path`` itself, same as
         before.
+    feature_names
+        Restrict the returned dataframe to just these columns (plus
+        ``"label"``, always kept) -- useful for a training pipeline that
+        wants a specific subset without carrying every column downstream.
+        Applied after every well's own read, so it does not reduce the
+        underlying read cost (``ngio`` has no partial-column read API --
+        see :func:`_read_plate_wide_feature_raw`'s own docstring), only the
+        shape of what's returned. ``None`` (the default) returns every
+        column, same as before.
 
     Returns
     -------
@@ -733,7 +754,153 @@ def _read_plate_wide_features(
             df["label"] = df["global_id_numeric"]
         else:
             df["label"] = df["label"] + well_label_offset(plate.rows.index(row), plate.columns.index(column))
+        if feature_names is not None:
+            keep = ["label"] + [c for c in feature_names if c in df.columns and c != "label"]
+            df = df[keep]
         feature_frames.append(df)
+
+    if not feature_frames:
+        return None
+    return pd.concat(feature_frames, ignore_index=True)
+
+
+def _read_one_feature_column_raw(table_group_path: str, feature_name: str) -> Optional[pd.DataFrame]:
+    """Read one named column of an AnnData-backed FeatureTable directly via
+    zarr, bypassing ``ngio.FeatureTable.dataframe``'s all-or-nothing read.
+
+    ``ngio`` has no partial-column read API -- its own code says selecting
+    columns "is not straightforward to do so for an arbitrary AnnData
+    object" (``ngio/tables/backends/_abstract_backend.py``). But the
+    on-disk layout is a documented, versioned external convention
+    (AnnData-on-zarr's own ``encoding-type``/``encoding-version`` attrs),
+    not an undocumented ``ngio`` implementation detail -- reading it
+    directly here needs no private ``ngio`` attribute.
+
+    Only reads ``var/_index`` (column names), ``obs``'s own cheap
+    ``zarr.json`` attrs (its column names and which one is the index, with
+    no directory listing needed), whichever of ``"label"``/
+    ``"global_id_numeric"`` those name, and ``X``'s one relevant column
+    slice -- skipping the directory listing and every other ``obs`` column
+    ``ngio.FeatureTable.dataframe`` would otherwise fetch (a real, measured
+    ~172-request-per-well cost, down to roughly 10-15).
+
+    Parameters
+    ----------
+    table_group_path
+        Full path to the table's own zarr group, e.g.
+        ``f"{plate_path}/{well_path}/{kind}/tables/{label_name}_features"``.
+    feature_name
+        The single measurement column to read.
+
+    Returns
+    -------
+    Optional[pandas.DataFrame]
+        Two or three columns (``"label"`` -- local, not yet plate-wide
+        offset -- ``feature_name``, and ``"global_id_numeric"`` if
+        present), or ``None`` if the table doesn't have ``feature_name`` as
+        a column, or its layout doesn't match the expected v1
+        ``feature_table`` shape closely enough to trust (caller should
+        fall back to a full ``ngio`` read instead).
+    """
+    try:
+        group = zarr.open_group(store=table_group_path, mode="r")
+        attrs = dict(group.attrs)
+        if attrs.get("type") != "feature_table" or attrs.get("table_version") != "1":
+            return None
+
+        var_index = [str(name) for name in group["var"]["_index"][:]]
+        if feature_name not in var_index:
+            return None
+        feature_idx = var_index.index(feature_name)
+
+        obs_attrs = dict(group["obs"].attrs)
+        if obs_attrs.get("_index") != "label":
+            return None
+        column_order = obs_attrs.get("column-order", [])
+
+        labels = group["obs"]["label"][:]
+        if attrs.get("index_type") == "int":
+            labels = labels.astype(np.int64)
+
+        result: Dict[str, np.ndarray] = {"label": labels, feature_name: group["X"][:, feature_idx]}
+        if "global_id_numeric" in column_order:
+            result["global_id_numeric"] = group["obs"]["global_id_numeric"][:]
+        return pd.DataFrame(result)
+    except Exception:
+        logger.debug(
+            f"Raw feature-column read failed for {table_group_path!r}; falling back to a full read.", exc_info=True
+        )
+        return None
+
+
+def _read_plate_wide_feature_raw(
+    plate_path: Union[str, Path],
+    label_name: str,
+    feature_name: str,
+    kind: Literal["stack", "mip"] = "mip",
+    wells: Optional[Union[str, List[str]]] = None,
+    plate: Optional[OmeZarrPlate] = None,
+    open_containers: Optional[Dict[str, OmeZarrContainer]] = None,
+) -> Optional[pd.DataFrame]:
+    """Just ``label_name``'s ``feature_name`` column (plus each object's
+    own plate-wide-unique ``"label"``), merged across every contributing
+    well -- the narrow counterpart to :func:`_read_plate_wide_features`,
+    for :func:`~blimp.napari_utils.add_feature_heatmap`'s own "one feature,
+    for a colormap" case, which never needs the other measurement columns
+    a full table read would otherwise fetch.
+
+    Reads each well's table via :func:`_read_one_feature_column_raw` (plain
+    zarr, skipping ``ngio.FeatureTable.dataframe``'s directory listing and
+    unused ``obs`` columns), falling back to a full ``ngio``-based read for
+    any individual well whose table doesn't match the expected layout
+    closely enough to trust -- correctness over speed for anything
+    unexpected; every other well still takes the fast path.
+
+    Parameters
+    ----------
+    plate_path
+        Full path to the plate's .zarr store.
+    label_name
+        Which label's own measurements to read (``f"{label_name}_features"``).
+    feature_name
+        The single measurement column to read.
+    kind
+        "stack" or "mip".
+    wells, plate, open_containers
+        See :func:`_read_plate_wide_features` -- identical meaning.
+
+    Returns
+    -------
+    Optional[pandas.DataFrame]
+        Two columns, ``"label"`` (plate-wide-unique) and ``feature_name``
+        -- or ``None`` if no (selected) well has a matching features table
+        with this column.
+    """
+    if plate is None:
+        plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
+    containers = _discover_wells_with_label(plate, kind, label_name, wells, open_containers=open_containers)
+    table_name = f"{label_name}_features"
+
+    feature_frames = []
+    for well_path, container in containers.items():
+        if table_name not in container.list_tables():
+            continue
+
+        table_group_path = f"{plate_path}/{well_path}/{kind}/tables/{table_name}"
+        df = _read_one_feature_column_raw(table_group_path, feature_name)
+        if df is None:
+            full_df = container.get_feature_table(table_name).dataframe.reset_index()
+            if feature_name not in full_df.columns:
+                continue
+            keep = ["label", feature_name] + (["global_id_numeric"] if "global_id_numeric" in full_df.columns else [])
+            df = full_df[keep].copy()
+
+        row, column = well_path.split("/")
+        if "global_id_numeric" in df.columns:
+            df["label"] = df["global_id_numeric"]
+        else:
+            df["label"] = df["label"] + well_label_offset(plate.rows.index(row), plate.columns.index(column))
+        feature_frames.append(df[["label", feature_name]])
 
     if not feature_frames:
         return None
