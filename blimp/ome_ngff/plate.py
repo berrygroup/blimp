@@ -2,8 +2,17 @@
 OME-NGFF writer (nd2-sourced, TIFF-sourced, and future Operetta-sourced)."""
 from typing import Any, Dict, List, Union, Literal, Callable, Optional
 from pathlib import Path
+from dataclasses import field, dataclass
+import io
+import os
+import html
+import socket
 import string
 import logging
+import functools
+import threading
+import http.server
+import urllib.parse
 
 from ngio import (
     OmeZarrContainer,
@@ -150,6 +159,179 @@ def locate_well(plate_path: Union[str, Path], well_name: str) -> str:
     full_path = str(Path(plate_path) / well_path)
     print(full_path)
     return full_path
+
+
+class _NoTrailingSlashHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+    """A static-file handler whose directory listings link to child
+    directories by their bare name, not ``name + "/"``.
+
+    Every standard directory listing (this stdlib handler included, and
+    Apache/nginx autoindex the same way) links to a subdirectory with a
+    trailing slash -- ordinary, correct HTTP practice. But
+    ``fsspec.implementations.http.HTTPFileSystem.ls()`` passes those link
+    names straight through into the keys zarr's own ``FsspecStore.list_dir``
+    returns, and ngio's AnnData-backed table reader
+    (``ngio.tables.backends._anndata_utils.custom_anndata_read_zarr``) does
+    an exact-string membership test against bare element names ("X", "obs",
+    "var", ...) -- so every table sub-element is silently filtered out
+    (found by testing: a real ``FeatureTable`` read back as empty --
+    ``anndata``'s ``X is None`` -- over a plain directory-listing server,
+    while the very same store read perfectly locally). Only the trailing
+    slash actually needs to go for this reader's benefit; nothing else here
+    parses these listings by hand.
+    """
+
+    def list_directory(self, path: Union[str, "os.PathLike[str]"]):
+        try:
+            entries = os.listdir(path)
+        except OSError:
+            self.send_error(404, "No permission to list directory")
+            return None
+        entries.sort(key=lambda name: name.lower())
+
+        rows = ["<!DOCTYPE HTML><html><body><ul>"]
+        for name in entries:
+            rows.append(f'<li><a href="{urllib.parse.quote(name)}">{html.escape(name)}</a></li>')
+        rows.append("</ul></body></html>")
+
+        encoded = "\n".join(rows).encode("utf-8", "surrogateescape")
+        f = io.BytesIO(encoded)
+        self.send_response(200)
+        self.send_header("Content-type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        return f
+
+
+@dataclass
+class ServedPlate:
+    """Handle for a background HTTP server started by :func:`serve_plate_over_http`.
+
+    On construction, prints the exact ssh command(s) to run to reach this
+    server from a laptop -- see :func:`serve_plate_over_http`'s own
+    docstring for why this is worth printing rather than left for the
+    caller to work out by hand.
+    """
+
+    url: str
+    host: str
+    port: int
+    login_alias: str
+    _httpd: http.server.ThreadingHTTPServer = field(repr=False, compare=False)
+    _thread: threading.Thread = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        compute_node = socket.gethostname()
+        print(
+            f"Serving {self.url!r} (this session's own compute node: {compute_node!r}).\n"
+            "\n"
+            "From your laptop, try this first (direct multi-hop tunnel):\n"
+            f"    ssh -J {self.login_alias} -L {self.port}:localhost:{self.port} {compute_node}\n"
+            "\n"
+            "If that's refused (direct SSH to the compute node may be blocked), instead run\n"
+            "this from an interactive terminal in this session:\n"
+            f"    ssh -N -R {self.port}:localhost:{self.port} {self.login_alias}\n"
+            "and this from your laptop:\n"
+            f"    ssh -L {self.port}:localhost:{self.port} {self.login_alias}\n"
+            "\n"
+            "Then, in view_remote_plate_in_napari.ipynb:\n"
+            f'    PLATE_PATH = "http://localhost:{self.port}/{self.url.rsplit("/", 1)[-1]}"\n'
+        )
+
+    def stop(self, timeout: float = 5.0) -> None:
+        """Shut down the background server and free its port."""
+        self._httpd.shutdown()
+        self._thread.join(timeout=timeout)
+        self._httpd.server_close()
+
+    def __enter__(self) -> "ServedPlate":
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self.stop()
+
+
+def serve_plate_over_http(
+    plate_path: Union[str, Path],
+    host: str = "127.0.0.1",
+    port: int = 0,
+    login_alias: str = "kdm",
+) -> ServedPlate:
+    """Serve ``plate_path``'s parent directory as static files over plain
+    HTTP, in a daemon thread tied to this process's own lifetime, so a
+    remote napari (reached via an SSH tunnel terminating on this same
+    host:port) can open it live via ``store=served.url`` -- without copying
+    the store down first, and without this process needing any outbound
+    SSH/credentials to reach the client (mirrors :func:`locate_well`'s own
+    reasoning, for the "stream live" case instead of "copy a well down").
+
+    Every chunk blimp writes is its own file (writers here never enable
+    zarr sharding -- see ``_write_well_image``'s ``shards=None``), so a
+    plain ``ThreadingHTTPServer`` doing one whole-file GET per requested
+    chunk is sufficient; no HTTP Range-request support is implemented or
+    needed. ``ngio.open_ome_zarr_plate``/``open_ome_zarr_container`` (and
+    therefore every viewing helper in this module and in
+    ``blimp.napari_utils``) already accept a plain ``http://...`` string as
+    ``store=`` with no further changes -- it's resolved via ``fsspec``
+    automatically by zarr's own store-construction machinery.
+
+    Uses :class:`_NoTrailingSlashHTTPRequestHandler`, not the stdlib's own
+    ``SimpleHTTPRequestHandler``, so that ``FeatureTable``/``GenericRoiTable``
+    reads (AnnData-backed, and so read via a directory *listing* rather than
+    known sub-paths, unlike a plain image/label array) work over the served
+    store too -- see that class's own docstring for why an ordinary
+    directory listing silently breaks them otherwise.
+
+    On success, the returned :class:`ServedPlate` prints the exact
+    command(s) to run next -- both a direct multi-hop tunnel (tried first)
+    and a reverse-tunnel-via-login-node fallback -- pre-filled with this
+    session's own hostname and the bound port, so there's nothing to
+    manually substitute.
+
+    Parameters
+    ----------
+    plate_path
+        Full path to the plate's .zarr store.
+    host
+        Bind address. Defaults to ``127.0.0.1`` -- deliberately never
+        ``0.0.0.0``. This is meant to be reached only through an
+        authenticated SSH tunnel terminating on this same machine, never
+        exposed directly on the cluster's internal network.
+    port
+        TCP port to bind. ``0`` (the default) asks the OS for a free port
+        -- read it back from the returned ``ServedPlate.port``/``.url``.
+        Pass an explicit port instead if you'd rather hardcode one number
+        into both this call and your own tunnel commands.
+    login_alias
+        The cluster's login node, as configured in the *user's own* local
+        ssh config (default ``"kdm"``) -- change it if you use a different
+        alias, or pass your own full ``user@host`` if you have none
+        configured.
+
+    Returns
+    -------
+    ServedPlate
+        ``.url`` is the exact string to pass as ``store=`` from the
+        reading side of the tunnel. Call ``.stop()`` (or use as a context
+        manager) to shut it down early; otherwise it runs, as a daemon
+        thread, until this kernel process exits -- nothing to separately
+        clean up if the on-demand session is killed or times out.
+    """
+    plate_path = Path(plate_path)
+    handler = functools.partial(_NoTrailingSlashHTTPRequestHandler, directory=str(plate_path.parent))
+    httpd = http.server.ThreadingHTTPServer((host, port), handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+
+    bound_port = httpd.server_address[1]
+    return ServedPlate(
+        url=f"http://{host}:{bound_port}/{plate_path.name}",
+        host=host,
+        port=bound_port,
+        login_alias=login_alias,
+        _httpd=httpd,
+        _thread=thread,
+    )
 
 
 def open_well_image(plate_path: Union[str, Path], well_relative_path: str, kind: Literal["stack", "mip"]) -> BioImage:

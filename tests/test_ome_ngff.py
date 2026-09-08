@@ -4,7 +4,11 @@ every source-format writer (nd2, TIFF-pipeline)."""
 from typing import Any, Dict
 from pathlib import Path
 import time
+import inspect
 import logging
+import functools
+import threading
+import http.server
 
 from ngio.ome_zarr_meta.ngio_specs import PixelSize
 import ngio
@@ -19,8 +23,10 @@ from blimp.ome_ngff.plate import (
     build_plate_pyramid,
     ensure_plate_exists,
     build_feature_pyramid,
+    serve_plate_over_http,
     _read_plate_wide_features,
     _discover_wells_with_label,
+    _NoTrailingSlashHTTPRequestHandler,
 )
 from blimp.ome_ngff.labels import (
     global_id,
@@ -1015,3 +1021,119 @@ def test_write_well_features_field_with_missing_measurements_contributes_no_rows
     df = table.dataframe.reset_index()
     assert len(df) == 1
     assert df["label"].iloc[0] == 1 * MAX_OBJECTS_PER_FIELD + 1
+
+
+# --------------------------------------------------------------------------- #
+# plate.py -- serve_plate_over_http (remote-viewing HTTP server)
+# --------------------------------------------------------------------------- #
+
+
+def test_serve_plate_over_http_round_trips_data(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=7)
+
+    served = serve_plate_over_http(plate_path, port=0)
+    try:
+        remote_plate = ngio.open_ome_zarr_plate(store=served.url, mode="r")
+        local_plate = ngio.open_ome_zarr_plate(store=str(plate_path), mode="r")
+        assert remote_plate.wells_paths() == local_plate.wells_paths()
+
+        local_container = ngio.open_ome_zarr_container(str(plate_path / "C" / "09" / "mip"))
+        remote_container = ngio.open_ome_zarr_container(f"{served.url}/C/09/mip")
+        np.testing.assert_array_equal(
+            local_container.get_image().get_as_numpy(), remote_container.get_image().get_as_numpy()
+        )
+    finally:
+        served.stop()
+
+
+def test_serve_plate_over_http_serves_feature_tables_correctly(tmp_path):
+    """Regression test for a real bug found during development: an ordinary
+    directory-listing HTTP server (any of them -- this isn't stdlib-specific,
+    Apache/nginx autoindex do the same) links to a subdirectory with a
+    trailing slash, but ngio's AnnData-backed table reader
+    (``custom_anndata_read_zarr``) does an exact-name membership check
+    against that listing -- silently dropping every element (X, obs, var,
+    ...) and reading back an empty table, while a plain image/label array
+    (no listing needed -- its child paths are already named in its own
+    multiscale metadata) reads back fine regardless.
+    ``_NoTrailingSlashHTTPRequestHandler`` is the fix; this is what would
+    fail if ``serve_plate_over_http`` were ever changed back to a plain
+    ``http.server.SimpleHTTPRequestHandler``."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    served = serve_plate_over_http(plate_path, port=0)
+    try:
+        df = _read_plate_wide_features(served.url, "Nuclei", kind="mip")
+        assert df is not None
+        assert df["Nuclei_area"].tolist() == [111.0]
+    finally:
+        served.stop()
+
+
+def test_build_plate_pyramid_over_http_only_fetches_the_viewed_wells_chunks(tmp_path):
+    """The crux property this design depends on, carried over to the remote
+    store: build_plate_pyramid's canvas already only touches populated
+    wells' chunks locally (see
+    test_build_plate_pyramid_places_real_wells_at_their_grid_position) --
+    this confirms the same holds when the plate is read over HTTP, i.e.
+    viewing one well must not fetch another well's chunk files. A
+    regression here (e.g. something forcing the whole canvas to materialize)
+    would still "work" functionally, just defeat the entire point of
+    streaming rather than copying the store down first."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=7, num_levels=1)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=42, num_levels=1)
+
+    requested_paths: list = []
+
+    class _CountingHandler(_NoTrailingSlashHTTPRequestHandler):
+        def do_GET(self):
+            requested_paths.append(self.path)
+            super().do_GET()
+
+    handler = functools.partial(_CountingHandler, directory=str(plate_path.parent))
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = httpd.server_address[1]
+        pyramid = build_plate_pyramid(f"http://127.0.0.1:{port}/plate.zarr", kind="mip")
+
+        tile, pitch = 16, round(16 * 1.05)
+        row_idx, col_idx = ord("C") - ord("A"), 9 - 1
+        y0, x0 = row_idx * pitch, col_idx * pitch
+        result = pyramid[0][:, 0, y0 : y0 + tile, x0 : x0 + tile].compute()
+        np.testing.assert_array_equal(result, np.full((2, tile, tile), 7, dtype=result.dtype))
+
+        chunk_requests = [p for p in requested_paths if "/0/c/" in p]
+        assert chunk_requests, "expected at least one image chunk request"
+        assert all(
+            "/C/09/" in p for p in chunk_requests
+        ), f"expected only well C/09's own chunks to be fetched, got: {chunk_requests}"
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=5.0)
+        httpd.server_close()
+
+
+def test_served_plate_stop_frees_the_port(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+
+    served = serve_plate_over_http(plate_path, port=0)
+    port = served.port
+    served.stop()
+
+    # Re-binding the same port only succeeds if serve_plate_over_http's own
+    # server truly released it.
+    probe = http.server.ThreadingHTTPServer(("127.0.0.1", port), http.server.SimpleHTTPRequestHandler)
+    probe.server_close()
+
+
+def test_serve_plate_over_http_defaults_to_localhost_only():
+    assert inspect.signature(serve_plate_over_http).parameters["host"].default == "127.0.0.1"

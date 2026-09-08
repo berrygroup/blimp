@@ -279,7 +279,10 @@ def add_plate(
     label_names = set()
     for well_path in well_paths:
         row, column = well_path.split("/")
-        container = open_ome_zarr_container(str(Path(plate_path) / well_path / kind))
+        # Plain string join, not pathlib -- Path() silently collapses a URL's
+        # "http://host/..." into "http:/host/..." (single slash) on any /-join,
+        # which breaks open_ome_zarr_container for a remote (http://) plate_path.
+        container = open_ome_zarr_container(f"{plate_path}/{well_path}/{kind}")
         well_containers[well_path] = container
         label_names.update(container.list_labels())
 
