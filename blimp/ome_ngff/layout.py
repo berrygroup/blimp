@@ -195,19 +195,13 @@ def _exact_pixel_offset(stage: np.ndarray, pixel_size: float, reverse: bool) -> 
 
 def _build_fov_roi_table(layout: FieldLayout) -> RoiTable:
     """Build a Fractal/``ngio``-style ``"FOV_ROI_table"`` recording each
-    original field of view's pixel region within the stitched mosaic.
-
-    Downstream per-FOV processing (e.g. illumination correction, which must
-    be computed against the original camera frame, not an arbitrary crop of
-    the stitched canvas) reads this table to recover field boundaries that
-    are otherwise lost once fields are merged into one contiguous array.
-    Not part of the core NGFF spec -- a Fractal/``ngio`` convention, see
-    ``fractal_tasks_core/illumination_correction.py``.
-
-    ROIs are recorded in world (physical) coordinates -- ``ngio``'s
-    ``RoiTable`` only supports serializing world-coordinate ROIs -- with
-    ``z`` left unconstrained, so the same table resolves correctly against
-    both the full z-stack and the MIP image of the same well.
+    original field of view's pixel region within the stitched mosaic --
+    not part of the core NGFF spec, but needed by downstream per-FOV
+    processing (e.g. illumination correction) once fields are merged into
+    one contiguous array. ROIs are recorded in world (physical)
+    coordinates with ``z`` left unconstrained, so the same table resolves
+    correctly against both the full z-stack and the MIP image of the same
+    well.
 
     Parameters
     ----------

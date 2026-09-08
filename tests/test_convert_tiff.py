@@ -42,8 +42,8 @@ def test_generate_pbs_script_tiff_ngff_formats_template_with_everything():
 
 
 def test_generate_pbs_script_tiff_ngff_skips_array_directive_for_one_batch():
-    """Regression: a real PBS Pro cluster rejected "-J 0-0" outright as an
-    illegal value, so a single-batch job must not use array syntax at all."""
+    """PBS Pro rejects "-J 0-0" as an illegal array-job value, so a
+    single-batch job must not use array syntax at all."""
     template = "{ARRAY_DIRECTIVE}|{BATCH_ID_EXPR}"
     result = generate_pbs_script_tiff_ngff(
         template=template,
@@ -259,7 +259,7 @@ def test_convert_tiff_twice_with_same_plate_path_rebuilds_fresh(tmp_path):
 
 
 def test_convert_tiff_raises_for_non_plate_directory_at_plate_path(tiff_pipeline_dir, tmp_path):
-    """The new delete-before-create step must not swallow the case where
+    """The delete-before-rebuild step must not swallow the case where
     plate_path exists but isn't a valid plate store -- that still surfaces
     ensure_plate_exists's own clear error, and the directory is left
     untouched, not deleted. Uses a .zarr-suffixed path so it's treated as

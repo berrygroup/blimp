@@ -1,14 +1,8 @@
 """Tests for tiff_to_ome_ngff.py -- assembling a whole-plate OME-NGFF store
-from an existing OME-TIFF pipeline (intensity, labels, features).
-
-test_convert_tiff_well_to_ome_ngff_matches_reference exercises the full
-convert_tiff_well_to_ome_ngff pipeline end-to-end, against a small real
-fixture (4 fields from the example nd2 file's own nd2_to_ome_tiff(mip=True)
-output, real cellpose segmentation, 4x4-binned down to a few MB -- see
-tests/_data/datasets/tiff_to_ome_ngff_test/), for both "grid" and
-"exact" placement. The rest of the tests below cover the pure logic
-(metadata-driven layout, manifest discovery/logging) that pipeline is built
-from.
+from an existing OME-TIFF pipeline (intensity, labels, features). See
+test_convert_tiff_well_to_ome_ngff_matches_reference for the one full,
+real-data end-to-end case; the rest cover the pure logic (metadata-driven
+layout, manifest discovery/logging) that pipeline is built from.
 """
 from pathlib import Path
 import logging
@@ -246,10 +240,9 @@ def test_is_point_object_channel_falls_back_to_blob_and_warns(caplog):
 
 
 def test_convert_tiff_well_to_ome_ngff_writes_every_channel_only_parent_gets_features(tmp_path):
-    """Regression guard for the old label_image.get_image_data(..., C=0)
-    hardcoding: a genuinely multi-channel label TIFF must have each channel
-    read from its own index, not channel 0 broadcast to every label -- and
-    only the channel quantify()'s own aggregation was built around gets a
+    """A genuinely multi-channel label TIFF must have each channel read
+    from its own index, not channel 0 broadcast to every label -- and only
+    the channel quantify()'s own aggregation was built around gets a
     FeatureTable."""
     nd2_stem = "WellC09_Seq0001"
     tiff_dir = tmp_path / "intensity"
@@ -302,8 +295,8 @@ def test_convert_tiff_well_to_ome_ngff_writes_every_channel_only_parent_gets_fea
     nuclei_values = set(np.unique(container.get_label("Nuclei").get_as_numpy())) - {0}
     cell_values = set(np.unique(container.get_label("Cell").get_as_numpy())) - {0}
     assert nuclei_values, "Nuclei channel should have real (non-background) values"
-    # The old bug always read channel 0 (Nuclei) for every label -- these
-    # must be genuinely different data, not the same array read twice.
+    # Nuclei and Cell must be genuinely different data, not the same
+    # channel 0 array read twice.
     assert nuclei_values != cell_values
 
     assert "Nuclei_features" in container.list_tables()
@@ -550,13 +543,13 @@ def test_convert_tiff_well_to_ome_ngff_excludes_channel_after_illumination_corre
 
 
 def test_convert_tiff_well_to_ome_ngff_single_channel_needs_no_parent_label_name(tmp_path, caplog):
-    """Regression, from a real user's data: a single-channel label TIFF (no
-    parent/child relationship at all -- quantify() called without
-    parent_object, and predating the is_point_object column entirely) used
-    to require a 'parent_label_name' column that only exists for an
-    aggregated, multi-object quantify() call. With only one channel there is
-    nothing to disambiguate, so it should just work without either column
-    (falling back to blob for point/blob status, with a logged warning)."""
+    """A single-channel label TIFF (no parent/child relationship at all --
+    quantify() called without parent_object) must not require a
+    'parent_label_name' column, which only exists for an aggregated,
+    multi-object quantify() call. With only one channel there is nothing to
+    disambiguate, so it must work without either that or an
+    is_point_object column (falling back to blob for point/blob status,
+    with a logged warning)."""
     nd2_stem = "WellC09_Seq0001"
     tiff_dir = tmp_path / "intensity"
     tiff_dir.mkdir()
@@ -573,8 +566,8 @@ def test_convert_tiff_well_to_ome_ngff_single_channel_needs_no_parent_label_name
     nuclei_array[8:16, 8:16] = 2
     _write_label_tiff(label_dir / filename, {"Nuclei": nuclei_array})
 
-    # Real shape of a pre-is_point_object, non-aggregated quantify() CSV --
-    # no parent_label_name, no is_point_object, just "label" + feature columns.
+    # A non-aggregated quantify() CSV with neither parent_label_name nor
+    # is_point_object -- just "label" + feature columns.
     pd.DataFrame({"label": [1, 2], "Nuclei_area": [64, 64], "TimepointID": [1, 1]}).to_csv(
         feature_dir / f"{Path(filename).stem}.csv", index=False
     )
@@ -645,8 +638,8 @@ def test_convert_tiff_well_to_ome_ngff_routes_named_channel_to_generic_roi_table
 
 
 def test_convert_tiff_well_to_ome_ngff_point_object_channel_supports_3d_stacks(tmp_path):
-    """Regression guard: a point-object channel in a real (non-MIP) z-stack
-    must place each point at its own z-plane, not collapse to 2D."""
+    """A point-object channel in a real (non-MIP) z-stack must place each
+    point at its own z-plane, not collapse to 2D."""
     nd2_stem = "WellC09_Seq0001"
     tiff_dir = tmp_path / "intensity"
     tiff_dir.mkdir()

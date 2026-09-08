@@ -35,8 +35,8 @@ def test_generate_pbs_script_formats_tiff_template():
 
 
 def test_generate_pbs_script_formats_tiff_template_skips_array_directive_for_one_batch():
-    """Regression: a real PBS Pro cluster rejected "-J 0-0" outright as an
-    illegal value, so a single-batch job must not use array syntax at all."""
+    """PBS Pro rejects "-J 0-0" as an illegal array-job value, so a
+    single-batch job must not use array syntax at all."""
     template = "{ARRAY_DIRECTIVE}|{BATCH_ID_EXPR}"
     result = generate_pbs_script(
         template=template,

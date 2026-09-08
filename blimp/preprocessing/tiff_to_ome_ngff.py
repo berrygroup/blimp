@@ -327,59 +327,37 @@ def convert_tiff_well_to_ome_ngff(
         see :func:`blimp.ome_ngff.ensure_plate_exists`.
     label_dir
         Directory containing one (possibly multi-channel) label TIFF per
-        field (same filenames as the intensity TIFFs) -- each channel's own
-        OME channel-name (e.g. ``"Nuclei"``, ``"Cell"``) names the object it
-        segments, and every channel is written as its own label layer.
-        ``None`` skips labels entirely. Each label TIFF's own Z depth must
-        match ``tiff_dir``'s (both 1 for a MIP, or both equal for a real
-        stack) -- ``quantify()`` and the rest of ``segment.py`` support 3D
-        label images even though ``segment_nuclei_cellpose`` itself only
-        produces 2D ones.
+        field -- each channel's own OME channel-name (e.g. ``"Nuclei"``)
+        names the object it segments. ``None`` skips labels entirely.
     feature_csv_dir
         Directory containing one already-aggregated ``quantify()``
-        measurement CSV per field (same filename stems) -- there is exactly
-        one CSV per field regardless of how many label channels exist,
-        since aggregation folds every child object's stats into the
-        parent's own rows. Which label channel this CSV's measurements
-        belong to is read directly off its own ``parent_label_name`` column
-        (see :func:`_get_parent_channel_name`) -- only that one channel gets
-        a ``FeatureTable`` attached; every other channel is still written as
-        a label layer with no measurements of its own.
+        measurement CSV per field -- only the channel matching its own
+        ``parent_label_name`` column gets a ``FeatureTable`` attached (see
+        :func:`_get_parent_channel_name`); other channels are still written
+        as label layers with no measurements.
     point_object_channel_names
-        Names of label channels, if any, that have no stable per-pixel
-        identity and should become a ``GenericRoiTable`` instead of an
-        ``ngio.Label`` -- mirrors ``quantify()``'s own ``point_objects``
-        parameter. Optional: when a ``feature_csv_dir`` is given, each
-        channel's point/blob status is normally read directly off that CSV
-        instead (see :func:`_is_point_object_channel`) -- this is a
-        fallback/override for when it isn't (e.g. no ``feature_csv_dir`` at
-        all), or to force a channel either way.
+        Label channel names, if any, with no stable per-pixel identity, to
+        store as a ``GenericRoiTable`` instead of an ``ngio.Label`` (mirrors
+        ``quantify()``'s own ``point_objects``). Normally read from
+        ``feature_csv_dir`` instead (see :func:`_is_point_object_channel`);
+        this is a fallback/override.
     y_direction, x_direction, placement
         See :func:`get_field_layout_from_tiff_metadata`.
     exclude_channel_names
-        Channel names (matching the TIFF's own embedded metadata exactly)
-        to leave out of the written intensity image entirely -- e.g. a
-        brightfield or QC channel nobody wants carried into the plate.zarr
-        store. Applied *after* illumination correction: correction is still
-        validated against and applied to every originally-acquired channel
-        exactly as if this were ``None``; excluding a channel only affects
-        what ends up written, not what gets corrected. Raises ``ValueError``
-        if a name isn't among the well's own channels, or if excluding these
-        would leave no channels at all.
+        Channel names (matching the TIFF's own embedded metadata) to leave
+        out of the written intensity image -- applied *after* illumination
+        correction, which still runs against every originally-acquired
+        channel. Raises ``ValueError`` for an unknown name, or if it would
+        exclude every channel.
     num_levels
         Number of pyramid levels to write.
     illumination_correction
-        Path to an already-fitted ``IlluminationCorrection`` ``.pkl`` file
-        (see :class:`blimp.preprocessing.illumination_correction.IlluminationCorrection`).
-        Loaded once and applied to every field's intensity pixels before
-        stitching -- ``None`` skips correction entirely. Fitting a
-        correction is a separate, already-implemented concern; this only
-        applies one that already exists. The correction's own fitted
-        channel names must match the well's own (full, pre-exclusion)
-        channels exactly (same order) -- channel matching inside
-        ``IlluminationCorrection.correct()`` is purely positional (by index,
-        not name), so a mismatch here would otherwise silently apply the
-        wrong channel's statistics.
+        Path to an already-fitted ``IlluminationCorrection`` ``.pkl`` file,
+        applied to every field's intensity pixels before stitching --
+        ``None`` skips correction. Its own fitted channel names must match
+        the well's full (pre-exclusion) channels exactly, same order:
+        channel matching in ``IlluminationCorrection.correct()`` is
+        positional, not by name.
 
     Notes
     -----

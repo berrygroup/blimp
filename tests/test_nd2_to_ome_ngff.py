@@ -1,11 +1,6 @@
 """Tests for nd2_to_ome_ngff.py -- the nd2-specific glue around the shared
 blimp.ome_ngff writer core (see tests/test_ome_ngff.py for the generic
 logic: grid clustering, ROI tables, NGFF metadata, plate/well registration).
-
-The full convert_individual_nd2_to_ome_ngff pipeline is untested here against
-a real reference .nd2 file (none of the existing reference files are
-multi-position well acquisitions); it was instead verified manually against
-a real multi-position well file -- see PR #9.
 """
 from pathlib import Path
 

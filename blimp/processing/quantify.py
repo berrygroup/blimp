@@ -1115,7 +1115,8 @@ def aggregate_and_merge_features(
         # lost, since is_point_object is boolean and numeric_cols above
         # excludes it from aggregation entirely. Constant across all of this
         # child's own rows, so a single broadcast value applies to every
-        # group. Guarded for dataframes that predate the column.
+        # group. df may not have this column if produced by an older or
+        # external caller.
         if "is_point_object" in df.columns:
             agg_df[non_parent_object_names[df_index] + "_is_point_object"] = df["is_point_object"].iloc[0]
 

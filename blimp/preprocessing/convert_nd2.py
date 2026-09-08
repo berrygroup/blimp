@@ -320,9 +320,6 @@ def convert_nd2(
                 conda_env=conda_env,
             )
         else:
-            # Created up front (idempotent, and cheap -- see
-            # ensure_plate_exists) so the parallel batch tasks this
-            # jobscript's #PBS -J array launches never race to create it.
             ensure_plate_exists(out_path, plate_name=im_par_path.name)
             jobscript = generate_pbs_script_ngff(
                 template=jobscript_template,

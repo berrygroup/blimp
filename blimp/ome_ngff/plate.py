@@ -39,13 +39,21 @@ def resolve_plate_path(plate_path: Union[str, Path]) -> Path:
     """Resolve a user-given path to the actual plate .zarr store location.
 
     A path already ending in ``.zarr`` is used as-is; anything else is
-    treated as a parent directory, inside which the store is named
-    ``plate.zarr``. Pass the result to :func:`ensure_plate_exists` (using
-    its own ``.stem`` as the plate name) so a bare folder still ends up
-    with a sensible, derived name rather than the literal string "plate":
-    ``-o some/experiment.zarr`` names the plate "experiment"; ``-o
-    some/experiment`` places it at ``some/experiment/plate.zarr``, named
-    "plate".
+    treated as a parent directory, with the store placed at
+    ``<path>/plate.zarr``. Pass the result to :func:`ensure_plate_exists`
+    (using its own ``.stem`` as the plate name) so a bare folder still gets
+    a sensible derived name rather than the literal string "plate".
+
+    Parameters
+    ----------
+    plate_path
+        User-given path, e.g. from a CLI's ``-o``/``--plate_path``.
+
+    Returns
+    -------
+    Path
+        ``plate_path`` itself if it ends in ``.zarr``, else
+        ``plate_path/plate.zarr``.
     """
     plate_path = Path(plate_path)
     return plate_path if plate_path.suffix == ".zarr" else plate_path / "plate.zarr"
@@ -57,22 +65,14 @@ def ensure_plate_exists(
     """Idempotently open or create a shared OME-Zarr plate store.
 
     Safe to call from multiple processes: if two callers race to create the
-    same plate for the first time, the loser's ``create_empty_plate`` call
-    fails and falls back to opening what the winner created.
-
-    Pre-declares the full row/column grid (rows "A".."H"/"P", columns
-    1-12/1-24 for a 96-/384-well plate) up front, independent of which wells
-    actually get images. This costs nothing in storage (the plate store
-    holds only its own small ``zarr.json`` until a well is actually
-    written), and lets a viewer place populated wells at their true grid
-    position rather than compacting the grid to only the wells a given run
-    happened to touch.
-
-    Intended to be called once, before any per-well writers run (e.g. from
-    the same serial pass that discovers input files and generates per-well
-    PBS jobscripts), rather than from every worker -- ``atomic_add_image``
-    (used by the per-source writers) only guards concurrent *modification*
-    of an existing plate, not its first creation.
+    same plate, the loser's ``create_empty_plate`` call fails and falls
+    back to opening what the winner created. Pre-declares the full
+    row/column grid up front (costs nothing in storage until a well is
+    actually written), so a viewer can place populated wells at their true
+    grid position rather than only the wells a given run happened to
+    touch. Call once, before any per-well writers run --
+    ``atomic_add_image`` (used by the per-source writers) only guards
+    concurrent *modification* of an existing plate, not its first creation.
 
     Parameters
     ----------
@@ -264,22 +264,14 @@ def build_plate_pyramid(
     level, for viewing (or otherwise computing over) all wells at once at
     their true row/column position.
 
-    Real wells are placed at their true grid position, each surrounded by a
-    small empty margin (``gap_fraction`` of its own tile size, computed
-    separately per pyramid level) so adjacent wells stay visually distinct;
-    every other declared grid position is a zero-cost ``da.zeros``
-    placeholder. ``da.zeros`` is defined analytically -- it never touches
-    individual chunks at construction time -- and overlaying real wells via
-    chunk-aligned ``__setitem__`` only swaps which task computes those
-    chunks, so this costs ``O(populated wells)``, not ``O(declared grid
-    size)``, regardless of how sparse the plate is. This is what
-    ``ome_zarr.reader``'s own whole-plate stitching does not do -- it
-    eagerly allocates real zero arrays for every declared-but-empty
-    position, at every level and channel.
-
-    Every well is read through ``ngio``'s own ``OmeZarrPlate``/
-    ``OmeZarrContainer``/``Image`` API -- there's no separate "well zarr" to
-    open by hand; a well is just a subgroup of the same plate store.
+    Real wells are placed at their true grid position, with a small empty
+    margin (``gap_fraction`` of tile size) between them; every other
+    declared grid position is a zero-cost ``da.zeros`` placeholder, so cost
+    scales with ``O(populated wells)``, not the declared grid size --
+    unlike ``ome_zarr.reader``'s own whole-plate stitching, which eagerly
+    allocates a real zero array for every declared-but-empty position, at
+    every level and channel. Every well is read through ``ngio``'s own
+    ``OmeZarrPlate``/``OmeZarrContainer``/``Image`` API.
 
     Parameters
     ----------
@@ -423,25 +415,15 @@ def build_feature_pyramid(
 ) -> List[da.Array]:
     """Every pyramid level of a plate-wide *feature-value* image: each
     object's own pixels hold its own ``feature_name`` measurement (a plain
-    float) instead of a label ID, viewable as an ordinary continuous-
-    colormap ``Image`` layer -- independent of per-label colormap tools
-    like Napari Feature Visualizer, which assume label IDs are packed
-    near zero and can run out of memory on our plate-wide-unique IDs (see
-    :func:`blimp.ome_ngff.labels.well_label_offset`, which can produce IDs
-    in the trillions across a full plate).
+    float) instead of a label ID -- independent of per-label colormap
+    tools like Napari Feature Visualizer, which assume label IDs are
+    packed near zero and can run out of memory on plate-wide-unique IDs
+    (see :func:`blimp.ome_ngff.labels.well_label_offset`).
 
     Background pixels, and any object with no matching feature row, read
-    as ``NaN`` (the canvas dtype is always ``float32``) -- napari's own
-    contrast autoscale already treats ``NaN`` correctly, but scanning a
-    full plate's worth of pyramid just to compute that range is itself
-    slow, so pass ``contrast_limits`` explicitly when adding this as a
-    layer (see ``add_feature_heatmap``).
-
-    Cost scales with the number of *populated* (and, if given, *selected*)
-    wells, not the plate's declared grid size -- same property as
-    ``build_plate_pyramid``, verified the same way. Measured on an 8-core
-    machine, a full-resolution statistic touching every populated well of
-    a fully-populated 384-well plate takes on the order of minutes; pass
+    as ``NaN`` (the canvas dtype is always ``float32``). Cost scales with
+    the number of *populated* (and, if given, *selected*) wells, not the
+    plate's declared grid size, same as ``build_plate_pyramid`` -- pass
     ``wells`` to restrict this to only the well(s) you actually need.
 
     Parameters

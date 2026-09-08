@@ -1,16 +1,7 @@
-"""Segmentation label handling for OME-NGFF assembly.
-
-Two fundamentally different shapes, per object type (see
-``quantify.py``'s own two code paths):
-
-- **Blob objects** (regular segmented objects) have a stable "pixel value =
-  object identity" -- placed into a well-scale ``ngio.Label`` array, with
-  each field's locally-unique IDs shifted into a disjoint, reproducible
-  global range first (:func:`_offset_label_ids`).
-- **Point objects** have no such stable pixel-value identity (``quantify()``
-  only takes a binary mask and assigns an arbitrary scan-order index) --
-  stored instead as one ``ngio.GenericRoiTable`` per channel, one small ROI
-  per point.
+"""Segmentation label handling for OME-NGFF assembly: blob objects (a
+stable "pixel value = object identity") go into a well-scale ``ngio.Label``
+array; point objects (no such identity) go into one ``ngio.GenericRoiTable``
+per channel instead (see ``quantify.py``'s own two code paths).
 """
 from typing import Dict, Optional
 import logging
@@ -59,21 +50,27 @@ def well_label_offset(row_idx: int, col_idx: int, n_cols: int = 24) -> int:
     """Stable, collision-free per-well offset for combining label IDs
     across an entire plate.
 
-    Reserves one full ``WELL_LABEL_OFFSET_STEP`` (``2**32``) address block
-    per well -- since every within-well ``global_id`` already fits under
-    that ceiling (see ``WELL_LABEL_OFFSET_STEP``), no two wells' offset
-    ID ranges can ever overlap, for any field count.
+    Reserves one full ``WELL_LABEL_OFFSET_STEP`` address block per well, so
+    no two wells' offset ID ranges can ever overlap. ``n_cols`` defaults to
+    24 (a standard 384-well plate) rather than a given plate's own declared
+    grid, so the same physical well always maps to the same offset
+    regardless of plate-creation parameters.
 
-    ``n_cols`` defaults to 24 (a standard 384-well plate) rather than being
-    derived from any one plate's own declared grid, so the same physical
-    well (row, column) always maps to the same offset regardless of
-    incidental plate-creation parameters -- override it for a wider layout.
+    Parameters
+    ----------
+    row_idx, col_idx
+        0-indexed well position.
+    n_cols
+        Number of columns per row, for computing a single linear well
+        index -- override for a non-384-well layout.
 
-    Shared by ``_write_well_features`` (persisted into
-    ``global_id_numeric``) and ``blimp.ome_ngff.plate.build_plate_pyramid``/
-    ``blimp.napari_utils.add_plate`` (applied to pixel values, and
-    re-derived for merged features when a table predates this column), so
-    all three always agree.
+    Returns
+    -------
+    int
+        This well's own offset -- add it to a local ``global_id`` to get a
+        plate-wide-unique ``global_id_numeric`` (see ``_write_well_features``,
+        ``blimp.ome_ngff.plate.build_plate_pyramid``/``build_feature_pyramid``,
+        ``blimp.napari_utils.add_plate``).
     """
     return (row_idx * n_cols + col_idx) * WELL_LABEL_OFFSET_STEP
 
@@ -195,14 +192,11 @@ def _write_well_points(
     ``GenericRoiTable`` (one small ROI per point, at its own world
     coordinate) plus its measurement columns.
 
-    Point objects have no meaningful pixel-value identity to place in a
-    ``Label`` array -- ``quantify()`` itself only takes a binary mask
-    (``label_array > 0``) and assigns each nonzero pixel an arbitrary
-    scan-order index via ``np.argwhere``. Recovering each point's own pixel
-    coordinate therefore requires re-running that same ``np.argwhere`` over
-    the same per-field mask, in the same order, and zipping the result back
-    against ``quantify()``'s own sequential ``label`` column (1..N per
-    field) -- not by pixel value, which point objects don't have.
+    Recovering each point's own pixel coordinate requires re-running the
+    same ``np.argwhere`` scan ``quantify()`` itself used over the same
+    per-field mask, in the same order, and zipping the result back against
+    ``quantify()``'s own sequential ``label`` column (1..N per field) -- not
+    by pixel value, which point objects don't have.
 
     Parameters
     ----------

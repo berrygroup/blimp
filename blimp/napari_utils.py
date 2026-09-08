@@ -1,9 +1,7 @@
-"""napari viewer utilities for visually inspecting blimp-written OME-NGFF images.
-
-Standalone from the rest of blimp's conversion/processing pipeline -- only
-depends on ``napari`` and ``ngio``, so it works from a lightweight interactive
-viewing environment that doesn't have blimp's full (much heavier) dependency
-set installed, e.g. via ``pip install -e /path/to/blimp --no-deps``.
+"""napari viewer utilities for visually inspecting blimp-written OME-NGFF
+images. Only depends on ``napari`` and ``ngio``, so it works from a
+lightweight viewing environment without blimp's full (much heavier)
+conversion dependency set installed.
 """
 from typing import Dict, List, Union, Literal, Callable, Optional
 from pathlib import Path
@@ -399,32 +397,23 @@ def add_feature_heatmap(
 
     Built with a ``DirectLabelColormap`` -- a dict from each object's own
     plate-wide-unique pixel value (``global_id_numeric``) to a fixed RGBA
-    color, computed once (here, in Python) from the merged features table
-    via ``colormap`` and this heatmap's own contrast limits (1st/99th
-    percentile of ``feature_name``). This is deliberately *not* what a
-    tool like Napari Feature Visualizer does -- its own colormap
-    computation builds a dense array sized to the largest label ID
-    present, which is exactly what crashes at plate scale, since our
-    plate-wide IDs can run into the trillions (see
+    color, computed once from the merged features table via ``colormap``
+    and this heatmap's own contrast limits (1st/99th percentile of
+    ``feature_name``). This is deliberately *not* what a tool like Napari
+    Feature Visualizer does -- its own colormap computation builds a dense
+    array sized to the largest label ID present, which crashes at plate
+    scale since plate-wide IDs can run into the trillions (see
     ``blimp.ome_ngff.labels.well_label_offset``). ``DirectLabelColormap``
     is dict-based instead: napari remaps raw label values through a
     compact GPU texture built from the dict's own keys, so cost scales
-    with the number of *objects*, not the ID magnitude -- and that remap
-    only touches whatever's actually visible at the current zoom, so a
-    full 384-well plate costs the same as a two-well one; no ``wells``
-    filter needed here the way a ``map_blocks``-based remap would need.
+    with the number of *objects*, not the ID magnitude, and only touches
+    whatever's actually visible at the current zoom -- a full 384-well
+    plate costs the same as a two-well one.
 
     Any pixel with no entry in the dict -- background (label 0), or an
     object with no matching feature row -- renders fully transparent, via
-    the same well-tested code path every ordinary ``Labels`` layer already
-    uses for its own background, revealing whatever's drawn underneath.
-    This sidesteps a real gap in an earlier attempt at this that built a
-    separate float-valued ``Image`` layer instead: confirmed live, under
-    napari's default "translucent" blending a *multiscale* ``Image``
-    layer's own ``NaN`` background pixels stayed opaque despite ``NaN``'s
-    alpha nominally being 0, and the "additive" blending that did fix
-    that distorted real objects' own colors wherever another layer was
-    visible underneath (colors summed instead of compositing correctly).
+    the same code path every ordinary ``Labels`` layer already uses for
+    its own background, revealing whatever's drawn underneath.
 
     A genuinely new layer, added alongside (not replacing) any plain
     ``Labels`` layer ``add_plate`` may have already added for

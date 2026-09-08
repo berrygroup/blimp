@@ -298,12 +298,13 @@ def test_ensure_plate_exists_is_idempotent(tmp_path):
 
 
 def test_ensure_plate_exists_raises_clear_error_for_non_empty_non_plate_directory(tmp_path):
-    """Regression: passing a plate_path that already exists and has content,
-    but isn't itself a valid OME-Zarr plate store (e.g. -o . run from an
-    ordinary working directory), used to raise a confusing chained
-    NgioFileExistsError/NgioFileNotFoundError pair -- create_empty_plate
-    refuses because the directory is non-empty, and the fallback open then
-    fails because there's no real plate store there either."""
+    """A plate_path that already exists and has content, but isn't itself a
+    valid OME-Zarr plate store (e.g. -o . run from an ordinary working
+    directory), must raise one clear FileExistsError -- not the confusing
+    chained NgioFileExistsError/NgioFileNotFoundError pair that would
+    otherwise surface: create_empty_plate refuses because the directory is
+    non-empty, and the fallback open then fails because there's no real
+    plate store there either."""
     (tmp_path / "some_unrelated_file.txt").write_text("hello")
     with pytest.raises(FileExistsError, match="valid OME-Zarr plate store"):
         ensure_plate_exists(tmp_path, "test_plate")
@@ -429,11 +430,10 @@ def test_build_plate_pyramid_places_real_wells_at_their_grid_position(tmp_path):
 
 
 def test_build_plate_pyramid_label_name_variant(tmp_path):
-    """Also the actual collision regression this feature fixes: C09 and F14
-    are given the *same* fill_value, so their raw within-well global IDs
-    collide -- build_plate_pyramid must still tell them apart by applying
-    each well's own well_label_offset. A third well with no label at all
-    (K16) must still be skipped (its grid position stays zero), not
+    """C09 and F14 are given the *same* fill_value, so their raw within-well
+    global IDs collide -- build_plate_pyramid must still tell them apart by
+    applying each well's own well_label_offset. A third well with no label
+    at all (K16) must still be skipped (its grid position stays zero), not
     raise."""
     plate_path = tmp_path / "plate.zarr"
     ensure_plate_exists(plate_path, "test_plate")
@@ -482,11 +482,10 @@ def test_build_plate_pyramid_raises_when_no_well_has_the_requested_label(tmp_pat
 
 
 def test_build_plate_pyramid_construction_time_does_not_scale_with_declared_grid_size(tmp_path):
-    """Regression guard for the bug this function exists to fix
-    (``ome_zarr.reader.Plate.get_stitched_grid`` eagerly building a
-    per-declared-grid-cell array-concatenation graph): construction cost
-    should track the number of *real* wells, not the plate's declared
-    row/column grid size."""
+    """Construction cost must track the number of *real* wells, not the
+    plate's declared row/column grid size -- unlike
+    ``ome_zarr.reader.Plate.get_stitched_grid``, which eagerly builds a
+    per-declared-grid-cell array-concatenation graph."""
     small_plate_path = tmp_path / "small_plate.zarr"
     ensure_plate_exists(small_plate_path, "small_plate", plate_size="96")
     _write_one_well(tmp_path / "small", small_plate_path, "WellC09_Seq0001", fill_value=7)
@@ -538,13 +537,12 @@ def test_read_plate_wide_features_merges_wells_with_correct_offsets(tmp_path):
 
 
 def test_build_feature_pyramid_shows_correct_value_and_nan_elsewhere(tmp_path):
-    """Mirrors test_build_plate_pyramid_label_name_variant's collision
-    regression: C09 and F14 share the same raw local label (3), so only
-    each well's own well_label_offset -- applied identically to the pixel
-    array and to the features table's "label" column -- keeps their
-    heatmap values from bleeding into each other. K16 has the label but no
-    matching feature row at all (no feature_csv_dir given), so its region
-    must read back NaN despite having real label pixels."""
+    """C09 and F14 share the same raw local label (3), so only each well's
+    own well_label_offset -- applied identically to the pixel array and to
+    the features table's "label" column -- keeps their heatmap values from
+    bleeding into each other. K16 has the label but no matching feature row
+    at all (no feature_csv_dir given), so its region must read back NaN
+    despite having real label pixels."""
     plate_path = tmp_path / "plate.zarr"
     ensure_plate_exists(plate_path, "test_plate")
     _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
@@ -766,11 +764,11 @@ def test_write_well_labels_offsets_and_stitches_two_fields(tmp_path):
 
 
 def test_write_well_labels_consolidates_coarser_pyramid_levels(tmp_path):
-    """Regression: set_array only ever writes level 0 -- without an explicit
-    consolidate() call afterward, every coarser pyramid level is left as the
-    empty array derive_label pre-allocated, so the label silently vanishes
-    in any viewer that renders from a coarser level when zoomed out (found
-    via a real napari session, not a synthetic scenario)."""
+    """set_array only ever writes level 0 -- without an explicit
+    consolidate() call afterward, every coarser pyramid level is left as
+    the empty array derive_label pre-allocated, so the label would
+    silently vanish in any viewer that renders from a coarser level when
+    zoomed out."""
     container = _make_well_container(tmp_path)
     layout = _make_well_layout()
 
@@ -800,13 +798,10 @@ def test_write_well_labels_blank_substitutes_missing_field(tmp_path):
 
 
 def test_write_well_labels_places_real_3d_data_per_z_plane_not_broadcast(tmp_path):
-    """segment_nuclei_cellpose itself only ever produces 2D (Z==1) labels,
-    but quantify() and the rest of segment.py explicitly support 3D label
-    images too (e.g. from running cellpose's own do_3D=True mode directly).
-    A genuinely 3D local array must be placed one real slice per Z-plane --
-    if the placement logic ever regressed to assuming a flat 2D array, a
-    single 2D mask would get broadcast (replicated) across every Z-plane
-    instead, which this test would catch."""
+    """quantify() and the rest of segment.py support 3D label images (e.g.
+    from cellpose's own do_3D=True mode), not just segment_nuclei_cellpose's
+    own 2D output -- a genuinely 3D local array must be placed one real
+    slice per Z-plane, not broadcast (replicated) across every Z-plane."""
     container = _make_well_container(tmp_path, canvas_shape=(1, 1, 3, 16, 32))
     layout = _make_well_layout(tile_shape=(1, 1, 3, 16, 16), canvas_shape=(1, 1, 3, 16, 32))
 

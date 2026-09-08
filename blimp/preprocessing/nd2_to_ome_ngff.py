@@ -1,15 +1,8 @@
-"""Convert Nikon nd2 files to OME-NGFF (OME-Zarr) format.
-
-Each nd2 file is treated as a single well containing several stage-position
-fields of view, stitched into one contiguous mosaic image per well using
-nominal grid placement from stage coordinates (no sub-pixel registration).
-Wells are written into one shared OME-Zarr plate store per plate (HCS
-layout), matching the standard OME-NGFF plate structure rather than one
-independent store per well.
-
+"""Convert Nikon nd2 files to OME-NGFF (OME-Zarr) format: each nd2 file (one
+well's stage-position fields of view) is stitched into one contiguous
+mosaic and written into a shared, plate-wide OME-Zarr store (HCS layout).
 Plate/well registration and NGFF metadata construction live in
-``blimp.ome_ngff`` (shared across every source format); this module supplies
-only what's specific to reading an nd2 file directly.
+``blimp.ome_ngff`` (shared across every source format).
 """
 from typing import List, Union, Optional
 from pathlib import Path

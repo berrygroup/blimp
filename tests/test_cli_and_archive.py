@@ -97,8 +97,8 @@ def test_convert_tiff_output_format_defaults_to_ngff(tmp_path):
 
 @pytest.mark.parametrize("input_type", ["nd2", "operetta"])
 def test_archive_subcommands_parse(input_type, tmp_path):
-    """Regression: -j/--jobscript_path was marked required=True despite
-    documenting a default, so these invocations exited with code 2."""
+    """-j/--jobscript_path must parse with no explicit value given (default
+    ``None``, resolved to cwd at call time), not be required."""
     args = _parse(["archive", input_type, "-i", str(tmp_path), "--first_name", "Ada"])
     assert args.subcommand == "archive"
     assert args.input_type == input_type
@@ -112,8 +112,8 @@ def test_archive_accepts_explicit_jobscript_path(tmp_path):
 
 
 def test_setup_accepts_quiet_flag():
-    """Regression: `blimp setup --quiet` was rejected by the top-level parser
-    because --quiet was only registered on a separate, unreachable parser."""
+    """`blimp setup --quiet` must parse via the top-level parser -- --quiet
+    is registered there, not only on a separate subparser."""
     args = _parse(["setup", "--quiet"])
     assert args.quiet is True
 
@@ -199,9 +199,8 @@ def test_write_archiving_script_nd2_produces_runnable_header(tmp_path):
 
 
 def test_write_archiving_script_operetta_without_archive_dir(tmp_path):
-    """Regression: ``archive_path``/``archive_batch_files`` were only bound
-    inside a conditional, so a file list with no 'Archive' directory raised
-    UnboundLocalError."""
+    """A file list with no 'Archive' directory must still produce a valid
+    script, not raise ``UnboundLocalError`` for unset archive variables."""
     script = tmp_path / "archive_operetta.sh"
     write_archiving_script_operetta(
         script_path=script,

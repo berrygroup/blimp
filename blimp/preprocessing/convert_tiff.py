@@ -1,20 +1,6 @@
 """Generate a PBS job to assemble an existing OME-TIFF pipeline's output
 (one plate's worth of wells) into a whole-plate OME-NGFF store, via
 ``tiff_to_ome_ngff.py``'s own CLI.
-
-Unlike ``convert_nd2.py``/``convert_operetta.py``, this has no recursive
-multi-plate discovery: by the time a TIFF pipeline exists, the caller
-already knows exactly which plate's output they want assembled, so
-``in_path``/``plate_path`` are explicit, and the command runs once per
-plate -- matching ``tiff_to_ome_ngff()``'s own shape (it already takes an
-explicit ``in_path``/``plate_path`` and internally batches over however
-many wells' ``*_metadata.csv`` files live under that one ``in_path``).
-
-Every call deletes any existing, openable plate store at ``plate_path``
-and rebuilds it from scratch -- a ``plate.zarr`` holds either MIP or
-full-stack data, never both, so there is no supported way to combine them
-in one store by calling this twice; a second call replaces the first
-call's contents rather than adding to them.
 """
 from typing import List, Union, Optional
 from pathlib import Path

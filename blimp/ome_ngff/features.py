@@ -29,18 +29,10 @@ def _offset_feature_table_ids(
     """Apply the same ``global_id_numeric = well_offset + field_id *
     max_objects_per_field + local_id`` formula used for label placement to
     a feature dataframe's ``label`` column, and its ``parent_label`` column
-    if present (the same field, so the same offset).
-
-    Also adds:
-    - ``global_id`` (text, e.g. ``"C09_0004_0000123"``, see
-      :func:`blimp.ome_ngff.labels.global_id`) computed from each row's
-      *own* (pre-offset) local id -- a human-readable companion to the
-      numeric ``label``, which as an integer pixel value has no way to
-      carry the well name.
-    - ``global_id_numeric`` (``int64``), plate-wide unique -- ``label``
-      (after its own per-field offset) plus ``well_offset``, matching the
-      plate-level Labels layer's own pixel values
-      (:func:`blimp.ome_ngff.plate.build_plate_pyramid`).
+    if present (the same field, so the same offset). Also adds a
+    human-readable ``global_id`` (text, e.g. ``"C09_0004_0000123"``, see
+    :func:`blimp.ome_ngff.labels.global_id`) and the numeric, plate-wide
+    unique ``global_id_numeric`` (``int64``).
 
     Parameters
     ----------
