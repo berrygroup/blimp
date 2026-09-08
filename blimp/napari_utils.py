@@ -235,9 +235,9 @@ def add_plate(
 
     Adds one multiscale ``Image`` layer per channel, one multiscale
     ``Labels`` layer per label found on any well (measurements are *not*
-    merged/attached here -- a real, measured request cost over a remote
-    store for every label found, paid even for labels no one ever
-    inspects; call :func:`attach_plate_wide_measurements` afterward for
+    merged/attached here -- a real request cost over a remote store for
+    every label found, paid even for labels no one ever inspects; call
+    :func:`attach_plate_wide_measurements` afterward for
     the ones you actually want hover-inspectable, keyed to match this
     layer's own plate-wide-unique pixel values), one combined plate-wide
     ``Shapes`` layer outlining each well's own outer boundary (visible by
@@ -318,8 +318,8 @@ def add_plate(
         # rarely wanted immediately on load -- toggle it on from the layer
         # list (napari's own visibility control) once you actually need it.
         # Its measurements aren't merged/attached here either, for the same
-        # reason -- a real, measured cost (over a remote store) for labels no
-        # one inspects; call attach_plate_wide_measurements(plate_path,
+        # reason -- a real cost (over a remote store) for labels no one
+        # inspects; call attach_plate_wide_measurements(plate_path,
         # label_name) afterward for the ones you actually want.
         label_layer = viewer.add_labels(label_pyramid, multiscale=True, name=label_name, visible=False)
         layers.append(label_layer)
@@ -397,9 +397,9 @@ def attach_plate_wide_measurements(
     ``blimp.ome_ngff.plate._read_plate_wide_features``) onto the ``Labels``
     layer :func:`add_plate` already added for it, on demand.
 
-    ``add_plate`` itself no longer does this eagerly for every label found
-    -- a real, measured request cost (over a remote store) for labels no
-    one ever inspects. Call this afterward for whichever label(s) you
+    ``add_plate`` never does this eagerly for every label found -- a real
+    request cost (over a remote store) for labels no one ever inspects.
+    Call this afterward for whichever label(s) you
     actually want hover-inspectable (e.g. via a tool like Napari Feature
     Visualizer) -- for coloring by one specific feature instead, see
     :func:`add_feature_heatmap`, which is unaffected by this and already
@@ -513,11 +513,11 @@ def add_feature_heatmap(
 
     # _read_plate_wide_feature_raw reads only this one column (plus object ids)
     # directly via zarr instead of ngio.FeatureTable.dataframe's whole-table read
-    # -- a real, measured ~4.5x fewer requests for this specific case. It can't
-    # distinguish "no table at all" from "table exists but lacks this column" on
-    # its own, so on failure fall back to a full read just to build a precise
-    # error message (an accepted, occasional cost -- see _read_plate_wide_features's
-    # own docstring on discovering available feature names).
+    # -- far fewer requests for this specific case. It can't distinguish "no
+    # table at all" from "table exists but lacks this column" on its own, so on
+    # failure fall back to a full read just to build a precise error message
+    # (an accepted, occasional cost -- see _read_plate_wide_features's own
+    # docstring on discovering available feature names).
     features_df = _read_plate_wide_feature_raw(plate_path, label_name, feature_name, kind=kind)
     if features_df is None:
         full_df = _read_plate_wide_features(plate_path, label_name, kind=kind)

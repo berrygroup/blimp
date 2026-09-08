@@ -687,14 +687,13 @@ def test_discover_wells_with_label_raises_for_a_well_not_in_the_plate(tmp_path):
 
 
 def test_build_plate_pyramid_and_read_features_reuse_open_containers_without_reopening(tmp_path):
-    """Regression test for a real, measured cost: add_plate (napari_utils.py)
-    already opens every well's own container itself, but build_plate_pyramid/
-    _read_plate_wide_features used to re-open each one again from scratch via
-    OmeZarrPlate.get_image -- harmless locally, but a real, measured ~4x
-    redundant per-well metadata-request cost over a remote store (6
-    OmeZarrPlate.get_image calls for 2 wells during one add_plate call,
-    dropping to 0 once callers pass their own already-open plate/
-    open_containers, as add_plate now does)."""
+    """build_plate_pyramid/_read_plate_wide_features must reuse an
+    already-open plate/containers when given one (as add_plate does, since
+    it already opens every well's own container itself), not re-open each
+    well's container from scratch via OmeZarrPlate.get_image -- a real ~4x
+    redundant per-well metadata-request cost over a remote store otherwise.
+    Asserts zero OmeZarrPlate.get_image calls when plate/open_containers
+    are passed."""
     plate_path = tmp_path / "plate.zarr"
     ensure_plate_exists(plate_path, "test_plate")
     _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
@@ -1101,8 +1100,8 @@ def test_serve_plate_over_http_round_trips_data(tmp_path):
 
 
 def test_serve_plate_over_http_serves_feature_tables_correctly(tmp_path):
-    """Regression test for a real bug found during development: an ordinary
-    directory-listing HTTP server (any of them -- this isn't stdlib-specific,
+    """Regression test: an ordinary directory-listing HTTP server (any of
+    them -- this isn't stdlib-specific,
     Apache/nginx autoindex do the same) links to a subdirectory with a
     trailing slash, but ngio's AnnData-backed table reader
     (``custom_anndata_read_zarr``) does an exact-name membership check
@@ -1192,8 +1191,8 @@ def test_read_plate_wide_feature_raw_falls_back_to_full_read_when_raw_path_fails
 
 def test_read_plate_wide_feature_raw_over_http_reads_far_fewer_requests(tmp_path):
     """The actual point of this reader: reading one feature must cost far
-    fewer requests than reading the whole table (measured live against a
-    real plate this session: ~172 requests/well down to ~10-20)."""
+    fewer requests than reading the whole table (roughly 172 requests/well
+    for the full table, down to roughly 10-20 for just one feature)."""
     plate_path = tmp_path / "plate.zarr"
     ensure_plate_exists(plate_path, "test_plate")
     _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)

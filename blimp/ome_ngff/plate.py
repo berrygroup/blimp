@@ -176,19 +176,19 @@ class _NoTrailingSlashHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     returns, and ngio's AnnData-backed table reader
     (``ngio.tables.backends._anndata_utils.custom_anndata_read_zarr``) does
     an exact-string membership test against bare element names ("X", "obs",
-    "var", ...) -- so every table sub-element is silently filtered out
-    (found by testing: a real ``FeatureTable`` read back as empty --
-    ``anndata``'s ``X is None`` -- over a plain directory-listing server,
-    while the very same store read perfectly locally). Only the trailing
-    slash actually needs to go for this reader's benefit; nothing else here
-    parses these listings by hand.
+    "var", ...) -- so every table sub-element is silently filtered out,
+    and a ``FeatureTable`` reads back empty (``anndata``'s ``X is None``)
+    over a plain directory-listing server, the identical store reading
+    correctly from a local path. Only the trailing slash actually needs to
+    go for this reader's benefit; nothing else here parses these listings
+    by hand.
 
     ``BaseHTTPRequestHandler``'s own default also logs every single request
     to stderr -- fine for a handful of files, but a real plate touches many
-    chunks and metadata probes per view, which floods an on-demand session's
-    notebook output at well over 100 lines/second (found by testing against
-    a real ~120-well plate). Silenced unconditionally: this is meant to run
-    unattended for the length of a viewing session, not to be watched.
+    chunks and metadata probes per view, easily flooding an on-demand
+    session's notebook output at well over 100 lines/second. Silenced
+    unconditionally: this is meant to run unattended for the length of a
+    viewing session, not to be watched.
 
     ``BaseHTTPRequestHandler``'s own default ``protocol_version`` is
     ``"HTTP/1.0"``, which closes the connection after every single request
@@ -527,7 +527,7 @@ def _discover_wells_with_label(
         Already-open containers to filter/reuse instead of calling
         ``plate.get_image()`` again per well. Passed by ``add_plate``,
         which already opens every well's container itself -- reusing them
-        here avoids each well paying a real, separate re-open (a measured
+        here avoids each well paying a real, separate re-open (roughly a
         ~4x-per-well redundant-request cost over a remote store) once for
         its own image pyramid, again for every label's pyramid, and again
         for every label's feature table. ``None`` (the default) opens each
@@ -781,7 +781,7 @@ def _read_one_feature_column_raw(table_group_path: str, feature_name: str) -> Op
     no directory listing needed), whichever of ``"label"``/
     ``"global_id_numeric"`` those name, and ``X``'s one relevant column
     slice -- skipping the directory listing and every other ``obs`` column
-    ``ngio.FeatureTable.dataframe`` would otherwise fetch (a real, measured
+    ``ngio.FeatureTable.dataframe`` would otherwise fetch (roughly a
     ~172-request-per-well cost, down to roughly 10-15).
 
     Parameters
