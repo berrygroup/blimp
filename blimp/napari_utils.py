@@ -225,6 +225,7 @@ def add_plate(
     viewer: napari.Viewer,
     plate_path: Union[str, Path],
     kind: Literal["stack", "mip"] = "mip",
+    include_measurements: bool = False,
 ) -> List["napari.layers.Layer"]:
     """Add every populated well of a whole plate to the viewer at once, laid
     out at its true row/column position -- a fast, full-resolution
@@ -235,18 +236,19 @@ def add_plate(
 
     Adds one multiscale ``Image`` layer per channel, one multiscale
     ``Labels`` layer per label found on any well (measurements are *not*
-    merged/attached here -- a real request cost over a remote store for
-    every label found, paid even for labels no one ever inspects; call
-    :func:`attach_plate_wide_measurements` afterward for
-    the ones you actually want hover-inspectable, keyed to match this
-    layer's own plate-wide-unique pixel values), one combined plate-wide
-    ``Shapes`` layer outlining each well's own outer boundary (visible by
-    default -- this is the useful overview at plate scale), and one
-    combined plate-wide ``Shapes`` layer outlining every well's own FOV
-    boundaries (each well's ``FOV_ROI_table`` rectangles, shifted to that
-    well's grid position; hidden by default -- only useful once zoomed
-    into a single well). Point-object tables are not included here -- that
-    level of per-object detail belongs in the per-well view
+    merged/attached by default -- a real request cost over a remote store
+    for every label found, paid even for labels no one ever inspects; pass
+    ``include_measurements=True`` to attach every label's measurements up
+    front instead, or call :func:`attach_plate_wide_measurements`
+    afterward for just the ones you actually want hover-inspectable, keyed
+    to match this layer's own plate-wide-unique pixel values), one
+    combined plate-wide ``Shapes`` layer outlining each well's own outer
+    boundary (visible by default -- this is the useful overview at plate
+    scale), and one combined plate-wide ``Shapes`` layer outlining every
+    well's own FOV boundaries (each well's ``FOV_ROI_table`` rectangles,
+    shifted to that well's grid position; hidden by default -- only useful
+    once zoomed into a single well). Point-object tables are not included
+    here -- that level of per-object detail belongs in the per-well view
     (``add_points_with_measurements``).
 
     Every layer here is in plain pixel units (unlike ``add_rois`` and
@@ -262,6 +264,14 @@ def add_plate(
         Full path to the plate's .zarr store.
     kind
         Which image to show -- "stack" or "mip".
+    include_measurements
+        Attach every label's plate-wide measurements up front -- similar
+        to calling :func:`attach_plate_wide_measurements` yourself for
+        each label found right after this returns, but reusing the
+        plate/containers this function already has open rather than each
+        separate call re-discovering wells from scratch. ``False`` (the
+        default) skips this real, per-label request cost entirely, on the
+        assumption most labels found won't end up inspected.
 
     Returns
     -------
@@ -270,7 +280,7 @@ def add_plate(
     # Deferred import: blimp.ome_ngff.plate pulls in blimp's full (much
     # heavier) conversion dependency set (bioio, etc.), which this module's
     # own docstring promises not to require just to import it.
-    from blimp.ome_ngff.plate import build_plate_pyramid
+    from blimp.ome_ngff.plate import build_plate_pyramid, _read_plate_wide_features
 
     plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
     well_paths = plate.wells_paths()
@@ -317,12 +327,15 @@ def add_plate(
         # visible=False: a plate-scale label layer is expensive to render and
         # rarely wanted immediately on load -- toggle it on from the layer
         # list (napari's own visibility control) once you actually need it.
-        # Its measurements aren't merged/attached here either, for the same
-        # reason -- a real cost (over a remote store) for labels no one
-        # inspects; call attach_plate_wide_measurements(plate_path,
-        # label_name) afterward for the ones you actually want.
         label_layer = viewer.add_labels(label_pyramid, multiscale=True, name=label_name, visible=False)
         layers.append(label_layer)
+
+        if include_measurements:
+            features_df = _read_plate_wide_features(
+                plate_path, label_name, kind=kind, plate=plate, open_containers=well_containers
+            )
+            if features_df is not None:
+                label_layer.features = features_df
 
     fov_rectangles = []
     fov_names = []
@@ -402,8 +415,9 @@ def attach_plate_wide_measurements(
     Call this afterward for whichever label(s) you
     actually want hover-inspectable (e.g. via a tool like Napari Feature
     Visualizer) -- for coloring by one specific feature instead, see
-    :func:`add_feature_heatmap`, which is unaffected by this and already
-    loads independently, on demand.
+    :func:`add_feature_heatmap`, which loads independently on demand but
+    reuses whatever this function already attached here, if you call this
+    first.
 
     Parameters
     ----------
@@ -449,6 +463,22 @@ def attach_plate_wide_measurements(
     return layer
 
 
+def _find_existing_label_pyramid_layer(viewer: napari.Viewer, label_name: str) -> Optional["napari.layers.Labels"]:
+    """A ``Labels`` layer already holding ``label_name``'s plate-wide
+    pyramid, if one exists in ``viewer.layers`` -- either the plain layer
+    :func:`add_plate` added (named exactly ``label_name``), or an earlier
+    :func:`add_feature_heatmap` call's own layer for the same label (named
+    ``f"{label_name}: <some other feature>"``). Either is safe to reuse:
+    the underlying pyramid array is identical regardless of which feature
+    (if any) is being visualized -- only the colormap differs.
+    """
+    prefix = f"{label_name}: "
+    for layer in viewer.layers:
+        if isinstance(layer, napari.layers.Labels) and (layer.name == label_name or layer.name.startswith(prefix)):
+            return layer
+    return None
+
+
 def add_feature_heatmap(
     viewer: napari.Viewer,
     plate_path: Union[str, Path],
@@ -483,7 +513,13 @@ def add_feature_heatmap(
 
     A genuinely new layer, added alongside (not replacing) any plain
     ``Labels`` layer ``add_plate`` may have already added for
-    ``label_name``.
+    ``label_name``. The pyramid itself is identical regardless of which
+    feature is being shown, so if a layer for ``label_name`` already
+    exists (from ``add_plate`` or an earlier call to this function), its
+    pyramid is reused rather than rebuilt; likewise, if
+    :func:`attach_plate_wide_measurements` (or an earlier call here) has
+    already attached this exact ``feature_name``, those values are reused
+    too, entirely locally -- no fresh read for either.
 
     Parameters
     ----------
@@ -511,21 +547,35 @@ def add_feature_heatmap(
         _read_plate_wide_feature_raw,
     )
 
-    # _read_plate_wide_feature_raw reads only this one column (plus object ids)
-    # directly via zarr instead of ngio.FeatureTable.dataframe's whole-table read
-    # -- far fewer requests for this specific case. It can't distinguish "no
-    # table at all" from "table exists but lacks this column" on its own, so on
-    # failure fall back to a full read just to build a precise error message
-    # (an accepted, occasional cost -- see _read_plate_wide_features's own
-    # docstring on discovering available feature names).
-    features_df = _read_plate_wide_feature_raw(plate_path, label_name, feature_name, kind=kind)
-    if features_df is None:
-        full_df = _read_plate_wide_features(plate_path, label_name, kind=kind)
-        if full_df is None:
-            raise ValueError(f"No well in {plate_path} has a {label_name}_features table.")
-        raise ValueError(
-            f"{feature_name!r} is not a column of {label_name}_features; available: {sorted(full_df.columns)}"
-        )
+    existing_layer = _find_existing_label_pyramid_layer(viewer, label_name)
+
+    # An existing layer's own .features (set by attach_plate_wide_measurements,
+    # or left over from an earlier call here) already has this exact column --
+    # reuse it directly, entirely locally, rather than reading anything at all.
+    existing_features = getattr(existing_layer, "features", None)
+    if (
+        existing_features is not None
+        and not existing_features.empty
+        and "label" in existing_features.columns
+        and feature_name in existing_features.columns
+    ):
+        features_df = existing_features[["label", feature_name]]
+    else:
+        # _read_plate_wide_feature_raw reads only this one column (plus object ids)
+        # directly via zarr instead of ngio.FeatureTable.dataframe's whole-table read
+        # -- far fewer requests for this specific case. It can't distinguish "no
+        # table at all" from "table exists but lacks this column" on its own, so on
+        # failure fall back to a full read just to build a precise error message
+        # (an accepted, occasional cost -- see _read_plate_wide_features's own
+        # docstring on discovering available feature names).
+        features_df = _read_plate_wide_feature_raw(plate_path, label_name, feature_name, kind=kind)
+        if features_df is None:
+            full_df = _read_plate_wide_features(plate_path, label_name, kind=kind)
+            if full_df is None:
+                raise ValueError(f"No well in {plate_path} has a {label_name}_features table.")
+            raise ValueError(
+                f"{feature_name!r} is not a column of {label_name}_features; available: {sorted(full_df.columns)}"
+            )
 
     values = features_df[feature_name].to_numpy(dtype=float)
     clim_low, clim_high = np.nanpercentile(values, [1, 99])
@@ -535,13 +585,23 @@ def add_feature_heatmap(
     color_dict = dict(zip(features_df["label"].tolist(), colors))
     color_dict[None] = "transparent"
 
-    label_pyramid = build_plate_pyramid(plate_path, kind=kind, label_name=label_name)
-    return viewer.add_labels(
+    # The pyramid itself doesn't depend on which feature is being shown --
+    # reuse an existing layer's own pyramid (add_plate's, or an earlier call
+    # here for a different feature) rather than paying build_plate_pyramid's
+    # per-well, per-level construction cost again for identical data.
+    if existing_layer is not None:
+        label_pyramid = existing_layer.data
+    else:
+        label_pyramid = build_plate_pyramid(plate_path, kind=kind, label_name=label_name)
+
+    heatmap_layer = viewer.add_labels(
         label_pyramid,
         multiscale=True,
         name=f"{label_name}: {feature_name}",
         colormap=DirectLabelColormap(color_dict=color_dict),
     )
+    heatmap_layer.features = features_df
+    return heatmap_layer
 
 
 # Functions bound onto a viewer instance by add_blimp_napari_methods(), keyed
