@@ -1,6 +1,6 @@
 """Shared OME-Zarr plate/well registration and image writing, used by every
 OME-NGFF writer (nd2-sourced, TIFF-sourced, and future Operetta-sourced)."""
-from typing import Any, Dict, List, Union, Literal, Callable, Optional
+from typing import Any, Dict, List, Union, Literal, TypeVar, Callable, Optional
 from pathlib import Path
 from dataclasses import field, dataclass
 import io
@@ -16,6 +16,7 @@ import itertools
 import threading
 import http.server
 import urllib.parse
+import concurrent.futures
 
 from ngio import (
     OmeZarrContainer,
@@ -46,6 +47,30 @@ logger = logging.getLogger(__name__)
 
 _PLATE_ROWS = {"96": list(string.ascii_uppercase[:8]), "384": list(string.ascii_uppercase[:16])}
 _PLATE_COLUMNS = {"96": list(range(1, 13)), "384": list(range(1, 25))}
+
+_T = TypeVar("_T")
+_R = TypeVar("_R")
+
+
+def _map_concurrently(func: Callable[[_T], _R], items: List[_T], max_workers: int) -> List[_R]:
+    """Apply ``func`` to each of ``items``, across up to ``max_workers``
+    threads, returning results in ``items`` order regardless of completion
+    order.
+
+    Every per-well read this module makes is dominated by network
+    round-trip latency, not server CPU or bandwidth (confirmed against
+    real cluster request logs) -- ``zarr``/``ngio``'s underlying
+    ``fsspec`` HTTP store marshals each blocking call onto its own async
+    event loop, so calling it from several threads at once genuinely
+    overlaps their round trips instead of serializing on Python's GIL.
+    ``max_workers=1`` runs sequentially in the calling thread, in
+    ``items`` order, with no thread pool involved.
+    """
+    if max_workers <= 1:
+        return [func(item) for item in items]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(func, item) for item in items]
+        return [future.result() for future in futures]
 
 
 def resolve_plate_path(plate_path: Union[str, Path]) -> Path:
@@ -506,6 +531,7 @@ def _discover_wells_with_label(
     label_name: Optional[str] = None,
     wells: Optional[Union[str, List[str]]] = None,
     open_containers: Optional[Dict[str, OmeZarrContainer]] = None,
+    max_workers: int = 8,
 ) -> Dict[str, OmeZarrContainer]:
     """Open every well's own ``kind`` image, restricted to wells that have
     ``label_name`` (if given) and, optionally, to an explicit ``wells``
@@ -534,6 +560,10 @@ def _discover_wells_with_label(
         its own image pyramid, again for every label's pyramid, and again
         for every label's feature table. ``None`` (the default) opens each
         well itself, same as every caller other than ``add_plate``.
+    max_workers
+        Open/check up to this many wells concurrently, across threads --
+        see :func:`_map_concurrently`. ``1`` opens them one at a time, in
+        ``well_paths`` order.
 
     Returns
     -------
@@ -555,22 +585,23 @@ def _discover_wells_with_label(
             raise ValueError(f"Well(s) {unknown} not found in plate; available wells: {sorted(all_well_paths)}")
         well_paths = requested
 
-    containers: Dict[str, OmeZarrContainer] = {}
-    for well_path in well_paths:
+    def _open_one(well_path: str) -> Optional[OmeZarrContainer]:
         if open_containers is not None:
             container = open_containers.get(well_path)
             if container is None:
-                continue
+                return None
         else:
             row, column = well_path.split("/")
             try:
                 container = plate.get_image(row, column, kind)
             except ValueError:
-                continue
+                return None
         if label_name is not None and label_name not in container.list_labels():
-            continue
-        containers[well_path] = container
-    return containers
+            return None
+        return container
+
+    results = _map_concurrently(_open_one, well_paths, max_workers=max_workers)
+    return {well_path: container for well_path, container in zip(well_paths, results) if container is not None}
 
 
 def build_plate_pyramid(
@@ -580,6 +611,7 @@ def build_plate_pyramid(
     gap_fraction: float = 0.05,
     plate: Optional[OmeZarrPlate] = None,
     open_containers: Optional[Dict[str, OmeZarrContainer]] = None,
+    max_workers: int = 8,
 ) -> List[da.Array]:
     """Every pyramid level of the whole plate, as one lazy dask array per
     level, for viewing (or otherwise computing over) all wells at once at
@@ -617,6 +649,9 @@ def build_plate_pyramid(
         :func:`_discover_wells_with_label`'s own ``open_containers`` for
         why. ``None`` (the default) opens ``plate_path`` itself, same as
         before.
+    max_workers
+        See :func:`_discover_wells_with_label` -- also controls how many
+        wells' arrays are fetched concurrently, per pyramid level, below.
 
     Returns
     -------
@@ -630,7 +665,9 @@ def build_plate_pyramid(
     """
     if plate is None:
         plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
-    containers = _discover_wells_with_label(plate, kind, label_name, open_containers=open_containers)
+    containers = _discover_wells_with_label(
+        plate, kind, label_name, open_containers=open_containers, max_workers=max_workers
+    )
 
     if not containers:
         what = f"label {label_name!r}" if label_name is not None else f"{kind!r} image"
@@ -672,10 +709,16 @@ def build_plate_pyramid(
             dtype=canvas_dtype,
             chunks=(*leading_shape, pitch_h, pitch_w),
         )
-        for well_path, container in containers.items():
+        well_order = list(containers.keys())
+        arrays = _map_concurrently(
+            lambda well_path: _get_array(containers[well_path], level_path, well_offsets[well_path]),
+            well_order,
+            max_workers=max_workers,
+        )
+        for well_path, arr in zip(well_order, arrays):
             row_idx, col_idx = row_col_index[well_path]
             y0, x0 = row_idx * pitch_h, col_idx * pitch_w
-            canvas[..., y0 : y0 + tile_h, x0 : x0 + tile_w] = _get_array(container, level_path, well_offsets[well_path])
+            canvas[..., y0 : y0 + tile_h, x0 : x0 + tile_w] = arr
         pyramid.append(canvas)
 
     return pyramid
@@ -689,6 +732,7 @@ def _read_plate_wide_features(
     plate: Optional[OmeZarrPlate] = None,
     open_containers: Optional[Dict[str, OmeZarrContainer]] = None,
     feature_names: Optional[List[str]] = None,
+    max_workers: int = 8,
 ) -> Optional[pd.DataFrame]:
     """Every contributing well's own ``f"{label_name}_features"`` table,
     merged into one plate-wide dataframe with its ``"label"`` column
@@ -735,6 +779,9 @@ def _read_plate_wide_features(
         see :func:`_read_plate_wide_feature_raw`'s own docstring), only the
         shape of what's returned. ``None`` (the default) returns every
         column, same as before.
+    max_workers
+        See :func:`_discover_wells_with_label` -- also controls how many
+        wells' tables are read concurrently here.
 
     Returns
     -------
@@ -743,13 +790,15 @@ def _read_plate_wide_features(
     """
     if plate is None:
         plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
-    containers = _discover_wells_with_label(plate, kind, label_name, wells, open_containers=open_containers)
+    containers = _discover_wells_with_label(
+        plate, kind, label_name, wells, open_containers=open_containers, max_workers=max_workers
+    )
 
-    feature_frames = []
-    for well_path, container in containers.items():
+    def _read_one(well_path: str) -> Optional[pd.DataFrame]:
+        container = containers[well_path]
         table_name = f"{label_name}_features"
         if table_name not in container.list_tables():
-            continue
+            return None
         row, column = well_path.split("/")
         df = container.get_feature_table(table_name).dataframe.reset_index()
         if "global_id_numeric" in df.columns:
@@ -759,7 +808,10 @@ def _read_plate_wide_features(
         if feature_names is not None:
             keep = ["label"] + [c for c in feature_names if c in df.columns and c != "label"]
             df = df[keep]
-        feature_frames.append(df)
+        return df
+
+    results = _map_concurrently(_read_one, list(containers.keys()), max_workers=max_workers)
+    feature_frames = [df for df in results if df is not None]
 
     if not feature_frames:
         return None
@@ -843,6 +895,7 @@ def _read_plate_wide_feature_raw(
     wells: Optional[Union[str, List[str]]] = None,
     plate: Optional[OmeZarrPlate] = None,
     open_containers: Optional[Dict[str, OmeZarrContainer]] = None,
+    max_workers: int = 8,
 ) -> Optional[pd.DataFrame]:
     """Just ``label_name``'s ``feature_name`` column (plus each object's
     own plate-wide-unique ``"label"``), merged across every contributing
@@ -870,6 +923,9 @@ def _read_plate_wide_feature_raw(
         "stack" or "mip".
     wells, plate, open_containers
         See :func:`_read_plate_wide_features` -- identical meaning.
+    max_workers
+        See :func:`_discover_wells_with_label` -- also controls how many
+        wells' single-column reads happen concurrently here.
 
     Returns
     -------
@@ -880,20 +936,22 @@ def _read_plate_wide_feature_raw(
     """
     if plate is None:
         plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
-    containers = _discover_wells_with_label(plate, kind, label_name, wells, open_containers=open_containers)
+    containers = _discover_wells_with_label(
+        plate, kind, label_name, wells, open_containers=open_containers, max_workers=max_workers
+    )
     table_name = f"{label_name}_features"
 
-    feature_frames = []
-    for well_path, container in containers.items():
+    def _read_one(well_path: str) -> Optional[pd.DataFrame]:
+        container = containers[well_path]
         if table_name not in container.list_tables():
-            continue
+            return None
 
         table_group_path = f"{plate_path}/{well_path}/{kind}/tables/{table_name}"
         df = _read_one_feature_column_raw(table_group_path, feature_name)
         if df is None:
             full_df = container.get_feature_table(table_name).dataframe.reset_index()
             if feature_name not in full_df.columns:
-                continue
+                return None
             keep = ["label", feature_name] + (["global_id_numeric"] if "global_id_numeric" in full_df.columns else [])
             df = full_df[keep].copy()
 
@@ -902,7 +960,10 @@ def _read_plate_wide_feature_raw(
             df["label"] = df["global_id_numeric"]
         else:
             df["label"] = df["label"] + well_label_offset(plate.rows.index(row), plate.columns.index(column))
-        feature_frames.append(df[["label", feature_name]])
+        return df[["label", feature_name]]
+
+    results = _map_concurrently(_read_one, list(containers.keys()), max_workers=max_workers)
+    feature_frames = [df for df in results if df is not None]
 
     if not feature_frames:
         return None

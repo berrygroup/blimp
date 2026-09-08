@@ -3,7 +3,7 @@ images. Only depends on ``napari`` and ``ngio``, so it works from a
 lightweight viewing environment without blimp's full (much heavier)
 conversion dependency set installed.
 """
-from typing import Dict, List, Union, Literal, Callable, Optional
+from typing import Any, Dict, List, Union, Literal, Callable, Optional
 from pathlib import Path
 import types
 
@@ -226,6 +226,7 @@ def add_plate(
     plate_path: Union[str, Path],
     kind: Literal["stack", "mip"] = "mip",
     include_measurements: bool = False,
+    max_workers: int = 8,
 ) -> List["napari.layers.Layer"]:
     """Add every populated well of a whole plate to the viewer at once, laid
     out at its true row/column position -- a fast, full-resolution
@@ -272,6 +273,14 @@ def add_plate(
         separate call re-discovering wells from scratch. ``False`` (the
         default) skips this real, per-label request cost entirely, on the
         assumption most labels found won't end up inspected.
+    max_workers
+        Open up to this many wells concurrently, across threads, both here
+        and in every ``build_plate_pyramid``/``_read_plate_wide_features``
+        call below -- see ``blimp.ome_ngff.plate._map_concurrently``. Every
+        per-well read is dominated by network round-trip latency, not
+        server CPU or bandwidth, so overlapping them is a real wall-clock
+        win over a remote store. ``1`` opens wells one at a time, in
+        ``well_paths`` order, matching this function's original behavior.
 
     Returns
     -------
@@ -280,23 +289,30 @@ def add_plate(
     # Deferred import: blimp.ome_ngff.plate pulls in blimp's full (much
     # heavier) conversion dependency set (bioio, etc.), which this module's
     # own docstring promises not to require just to import it.
-    from blimp.ome_ngff.plate import build_plate_pyramid, _read_plate_wide_features
+    from blimp.ome_ngff.plate import (
+        _map_concurrently,
+        build_plate_pyramid,
+        _read_plate_wide_features,
+    )
 
     plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
     well_paths = plate.wells_paths()
     if not well_paths:
         raise ValueError(f"Plate {plate_path} has no wells written yet.")
 
-    well_containers = {}
-    label_names = set()
-    for well_path in well_paths:
-        row, column = well_path.split("/")
+    def _open_one_well(well_path: str) -> Any:
         # Plain string join, not pathlib -- Path() silently collapses a URL's
         # "http://host/..." into "http:/host/..." (single slash) on any /-join,
         # which breaks open_ome_zarr_container for a remote (http://) plate_path.
         container = open_ome_zarr_container(f"{plate_path}/{well_path}/{kind}")
+        return container, set(container.list_labels())
+
+    opened = _map_concurrently(_open_one_well, well_paths, max_workers=max_workers)
+    well_containers = {}
+    label_names: set = set()
+    for well_path, (container, labels) in zip(well_paths, opened):
         well_containers[well_path] = container
-        label_names.update(container.list_labels())
+        label_names.update(labels)
 
     reference_container = next(iter(well_containers.values()))
     channel_names = reference_container.channel_labels
@@ -304,7 +320,9 @@ def add_plate(
         f"#{channel.channel_visualisation.color}" for channel in reference_container.meta.channels_meta.channels
     ]
 
-    pyramid = build_plate_pyramid(plate_path, kind=kind, plate=plate, open_containers=well_containers)
+    pyramid = build_plate_pyramid(
+        plate_path, kind=kind, plate=plate, open_containers=well_containers, max_workers=max_workers
+    )
     layers = list(
         viewer.add_image(
             pyramid,
@@ -322,7 +340,12 @@ def add_plate(
 
     for label_name in sorted(label_names):
         label_pyramid = build_plate_pyramid(
-            plate_path, kind=kind, label_name=label_name, plate=plate, open_containers=well_containers
+            plate_path,
+            kind=kind,
+            label_name=label_name,
+            plate=plate,
+            open_containers=well_containers,
+            max_workers=max_workers,
         )
         # visible=False: a plate-scale label layer is expensive to render and
         # rarely wanted immediately on load -- toggle it on from the layer
@@ -332,7 +355,7 @@ def add_plate(
 
         if include_measurements:
             features_df = _read_plate_wide_features(
-                plate_path, label_name, kind=kind, plate=plate, open_containers=well_containers
+                plate_path, label_name, kind=kind, plate=plate, open_containers=well_containers, max_workers=max_workers
             )
             if features_df is not None:
                 label_layer.features = features_df
@@ -404,6 +427,7 @@ def attach_plate_wide_measurements(
     plate_path: Union[str, Path],
     label_name: str,
     kind: Literal["stack", "mip"] = "mip",
+    max_workers: int = 8,
 ) -> "napari.layers.Labels":
     """Attach ``label_name``'s plate-wide feature table (every contributing
     well's own measurements, merged -- see
@@ -430,6 +454,9 @@ def attach_plate_wide_measurements(
         a ``Labels`` layer ``add_plate`` already added.
     kind
         "stack" or "mip".
+    max_workers
+        See ``add_plate``'s own ``max_workers`` -- controls how many wells'
+        tables are read concurrently here.
 
     Returns
     -------
@@ -455,7 +482,7 @@ def attach_plate_wide_measurements(
     # Deferred import: see add_plate's own comment above.
     from blimp.ome_ngff.plate import _read_plate_wide_features
 
-    features_df = _read_plate_wide_features(plate_path, label_name, kind=kind)
+    features_df = _read_plate_wide_features(plate_path, label_name, kind=kind, max_workers=max_workers)
     if features_df is None:
         raise ValueError(f"No well in {plate_path} has a {label_name}_features table.")
 
@@ -486,6 +513,7 @@ def add_feature_heatmap(
     feature_name: str,
     kind: Literal["stack", "mip"] = "mip",
     colormap: str = "magma",
+    max_workers: int = 8,
 ) -> "napari.layers.Labels":
     """Add a plate-wide feature heatmap: a new ``Labels`` layer colored by
     each object's own ``feature_name`` measurement instead of by label
@@ -535,6 +563,10 @@ def add_feature_heatmap(
         "stack" or "mip".
     colormap
         Any napari/vispy colormap name.
+    max_workers
+        See ``add_plate``'s own ``max_workers`` -- controls how many
+        wells' reads happen concurrently for whichever of the pyramid or
+        the feature values isn't already being reused above.
 
     Returns
     -------
@@ -568,9 +600,11 @@ def add_feature_heatmap(
         # failure fall back to a full read just to build a precise error message
         # (an accepted, occasional cost -- see _read_plate_wide_features's own
         # docstring on discovering available feature names).
-        features_df = _read_plate_wide_feature_raw(plate_path, label_name, feature_name, kind=kind)
+        features_df = _read_plate_wide_feature_raw(
+            plate_path, label_name, feature_name, kind=kind, max_workers=max_workers
+        )
         if features_df is None:
-            full_df = _read_plate_wide_features(plate_path, label_name, kind=kind)
+            full_df = _read_plate_wide_features(plate_path, label_name, kind=kind, max_workers=max_workers)
             if full_df is None:
                 raise ValueError(f"No well in {plate_path} has a {label_name}_features table.")
             raise ValueError(
@@ -592,7 +626,7 @@ def add_feature_heatmap(
     if existing_layer is not None:
         label_pyramid = existing_layer.data
     else:
-        label_pyramid = build_plate_pyramid(plate_path, kind=kind, label_name=label_name)
+        label_pyramid = build_plate_pyramid(plate_path, kind=kind, label_name=label_name, max_workers=max_workers)
 
     heatmap_layer = viewer.add_labels(
         label_pyramid,

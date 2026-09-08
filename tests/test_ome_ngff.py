@@ -560,6 +560,34 @@ def test_read_plate_wide_features_feature_names_restricts_returned_columns(tmp_p
     assert filtered["Nuclei_area"].tolist() == unfiltered["Nuclei_area"].tolist()
 
 
+def test_max_workers_concurrent_reads_match_sequential(tmp_path):
+    """max_workers>1 threads per-well reads across build_plate_pyramid,
+    _read_plate_wide_features, and _read_plate_wide_feature_raw -- results
+    must be identical to the sequential (max_workers=1) path regardless of
+    which order threads happen to finish in."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=3, with_label=True, feature_value=222.0)
+    _write_one_well(tmp_path, plate_path, "WellK16_Seq0001", fill_value=5, with_label=True, feature_value=333.0)
+
+    sequential_pyramid = build_plate_pyramid(plate_path, kind="mip", label_name="Nuclei", max_workers=1)
+    concurrent_pyramid = build_plate_pyramid(plate_path, kind="mip", label_name="Nuclei", max_workers=4)
+    for seq_level, conc_level in zip(sequential_pyramid, concurrent_pyramid):
+        np.testing.assert_array_equal(seq_level.compute(), conc_level.compute())
+
+    def _sorted(df):
+        return df.sort_values("label").reset_index(drop=True)
+
+    sequential_df = _read_plate_wide_features(plate_path, "Nuclei", kind="mip", max_workers=1)
+    concurrent_df = _read_plate_wide_features(plate_path, "Nuclei", kind="mip", max_workers=4)
+    pd.testing.assert_frame_equal(_sorted(sequential_df), _sorted(concurrent_df))
+
+    sequential_raw = _read_plate_wide_feature_raw(plate_path, "Nuclei", "Nuclei_area", kind="mip", max_workers=1)
+    concurrent_raw = _read_plate_wide_feature_raw(plate_path, "Nuclei", "Nuclei_area", kind="mip", max_workers=4)
+    pd.testing.assert_frame_equal(_sorted(sequential_raw), _sorted(concurrent_raw))
+
+
 def test_build_feature_pyramid_shows_correct_value_and_nan_elsewhere(tmp_path):
     """C09 and F14 share the same raw local label (3), so only each well's
     own well_label_offset -- applied identically to the pixel array and to
