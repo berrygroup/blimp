@@ -6,10 +6,12 @@ from dataclasses import field, dataclass
 import io
 import os
 import html
+import time
 import socket
 import string
 import logging
 import functools
+import itertools
 import threading
 import http.server
 import urllib.parse
@@ -187,7 +189,20 @@ class _NoTrailingSlashHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     notebook output at well over 100 lines/second (found by testing against
     a real ~120-well plate). Silenced unconditionally: this is meant to run
     unattended for the length of a viewing session, not to be watched.
+
+    ``BaseHTTPRequestHandler``'s own default ``protocol_version`` is
+    ``"HTTP/1.0"``, which closes the connection after every single request
+    -- forcing a brand new TCP (and, over an SSH tunnel, a brand new
+    forwarded-channel handshake) for each and every chunk/metadata request,
+    rather than reusing one already-open connection. ``"HTTP/1.1"`` enables
+    persistent connections instead, which fsspec's own ``HTTPFileSystem``
+    (backed by a connection-pooling ``aiohttp`` session) is already willing
+    to reuse -- it was only this server's own default forcing a fresh
+    connection every time. See ``summarize_request_log`` for how to confirm
+    this is actually the dominant cost for a given plate before assuming it.
     """
+
+    protocol_version = "HTTP/1.1"
 
     def log_message(self, format: str, *args: Any) -> None:
         pass
@@ -230,6 +245,7 @@ class ServedPlate:
     login_alias: str
     _httpd: http.server.ThreadingHTTPServer = field(repr=False, compare=False)
     _thread: threading.Thread = field(repr=False, compare=False)
+    request_log: List[Dict[str, Any]] = field(default_factory=list, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         compute_node = socket.gethostname()
@@ -267,6 +283,7 @@ def serve_plate_over_http(
     host: str = "127.0.0.1",
     port: int = 0,
     login_alias: str = "kdm",
+    log_requests: bool = False,
 ) -> ServedPlate:
     """Serve ``plate_path``'s parent directory as static files over plain
     HTTP, in a daemon thread tied to this process's own lifetime, so a
@@ -318,6 +335,15 @@ def serve_plate_over_http(
         ssh config (default ``"kdm"``) -- change it if you use a different
         alias, or pass your own full ``user@host`` if you have none
         configured.
+    log_requests
+        Record every request's path, server-side handling time, and which
+        underlying connection it rode on, into the returned
+        ``ServedPlate.request_log`` -- pass to :func:`summarize_request_log`
+        for a breakdown by node kind (table/label/image) and request kind
+        (metadata/chunk/listing), and to check whether persistent
+        connections are actually being reused. Off by default: a normal
+        viewing session has no need for it, only a one-off performance
+        investigation does.
 
     Returns
     -------
@@ -329,7 +355,29 @@ def serve_plate_over_http(
         clean up if the on-demand session is killed or times out.
     """
     plate_path = Path(plate_path)
-    handler = functools.partial(_NoTrailingSlashHTTPRequestHandler, directory=str(plate_path.parent))
+    request_log: List[Dict[str, Any]] = []
+    connection_ids = itertools.count()
+
+    class _Handler(_NoTrailingSlashHTTPRequestHandler):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._connection_id = next(connection_ids)
+            super().__init__(*args, **kwargs)
+
+        def do_GET(self) -> None:
+            if not log_requests:
+                super().do_GET()
+                return
+            start = time.monotonic()
+            super().do_GET()
+            request_log.append(
+                {
+                    "path": self.path,
+                    "duration_ms": (time.monotonic() - start) * 1000,
+                    "connection_id": self._connection_id,
+                }
+            )
+
+    handler = functools.partial(_Handler, directory=str(plate_path.parent))
     httpd = http.server.ThreadingHTTPServer((host, port), handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
@@ -342,7 +390,68 @@ def serve_plate_over_http(
         login_alias=login_alias,
         _httpd=httpd,
         _thread=thread,
+        request_log=request_log,
     )
+
+
+def _categorize_request_path(path: str) -> str:
+    """Which kind of on-disk node a served request path belongs to.
+
+    "table" (an AnnData-backed ``FeatureTable``/``GenericRoiTable``, stored
+    as many small per-column sub-arrays), "label" (a segmentation label
+    array), or "image" (the intensity image, or a plate/well/root group) --
+    matching blimp's own on-disk layout (``.../tables/<name>/...``,
+    ``.../labels/<name>/...``)."""
+    if "/tables/" in path:
+        return "table"
+    if "/labels/" in path:
+        return "label"
+    return "image"
+
+
+def summarize_request_log(served: ServedPlate) -> pd.DataFrame:
+    """Break down a :class:`ServedPlate`'s ``request_log`` (only populated
+    if it was started with ``serve_plate_over_http(..., log_requests=True)``)
+    by node kind (table/label/image) and request kind (metadata file vs
+    chunk data vs directory listing) -- meant to answer *what* a slow remote
+    view actually spent its requests on before picking a fix (e.g. dropping
+    the finest pyramid level or converting to 8-bit only helps "image"/
+    "label" chunk cost; not loading labels initially only helps "label";
+    neither helps "table", which is dominated by request *count* -- an
+    AnnData-backed table stores every column as its own small array, so one
+    well's feature table alone can be dozens of small requests).
+
+    Also prints the requests-per-connection ratio -- the tell for whether
+    persistent connections (``_NoTrailingSlashHTTPRequestHandler``'s
+    ``protocol_version = "HTTP/1.1"``) are actually being reused: close to 1
+    means every single request paid a fresh connection handshake (expensive
+    over a real SSH tunnel, cheap on a local loopback test); well above 1
+    means connections are being reused and the cost lies elsewhere.
+
+    Raises
+    ------
+    ValueError
+        If ``served.request_log`` is empty (``log_requests`` was not
+        ``True``, or nothing has requested anything yet).
+    """
+    if not served.request_log:
+        raise ValueError("request_log is empty -- pass log_requests=True to serve_plate_over_http to collect it.")
+    df = pd.DataFrame(served.request_log)
+    df["node_kind"] = df["path"].map(_categorize_request_path)
+    df["request_kind"] = np.where(
+        df["path"].str.endswith(("zarr.json", ".zattrs", ".zgroup", ".zmetadata")),
+        "metadata",
+        np.where(df["path"].str.contains("/c/"), "chunk", "listing"),
+    )
+
+    total_requests = len(df)
+    total_connections = df["connection_id"].nunique()
+    print(
+        f"{total_requests} requests over {total_connections} connections "
+        f"({total_requests / total_connections:.1f} requests/connection -- "
+        "close to 1 means persistent connections are not actually being reused)."
+    )
+    return df.groupby(["node_kind", "request_kind"]).agg(requests=("path", "count"), total_ms=("duration_ms", "sum"))
 
 
 def open_well_image(plate_path: Union[str, Path], well_relative_path: str, kind: Literal["stack", "mip"]) -> BioImage:
@@ -394,6 +503,7 @@ def _discover_wells_with_label(
     kind: Literal["stack", "mip"],
     label_name: Optional[str] = None,
     wells: Optional[Union[str, List[str]]] = None,
+    open_containers: Optional[Dict[str, OmeZarrContainer]] = None,
 ) -> Dict[str, OmeZarrContainer]:
     """Open every well's own ``kind`` image, restricted to wells that have
     ``label_name`` (if given) and, optionally, to an explicit ``wells``
@@ -413,6 +523,15 @@ def _discover_wells_with_label(
         Restrict discovery to one well path (e.g. ``"C/09"``, the same
         format ``plate.wells_paths()`` returns) or a list of them. ``None``
         (the default) considers every well the plate has.
+    open_containers
+        Already-open containers to filter/reuse instead of calling
+        ``plate.get_image()`` again per well. Passed by ``add_plate``,
+        which already opens every well's container itself -- reusing them
+        here avoids each well paying a real, separate re-open (a measured
+        ~4x-per-well redundant-request cost over a remote store) once for
+        its own image pyramid, again for every label's pyramid, and again
+        for every label's feature table. ``None`` (the default) opens each
+        well itself, same as every caller other than ``add_plate``.
 
     Returns
     -------
@@ -436,11 +555,16 @@ def _discover_wells_with_label(
 
     containers: Dict[str, OmeZarrContainer] = {}
     for well_path in well_paths:
-        row, column = well_path.split("/")
-        try:
-            container = plate.get_image(row, column, kind)
-        except ValueError:
-            continue
+        if open_containers is not None:
+            container = open_containers.get(well_path)
+            if container is None:
+                continue
+        else:
+            row, column = well_path.split("/")
+            try:
+                container = plate.get_image(row, column, kind)
+            except ValueError:
+                continue
         if label_name is not None and label_name not in container.list_labels():
             continue
         containers[well_path] = container
@@ -452,6 +576,8 @@ def build_plate_pyramid(
     kind: Literal["stack", "mip"] = "mip",
     label_name: Optional[str] = None,
     gap_fraction: float = 0.05,
+    plate: Optional[OmeZarrPlate] = None,
+    open_containers: Optional[Dict[str, OmeZarrContainer]] = None,
 ) -> List[da.Array]:
     """Every pyramid level of the whole plate, as one lazy dask array per
     level, for viewing (or otherwise computing over) all wells at once at
@@ -483,6 +609,12 @@ def build_plate_pyramid(
     gap_fraction
         Size of the empty margin between adjacent wells, as a fraction of
         each pyramid level's own tile size.
+    plate, open_containers
+        An already-open plate and/or its already-open well containers, to
+        avoid reopening them from scratch -- see
+        :func:`_discover_wells_with_label`'s own ``open_containers`` for
+        why. ``None`` (the default) opens ``plate_path`` itself, same as
+        before.
 
     Returns
     -------
@@ -494,8 +626,9 @@ def build_plate_pyramid(
     ValueError
         If no well has the requested image/label.
     """
-    plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
-    containers = _discover_wells_with_label(plate, kind, label_name)
+    if plate is None:
+        plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
+    containers = _discover_wells_with_label(plate, kind, label_name, open_containers=open_containers)
 
     if not containers:
         what = f"label {label_name!r}" if label_name is not None else f"{kind!r} image"
@@ -551,6 +684,8 @@ def _read_plate_wide_features(
     label_name: str,
     kind: Literal["stack", "mip"] = "mip",
     wells: Optional[Union[str, List[str]]] = None,
+    plate: Optional[OmeZarrPlate] = None,
+    open_containers: Optional[Dict[str, OmeZarrContainer]] = None,
 ) -> Optional[pd.DataFrame]:
     """Every contributing well's own ``f"{label_name}_features"`` table,
     merged into one plate-wide dataframe with its ``"label"`` column
@@ -571,14 +706,21 @@ def _read_plate_wide_features(
         Restrict to one well path (e.g. ``"C/09"``) or a list of them (see
         :func:`_discover_wells_with_label`). ``None`` (the default) merges
         every well that has both the label and a matching features table.
+    plate, open_containers
+        An already-open plate and/or its already-open well containers, to
+        avoid reopening them from scratch -- see
+        :func:`_discover_wells_with_label`'s own ``open_containers`` for
+        why. ``None`` (the default) opens ``plate_path`` itself, same as
+        before.
 
     Returns
     -------
     Optional[pandas.DataFrame]
         ``None`` if no (selected) well has a matching features table.
     """
-    plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
-    containers = _discover_wells_with_label(plate, kind, label_name, wells)
+    if plate is None:
+        plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
+    containers = _discover_wells_with_label(plate, kind, label_name, wells, open_containers=open_containers)
 
     feature_frames = []
     for well_path, container in containers.items():

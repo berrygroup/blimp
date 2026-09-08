@@ -670,6 +670,42 @@ def test_discover_wells_with_label_raises_for_a_well_not_in_the_plate(tmp_path):
         _discover_wells_with_label(plate, "mip", "Nuclei", wells="Z/99")
 
 
+def test_build_plate_pyramid_and_read_features_reuse_open_containers_without_reopening(tmp_path):
+    """Regression test for a real, measured cost: add_plate (napari_utils.py)
+    already opens every well's own container itself, but build_plate_pyramid/
+    _read_plate_wide_features used to re-open each one again from scratch via
+    OmeZarrPlate.get_image -- harmless locally, but a real, measured ~4x
+    redundant per-well metadata-request cost over a remote store (6
+    OmeZarrPlate.get_image calls for 2 wells during one add_plate call,
+    dropping to 0 once callers pass their own already-open plate/
+    open_containers, as add_plate now does)."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    plate = ngio.open_ome_zarr_plate(store=str(plate_path), mode="r")
+    open_containers = {"C/09": plate.get_image("C", 9, "mip")}
+
+    call_count = 0
+    orig_get_image = type(plate).get_image
+
+    def counted_get_image(self, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return orig_get_image(self, *args, **kwargs)
+
+    type(plate).get_image = counted_get_image
+    try:
+        build_plate_pyramid(plate_path, kind="mip", plate=plate, open_containers=open_containers)
+        build_plate_pyramid(plate_path, kind="mip", label_name="Nuclei", plate=plate, open_containers=open_containers)
+        df = _read_plate_wide_features(plate_path, "Nuclei", kind="mip", plate=plate, open_containers=open_containers)
+    finally:
+        type(plate).get_image = orig_get_image
+
+    assert call_count == 0
+    assert df is not None and len(df) == 1  # the reuse path still produces correct results, not just fewer calls
+
+
 # --------------------------------------------------------------------------- #
 # labels.py -- segmentation label placement with reproducible global IDs,
 # and the point-object GenericRoiTable path

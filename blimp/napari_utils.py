@@ -292,7 +292,7 @@ def add_plate(
         f"#{channel.channel_visualisation.color}" for channel in reference_container.meta.channels_meta.channels
     ]
 
-    pyramid = build_plate_pyramid(plate_path, kind=kind)
+    pyramid = build_plate_pyramid(plate_path, kind=kind, plate=plate, open_containers=well_containers)
     layers = list(
         viewer.add_image(
             pyramid,
@@ -309,7 +309,9 @@ def add_plate(
     pitch_w = pyramid[0].shape[-1] // n_cols
 
     for label_name in sorted(label_names):
-        label_pyramid = build_plate_pyramid(plate_path, kind=kind, label_name=label_name)
+        label_pyramid = build_plate_pyramid(
+            plate_path, kind=kind, label_name=label_name, plate=plate, open_containers=well_containers
+        )
         # visible=False: a plate-scale label layer is expensive to render and
         # rarely wanted immediately on load -- toggle it on from the layer
         # list (napari's own visibility control) once you actually need it.
@@ -320,7 +322,9 @@ def add_plate(
         # plate-wide features table, keyed to match this layer's own
         # (plate-wide-unique) pixel values -- build_plate_pyramid applies
         # the same well_label_offset to the pixels above.
-        features_df = _read_plate_wide_features(plate_path, label_name, kind=kind)
+        features_df = _read_plate_wide_features(
+            plate_path, label_name, kind=kind, plate=plate, open_containers=well_containers
+        )
         if features_df is not None:
             label_layer.features = features_df
 
