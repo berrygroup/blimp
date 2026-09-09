@@ -1474,10 +1474,11 @@ def test_mirrored_tunnels_stop_terminates_processes_and_joins_monitor(monkeypatc
     assert not tunnels._monitor_thread.is_alive()
 
 
-def test_mirrored_tunnels_gives_up_after_repeated_fast_failures(monkeypatch, caplog):
-    """A tunnel that dies immediately every time (bad host key, auth,
-    forwarding disabled) must stop being retried after max_fast_failures,
-    not hammer the same broken connection forever."""
+def test_mirrored_tunnels_gives_up_after_repeated_consecutive_failures(monkeypatch, caplog):
+    """A tunnel that dies every time it's (re)spawned (bad host key, auth,
+    forwarding disabled) must stop being retried after
+    max_consecutive_failures, not hammer the same broken connection
+    forever."""
 
     respawn_count = {"n": 0}
 
@@ -1495,8 +1496,7 @@ def test_mirrored_tunnels_gives_up_after_repeated_fast_failures(monkeypatch, cap
         local_ports=[9001],
         n_mirrors=1,
         check_interval=0.02,
-        fast_failure_threshold=1.0,
-        max_fast_failures=3,
+        max_consecutive_failures=3,
     )
     try:
         for _ in range(200):
@@ -1510,5 +1510,40 @@ def test_mirrored_tunnels_gives_up_after_repeated_fast_failures(monkeypatch, cap
         time.sleep(0.1)  # a given-up mirror must not keep respawning
         assert respawn_count["n"] == stable_count
         assert "Host key verification failed" in caplog.text
+    finally:
+        tunnels.stop()
+
+
+def test_mirrored_tunnels_resets_fail_streak_once_alive(monkeypatch):
+    """A tunnel that fails once but comes back up on the very next check
+    must have its fail streak reset to 0 -- otherwise occasional, unrelated
+    failures spaced apart over a long session could eventually accumulate
+    into a false give-up, rather than only a genuinely persistent failure
+    (dead every single time it's checked, with no live interval in
+    between) triggering one."""
+    call_count = {"n": 0}
+
+    def fake_spawn(self, local_port):
+        call_count["n"] += 1
+        proc = _FakeTunnelProcess()
+        if call_count["n"] == 1:
+            proc.returncode = 255  # only the very first spawn dies
+        # every later spawn (the respawned replacement) stays alive (poll() -> None)
+        return proc
+
+    monkeypatch.setattr(MirroredTunnels, "_spawn", fake_spawn)
+    tunnels = open_mirrored_tunnels(
+        remote_host="compute-node",
+        remote_port=12345,
+        local_ports=[9001],
+        n_mirrors=1,
+        check_interval=0.02,
+        max_consecutive_failures=3,
+    )
+    try:
+        time.sleep(0.3)  # several check_interval ticks while the replacement stays alive
+        assert not tunnels._given_up[0]
+        assert tunnels._fail_streaks[0] == 0
+        assert call_count["n"] == 2  # spawned, died, respawned once, then stayed alive
     finally:
         tunnels.stop()

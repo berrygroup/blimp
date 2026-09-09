@@ -529,13 +529,16 @@ class MirroredTunnels:
     A background thread polls each process every ``check_interval``
     seconds and restarts any that has died (network drop, laptop sleep, VPN
     reconnect) -- a tunnel dying mid-session degrades to fewer working
-    mirrors for a few seconds, not a silent, permanent stall. A tunnel that
-    keeps dying within ``fast_failure_threshold`` seconds of being (re)spawned,
-    ``max_fast_failures`` times in a row, is assumed to be a persistent
-    problem (bad host key, auth, or TCP forwarding disabled on the remote
-    host) rather than a transient drop -- it's logged as an error, with
-    whatever ``ssh`` itself printed to stderr, and left dead rather than
-    retried forever; the other mirrors keep working independently.
+    mirrors for a few seconds, not a silent, permanent stall. A tunnel found
+    dead ``max_consecutive_failures`` checks in a row, with no live interval
+    in between, is assumed to be a persistent problem (bad host key, auth,
+    or TCP forwarding disabled on the remote host) rather than a transient
+    drop -- it's logged as an error, with whatever ``ssh`` itself printed to
+    stderr, and left dead rather than retried forever; the other mirrors
+    keep working independently. This also protects against hammering the
+    login node with rapid repeated connection attempts, which some sites'
+    own automated defenses (e.g. fail2ban) may respond to by temporarily
+    blocking the connecting IP altogether.
     """
 
     local_ports: List[int]
@@ -543,13 +546,8 @@ class MirroredTunnels:
     remote_port: int
     login_alias: str
     check_interval: float = 5.0
-    # A tunnel that dies faster than this after being (re)spawned is treated as a
-    # persistent failure (bad host/auth/forwarding config), not a transient drop
-    # (network blip, laptop sleep) -- see _monitor.
-    fast_failure_threshold: float = 3.0
-    max_fast_failures: int = 3
+    max_consecutive_failures: int = 3
     _processes: List[subprocess.Popen] = field(default_factory=list, repr=False, compare=False)
-    _spawn_times: List[float] = field(default_factory=list, repr=False, compare=False)
     _fail_streaks: List[int] = field(default_factory=list, repr=False, compare=False)
     _given_up: List[bool] = field(default_factory=list, repr=False, compare=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
@@ -581,6 +579,14 @@ class MirroredTunnels:
                 "ExitOnForwardFailure=yes",
                 "-o",
                 "BatchMode=yes",
+                # On-demand HPC compute nodes are typically freshly, dynamically
+                # allocated each session -- a never-before-seen host key is the
+                # normal case here, not a red flag, and BatchMode=yes above means
+                # ssh can never interactively ask to accept one; accept-new does
+                # so automatically (while still refusing a *changed* key for a
+                # host seen before, unlike an outright StrictHostKeyChecking=no).
+                "-o",
+                "StrictHostKeyChecking=accept-new",
             ],
             stdout=subprocess.DEVNULL,
             # Captured (not discarded) so a dead tunnel's actual reason -- host key,
@@ -596,23 +602,21 @@ class MirroredTunnels:
         while not self._stop_event.wait(self.check_interval):
             with self._lock:
                 for i, proc in enumerate(self._processes):
-                    if self._given_up[i] or proc.poll() is None:
+                    if self._given_up[i]:
                         continue
+                    if proc.poll() is None:
+                        self._fail_streaks[i] = 0  # alive and well at this check
+                        continue
+
                     stderr = (proc.stderr.read() or "").strip() if proc.stderr is not None else ""
                     reason = f": {stderr}" if stderr else " (no stderr output)"
-                    age = time.monotonic() - self._spawn_times[i]
+                    self._fail_streaks[i] += 1
 
-                    if age < self.fast_failure_threshold:
-                        self._fail_streaks[i] += 1
-                    else:
-                        self._fail_streaks[i] = 0
-
-                    if self._fail_streaks[i] >= self.max_fast_failures:
+                    if self._fail_streaks[i] >= self.max_consecutive_failures:
                         self._given_up[i] = True
                         logger.error(
                             f"Tunnel on local port {self.local_ports[i]} failed "
-                            f"{self._fail_streaks[i]} times in a row, each within "
-                            f"{self.fast_failure_threshold}s of starting (code {proc.returncode}){reason} -- "
+                            f"{self._fail_streaks[i]} times in a row (code {proc.returncode}){reason} -- "
                             "giving up on this mirror rather than retrying forever; the "
                             "other mirrors are unaffected. This usually means a persistent "
                             "problem (host key, auth, or TCP forwarding disabled on the "
@@ -625,7 +629,6 @@ class MirroredTunnels:
                         f"(code {proc.returncode}){reason}; restarting."
                     )
                     self._processes[i] = self._spawn(self.local_ports[i])
-                    self._spawn_times[i] = time.monotonic()
 
     def stop(self, timeout: float = 5.0) -> None:
         """Stop monitoring and terminate every tunnel process."""
@@ -655,8 +658,7 @@ def open_mirrored_tunnels(
     n_mirrors: int = 4,
     local_ports: Optional[List[int]] = None,
     check_interval: float = 5.0,
-    fast_failure_threshold: float = 3.0,
-    max_fast_failures: int = 3,
+    max_consecutive_failures: int = 3,
 ) -> MirroredTunnels:
     """Start ``n_mirrors`` independent ``ssh -L`` tunnels from this machine
     to ``remote_host:remote_port`` (the same remote port
@@ -691,10 +693,9 @@ def open_mirrored_tunnels(
     check_interval
         How often (seconds) the background monitor thread checks for a
         dead tunnel and restarts it.
-    fast_failure_threshold, max_fast_failures
-        See :class:`MirroredTunnels` -- controls when a repeatedly,
-        immediately failing tunnel is given up on instead of retried
-        forever.
+    max_consecutive_failures
+        See :class:`MirroredTunnels` -- controls when a repeatedly failing
+        tunnel is given up on instead of retried forever.
 
     Returns
     -------
@@ -718,11 +719,9 @@ def open_mirrored_tunnels(
         remote_port=remote_port,
         login_alias=login_alias,
         check_interval=check_interval,
-        fast_failure_threshold=fast_failure_threshold,
-        max_fast_failures=max_fast_failures,
+        max_consecutive_failures=max_consecutive_failures,
     )
     tunnels._processes = [tunnels._spawn(port) for port in local_ports]
-    tunnels._spawn_times = [time.monotonic()] * n_mirrors
     tunnels._fail_streaks = [0] * n_mirrors
     tunnels._given_up = [False] * n_mirrors
     tunnels._monitor_thread = threading.Thread(target=tunnels._monitor, daemon=True)
