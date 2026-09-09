@@ -1379,14 +1379,23 @@ def test_serve_plate_over_http_defaults_to_localhost_only():
     assert inspect.signature(serve_plate_over_http).parameters["host"].default == "127.0.0.1"
 
 
+class _FakeTunnelStderr:
+    def __init__(self, text=""):
+        self._text = text
+
+    def read(self):
+        return self._text
+
+
 class _FakeTunnelProcess:
     """Stands in for a real ssh subprocess.Popen -- CI has no sshd to
     connect to, so MirroredTunnels's own restart-on-failure logic is
     tested against a controllable fake instead of a real ssh process."""
 
-    def __init__(self):
+    def __init__(self, stderr_text=""):
         self.returncode = None
         self.terminated = False
+        self.stderr = _FakeTunnelStderr(stderr_text)
 
     def poll(self):
         return self.returncode
@@ -1463,3 +1472,43 @@ def test_mirrored_tunnels_stop_terminates_processes_and_joins_monitor(monkeypatc
 
     assert proc.terminated
     assert not tunnels._monitor_thread.is_alive()
+
+
+def test_mirrored_tunnels_gives_up_after_repeated_fast_failures(monkeypatch, caplog):
+    """A tunnel that dies immediately every time (bad host key, auth,
+    forwarding disabled) must stop being retried after max_fast_failures,
+    not hammer the same broken connection forever."""
+
+    respawn_count = {"n": 0}
+
+    def fake_spawn(self, local_port):
+        respawn_count["n"] += 1
+        proc = _FakeTunnelProcess(stderr_text="Host key verification failed.")
+        proc.returncode = 255  # already dead the instant it's "spawned"
+        return proc
+
+    monkeypatch.setattr(MirroredTunnels, "_spawn", fake_spawn)
+
+    tunnels = open_mirrored_tunnels(
+        remote_host="compute-node",
+        remote_port=12345,
+        local_ports=[9001],
+        n_mirrors=1,
+        check_interval=0.02,
+        fast_failure_threshold=1.0,
+        max_fast_failures=3,
+    )
+    try:
+        for _ in range(200):
+            if tunnels._given_up[0]:
+                break
+            time.sleep(0.02)
+
+        assert tunnels._given_up[0]
+        assert tunnels._fail_streaks[0] >= 3
+        stable_count = respawn_count["n"]
+        time.sleep(0.1)  # a given-up mirror must not keep respawning
+        assert respawn_count["n"] == stable_count
+        assert "Host key verification failed" in caplog.text
+    finally:
+        tunnels.stop()

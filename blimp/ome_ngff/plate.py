@@ -529,7 +529,13 @@ class MirroredTunnels:
     A background thread polls each process every ``check_interval``
     seconds and restarts any that has died (network drop, laptop sleep, VPN
     reconnect) -- a tunnel dying mid-session degrades to fewer working
-    mirrors for a few seconds, not a silent, permanent stall.
+    mirrors for a few seconds, not a silent, permanent stall. A tunnel that
+    keeps dying within ``fast_failure_threshold`` seconds of being (re)spawned,
+    ``max_fast_failures`` times in a row, is assumed to be a persistent
+    problem (bad host key, auth, or TCP forwarding disabled on the remote
+    host) rather than a transient drop -- it's logged as an error, with
+    whatever ``ssh`` itself printed to stderr, and left dead rather than
+    retried forever; the other mirrors keep working independently.
     """
 
     local_ports: List[int]
@@ -537,7 +543,15 @@ class MirroredTunnels:
     remote_port: int
     login_alias: str
     check_interval: float = 5.0
+    # A tunnel that dies faster than this after being (re)spawned is treated as a
+    # persistent failure (bad host/auth/forwarding config), not a transient drop
+    # (network blip, laptop sleep) -- see _monitor.
+    fast_failure_threshold: float = 3.0
+    max_fast_failures: int = 3
     _processes: List[subprocess.Popen] = field(default_factory=list, repr=False, compare=False)
+    _spawn_times: List[float] = field(default_factory=list, repr=False, compare=False)
+    _fail_streaks: List[int] = field(default_factory=list, repr=False, compare=False)
+    _given_up: List[bool] = field(default_factory=list, repr=False, compare=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, repr=False, compare=False)
     _monitor_thread: Optional[threading.Thread] = field(default=None, repr=False, compare=False)
@@ -565,21 +579,53 @@ class MirroredTunnels:
                 "ServerAliveCountMax=3",
                 "-o",
                 "ExitOnForwardFailure=yes",
+                "-o",
+                "BatchMode=yes",
             ],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            # Captured (not discarded) so a dead tunnel's actual reason -- host key,
+            # auth, forwarding disabled, wrong hostname -- can be logged instead of
+            # just a bare exit code. Safe to read after the process has already
+            # exited: ssh's own error output here is short, so the pipe never fills
+            # up while nothing is reading it.
+            stderr=subprocess.PIPE,
+            text=True,
         )
 
     def _monitor(self) -> None:
         while not self._stop_event.wait(self.check_interval):
             with self._lock:
                 for i, proc in enumerate(self._processes):
-                    if proc.poll() is not None:
-                        logger.warning(
-                            f"Tunnel on local port {self.local_ports[i]} exited "
-                            f"(code {proc.returncode}); restarting."
+                    if self._given_up[i] or proc.poll() is None:
+                        continue
+                    stderr = (proc.stderr.read() or "").strip() if proc.stderr is not None else ""
+                    reason = f": {stderr}" if stderr else " (no stderr output)"
+                    age = time.monotonic() - self._spawn_times[i]
+
+                    if age < self.fast_failure_threshold:
+                        self._fail_streaks[i] += 1
+                    else:
+                        self._fail_streaks[i] = 0
+
+                    if self._fail_streaks[i] >= self.max_fast_failures:
+                        self._given_up[i] = True
+                        logger.error(
+                            f"Tunnel on local port {self.local_ports[i]} failed "
+                            f"{self._fail_streaks[i]} times in a row, each within "
+                            f"{self.fast_failure_threshold}s of starting (code {proc.returncode}){reason} -- "
+                            "giving up on this mirror rather than retrying forever; the "
+                            "other mirrors are unaffected. This usually means a persistent "
+                            "problem (host key, auth, or TCP forwarding disabled on the "
+                            "remote host), not a transient drop -- check the error above."
                         )
-                        self._processes[i] = self._spawn(self.local_ports[i])
+                        continue
+
+                    logger.warning(
+                        f"Tunnel on local port {self.local_ports[i]} exited "
+                        f"(code {proc.returncode}){reason}; restarting."
+                    )
+                    self._processes[i] = self._spawn(self.local_ports[i])
+                    self._spawn_times[i] = time.monotonic()
 
     def stop(self, timeout: float = 5.0) -> None:
         """Stop monitoring and terminate every tunnel process."""
@@ -609,6 +655,8 @@ def open_mirrored_tunnels(
     n_mirrors: int = 4,
     local_ports: Optional[List[int]] = None,
     check_interval: float = 5.0,
+    fast_failure_threshold: float = 3.0,
+    max_fast_failures: int = 3,
 ) -> MirroredTunnels:
     """Start ``n_mirrors`` independent ``ssh -L`` tunnels from this machine
     to ``remote_host:remote_port`` (the same remote port
@@ -643,6 +691,10 @@ def open_mirrored_tunnels(
     check_interval
         How often (seconds) the background monitor thread checks for a
         dead tunnel and restarts it.
+    fast_failure_threshold, max_fast_failures
+        See :class:`MirroredTunnels` -- controls when a repeatedly,
+        immediately failing tunnel is given up on instead of retried
+        forever.
 
     Returns
     -------
@@ -666,8 +718,13 @@ def open_mirrored_tunnels(
         remote_port=remote_port,
         login_alias=login_alias,
         check_interval=check_interval,
+        fast_failure_threshold=fast_failure_threshold,
+        max_fast_failures=max_fast_failures,
     )
     tunnels._processes = [tunnels._spawn(port) for port in local_ports]
+    tunnels._spawn_times = [time.monotonic()] * n_mirrors
+    tunnels._fail_streaks = [0] * n_mirrors
+    tunnels._given_up = [False] * n_mirrors
     tunnels._monitor_thread = threading.Thread(target=tunnels._monitor, daemon=True)
     tunnels._monitor_thread.start()
     print(f"Opened {n_mirrors} independent ssh tunnels to {remote_host}:{remote_port} on local ports {local_ports}.")
