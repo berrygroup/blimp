@@ -4,7 +4,11 @@ every source-format writer (nd2, TIFF-pipeline)."""
 from typing import Any, Dict
 from pathlib import Path
 import time
+import inspect
 import logging
+import functools
+import threading
+import http.server
 
 from ngio.ome_zarr_meta.ngio_specs import PixelSize
 import ngio
@@ -15,14 +19,20 @@ import pytest
 import filelock
 
 from blimp.ome_ngff.plate import (
+    MirroredTunnels,
     open_well_image,
     resolve_plate_path,
     build_plate_pyramid,
     ensure_plate_exists,
     build_feature_pyramid,
+    open_mirrored_tunnels,
+    serve_plate_over_http,
     _read_plate_wide_features,
     _discover_wells_with_label,
     _atomic_add_image_with_retry,
+    _read_one_feature_column_raw,
+    _read_plate_wide_feature_raw,
+    _NoTrailingSlashHTTPRequestHandler,
 )
 from blimp.ome_ngff.labels import (
     global_id,
@@ -538,6 +548,89 @@ def test_read_plate_wide_features_merges_wells_with_correct_offsets(tmp_path):
     assert dict(zip(df["label"], df["Nuclei_area"])) == expected
 
 
+def test_read_plate_wide_features_feature_names_restricts_returned_columns(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    unfiltered = _read_plate_wide_features(plate_path, "Nuclei", kind="mip")
+    assert "Nuclei_area" in unfiltered.columns
+    assert len(unfiltered.columns) > 2  # more than just label + Nuclei_area
+
+    filtered = _read_plate_wide_features(plate_path, "Nuclei", kind="mip", feature_names=["Nuclei_area"])
+    assert set(filtered.columns) == {"label", "Nuclei_area"}
+    assert filtered["Nuclei_area"].tolist() == unfiltered["Nuclei_area"].tolist()
+
+
+def test_max_workers_concurrent_reads_match_sequential(tmp_path):
+    """max_workers>1 threads per-well reads across build_plate_pyramid,
+    _read_plate_wide_features, and _read_plate_wide_feature_raw -- results
+    must be identical to the sequential (max_workers=1) path regardless of
+    which order threads happen to finish in."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=3, with_label=True, feature_value=222.0)
+    _write_one_well(tmp_path, plate_path, "WellK16_Seq0001", fill_value=5, with_label=True, feature_value=333.0)
+
+    sequential_pyramid = build_plate_pyramid(plate_path, kind="mip", label_name="Nuclei", max_workers=1)
+    concurrent_pyramid = build_plate_pyramid(plate_path, kind="mip", label_name="Nuclei", max_workers=4)
+    for seq_level, conc_level in zip(sequential_pyramid, concurrent_pyramid):
+        np.testing.assert_array_equal(seq_level.compute(), conc_level.compute())
+
+    def _sorted(df):
+        return df.sort_values("label").reset_index(drop=True)
+
+    sequential_df = _read_plate_wide_features(plate_path, "Nuclei", kind="mip", max_workers=1)
+    concurrent_df = _read_plate_wide_features(plate_path, "Nuclei", kind="mip", max_workers=4)
+    pd.testing.assert_frame_equal(_sorted(sequential_df), _sorted(concurrent_df))
+
+    sequential_raw = _read_plate_wide_feature_raw(plate_path, "Nuclei", "Nuclei_area", kind="mip", max_workers=1)
+    concurrent_raw = _read_plate_wide_feature_raw(plate_path, "Nuclei", "Nuclei_area", kind="mip", max_workers=4)
+    pd.testing.assert_frame_equal(_sorted(sequential_raw), _sorted(concurrent_raw))
+
+
+def test_multi_mirror_reads_match_single_mirror_and_use_every_mirror(tmp_path):
+    """plate_path accepted as a list of mirror URLs (see MirroredTunnels)
+    round-robins wells across them -- results must match the single-URL
+    path exactly, and every mirror given must actually get used, not just
+    the first one."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=3, with_label=True, feature_value=222.0)
+    _write_one_well(tmp_path, plate_path, "WellK16_Seq0001", fill_value=5, with_label=True, feature_value=333.0)
+
+    mirror_a = serve_plate_over_http(plate_path, port=0, log_requests=True)
+    mirror_b = serve_plate_over_http(plate_path, port=0, log_requests=True)
+    try:
+        mirror_urls = [mirror_a.url, mirror_b.url]
+
+        single_pyramid = build_plate_pyramid(mirror_a.url, kind="mip", label_name="Nuclei")
+        multi_pyramid = build_plate_pyramid(mirror_urls, kind="mip", label_name="Nuclei")
+        for single_level, multi_level in zip(single_pyramid, multi_pyramid):
+            np.testing.assert_array_equal(single_level.compute(), multi_level.compute())
+
+        def _sorted(df):
+            return df.sort_values("label").reset_index(drop=True)
+
+        single_df = _read_plate_wide_features(mirror_a.url, "Nuclei", kind="mip")
+        multi_df = _read_plate_wide_features(mirror_urls, "Nuclei", kind="mip")
+        pd.testing.assert_frame_equal(_sorted(single_df), _sorted(multi_df))
+
+        single_raw = _read_plate_wide_feature_raw(mirror_a.url, "Nuclei", "Nuclei_area", kind="mip")
+        multi_raw = _read_plate_wide_feature_raw(mirror_urls, "Nuclei", "Nuclei_area", kind="mip")
+        pd.testing.assert_frame_equal(_sorted(single_raw), _sorted(multi_raw))
+
+        # 3 wells round-robined across 2 mirrors -- both must have actually
+        # been used, not just mirror 0 (which every single-mirror call above
+        # also hit, so this only checks mirror_b).
+        assert len(mirror_b.request_log) > 0
+    finally:
+        mirror_a.stop()
+        mirror_b.stop()
+
+
 def test_build_feature_pyramid_shows_correct_value_and_nan_elsewhere(tmp_path):
     """C09 and F14 share the same raw local label (3), so only each well's
     own well_label_offset -- applied identically to the pixel array and to
@@ -664,6 +757,41 @@ def test_discover_wells_with_label_raises_for_a_well_not_in_the_plate(tmp_path):
     plate = ngio.open_ome_zarr_plate(store=str(plate_path), mode="r")
     with pytest.raises(ValueError, match="Z/99"):
         _discover_wells_with_label(plate, "mip", "Nuclei", wells="Z/99")
+
+
+def test_build_plate_pyramid_and_read_features_reuse_open_containers_without_reopening(tmp_path):
+    """build_plate_pyramid/_read_plate_wide_features must reuse an
+    already-open plate/containers when given one (as add_plate does, since
+    it already opens every well's own container itself), not re-open each
+    well's container from scratch via OmeZarrPlate.get_image -- a real ~4x
+    redundant per-well metadata-request cost over a remote store otherwise.
+    Asserts zero OmeZarrPlate.get_image calls when plate/open_containers
+    are passed."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    plate = ngio.open_ome_zarr_plate(store=str(plate_path), mode="r")
+    open_containers = {"C/09": plate.get_image("C", 9, "mip")}
+
+    call_count = 0
+    orig_get_image = type(plate).get_image
+
+    def counted_get_image(self, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return orig_get_image(self, *args, **kwargs)
+
+    type(plate).get_image = counted_get_image
+    try:
+        build_plate_pyramid(plate_path, kind="mip", plate=plate, open_containers=open_containers)
+        build_plate_pyramid(plate_path, kind="mip", label_name="Nuclei", plate=plate, open_containers=open_containers)
+        df = _read_plate_wide_features(plate_path, "Nuclei", kind="mip", plate=plate, open_containers=open_containers)
+    finally:
+        type(plate).get_image = orig_get_image
+
+    assert call_count == 0
+    assert df is not None and len(df) == 1  # the reuse path still produces correct results, not just fewer calls
 
 
 def test_atomic_add_image_with_retry_succeeds_after_transient_lock_timeouts():
@@ -1047,3 +1175,375 @@ def test_write_well_features_field_with_missing_measurements_contributes_no_rows
     df = table.dataframe.reset_index()
     assert len(df) == 1
     assert df["label"].iloc[0] == 1 * MAX_OBJECTS_PER_FIELD + 1
+
+
+# --------------------------------------------------------------------------- #
+# plate.py -- serve_plate_over_http (remote-viewing HTTP server)
+# --------------------------------------------------------------------------- #
+
+
+def test_serve_plate_over_http_round_trips_data(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=7)
+
+    served = serve_plate_over_http(plate_path, port=0)
+    try:
+        remote_plate = ngio.open_ome_zarr_plate(store=served.url, mode="r")
+        local_plate = ngio.open_ome_zarr_plate(store=str(plate_path), mode="r")
+        assert remote_plate.wells_paths() == local_plate.wells_paths()
+
+        local_container = ngio.open_ome_zarr_container(str(plate_path / "C" / "09" / "mip"))
+        remote_container = ngio.open_ome_zarr_container(f"{served.url}/C/09/mip")
+        np.testing.assert_array_equal(
+            local_container.get_image().get_as_numpy(), remote_container.get_image().get_as_numpy()
+        )
+    finally:
+        served.stop()
+
+
+def test_serve_plate_over_http_serves_feature_tables_correctly(tmp_path):
+    """Regression test: an ordinary directory-listing HTTP server (any of
+    them -- this isn't stdlib-specific,
+    Apache/nginx autoindex do the same) links to a subdirectory with a
+    trailing slash, but ngio's AnnData-backed table reader
+    (``custom_anndata_read_zarr``) does an exact-name membership check
+    against that listing -- silently dropping every element (X, obs, var,
+    ...) and reading back an empty table, while a plain image/label array
+    (no listing needed -- its child paths are already named in its own
+    multiscale metadata) reads back fine regardless.
+    ``_NoTrailingSlashHTTPRequestHandler`` is the fix; this is what would
+    fail if ``serve_plate_over_http`` were ever changed back to a plain
+    ``http.server.SimpleHTTPRequestHandler``."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    served = serve_plate_over_http(plate_path, port=0)
+    try:
+        df = _read_plate_wide_features(served.url, "Nuclei", kind="mip")
+        assert df is not None
+        assert df["Nuclei_area"].tolist() == [111.0]
+    finally:
+        served.stop()
+
+
+def test_read_plate_wide_feature_raw_matches_full_read(tmp_path):
+    """_read_plate_wide_feature_raw (plain zarr, skipping ngio.FeatureTable's
+    directory listing and unused obs columns) must produce identical values
+    to _read_plate_wide_features (the full ngio-based read) for the one
+    column it targets -- correctness, not just "doesn't crash". Checked
+    both locally and over a served HTTP store, since the whole point is
+    remote correctness."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=3, with_label=True, feature_value=222.0)
+
+    def _sorted(df):
+        return df[["label", "Nuclei_area"]].sort_values("label").reset_index(drop=True)
+
+    full = _sorted(_read_plate_wide_features(plate_path, "Nuclei", kind="mip"))
+    raw = _sorted(_read_plate_wide_feature_raw(plate_path, "Nuclei", "Nuclei_area", kind="mip"))
+    pd.testing.assert_frame_equal(full, raw, check_dtype=False)
+
+    served = serve_plate_over_http(plate_path, port=0)
+    try:
+        raw_remote = _sorted(_read_plate_wide_feature_raw(served.url, "Nuclei", "Nuclei_area", kind="mip"))
+        pd.testing.assert_frame_equal(full, raw_remote, check_dtype=False)
+    finally:
+        served.stop()
+
+
+def test_read_one_feature_column_raw_returns_none_for_unrecognized_table_version(tmp_path):
+    """A table with an attrs["table_version"] this raw reader doesn't know
+    about (e.g. a future ngio table version) must return None -- signaling
+    the caller to fall back to a full ngio read -- not raise or silently
+    return wrong data. (Note: ngio's own table-opening is equally strict
+    about table_version, so an unrecognized version isn't actually a case
+    where a full ngio read could succeed either -- see the sibling test
+    below for the realistic "raw reader can't handle it, ngio still can"
+    fallback path, using a mismatch this reader specifically checks for
+    rather than one ngio itself refuses too.)"""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    table_group_path = str(plate_path / "C" / "09" / "mip" / "tables" / "Nuclei_features")
+    group = zarr.open_group(store=table_group_path, mode="a")
+    group.attrs["table_version"] = "999"  # simulate an unrecognized future layout
+
+    assert _read_one_feature_column_raw(table_group_path, "Nuclei_area") is None
+
+
+def test_read_plate_wide_feature_raw_falls_back_to_full_read_when_raw_path_fails(tmp_path, monkeypatch):
+    """When _read_one_feature_column_raw can't handle a given well's table
+    (for any reason -- an unexpected layout it doesn't recognize), the
+    plate-wide reader must still produce the correct result via a full
+    ngio-based read for that well, not skip it or raise."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    monkeypatch.setattr("blimp.ome_ngff.plate._read_one_feature_column_raw", lambda *args, **kwargs: None)
+
+    df = _read_plate_wide_feature_raw(plate_path, "Nuclei", "Nuclei_area", kind="mip")
+    assert df is not None
+    assert df["Nuclei_area"].tolist() == [111.0]
+
+
+def test_read_plate_wide_feature_raw_over_http_reads_far_fewer_requests(tmp_path):
+    """The actual point of this reader: reading one feature must cost far
+    fewer requests than reading the whole table (roughly 172 requests/well
+    for the full table, down to roughly 10-20 for just one feature)."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=3, with_label=True, feature_value=111.0)
+
+    served = serve_plate_over_http(plate_path, port=0, log_requests=True)
+    try:
+        _read_plate_wide_feature_raw(served.url, "Nuclei", "Nuclei_area", kind="mip")
+        raw_requests = len([e for e in served.request_log if "/tables/" in e["path"]])
+        served.request_log.clear()
+
+        _read_plate_wide_features(served.url, "Nuclei", kind="mip")
+        full_requests = len([e for e in served.request_log if "/tables/" in e["path"]])
+    finally:
+        served.stop()
+
+    assert raw_requests < full_requests / 2, f"raw={raw_requests}, full={full_requests}"
+
+
+def test_build_plate_pyramid_over_http_only_fetches_the_viewed_wells_chunks(tmp_path):
+    """The crux property this design depends on, carried over to the remote
+    store: build_plate_pyramid's canvas already only touches populated
+    wells' chunks locally (see
+    test_build_plate_pyramid_places_real_wells_at_their_grid_position) --
+    this confirms the same holds when the plate is read over HTTP, i.e.
+    viewing one well must not fetch another well's chunk files. A
+    regression here (e.g. something forcing the whole canvas to materialize)
+    would still "work" functionally, just defeat the entire point of
+    streaming rather than copying the store down first."""
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+    _write_one_well(tmp_path, plate_path, "WellC09_Seq0001", fill_value=7, num_levels=1)
+    _write_one_well(tmp_path, plate_path, "WellF14_Seq0001", fill_value=42, num_levels=1)
+
+    requested_paths: list = []
+
+    class _CountingHandler(_NoTrailingSlashHTTPRequestHandler):
+        def do_GET(self):
+            requested_paths.append(self.path)
+            super().do_GET()
+
+    handler = functools.partial(_CountingHandler, directory=str(plate_path.parent))
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = httpd.server_address[1]
+        pyramid = build_plate_pyramid(f"http://127.0.0.1:{port}/plate.zarr", kind="mip")
+
+        tile, pitch = 16, round(16 * 1.05)
+        row_idx, col_idx = ord("C") - ord("A"), 9 - 1
+        y0, x0 = row_idx * pitch, col_idx * pitch
+        result = pyramid[0][:, 0, y0 : y0 + tile, x0 : x0 + tile].compute()
+        np.testing.assert_array_equal(result, np.full((2, tile, tile), 7, dtype=result.dtype))
+
+        chunk_requests = [p for p in requested_paths if "/0/c/" in p]
+        assert chunk_requests, "expected at least one image chunk request"
+        assert all(
+            "/C/09/" in p for p in chunk_requests
+        ), f"expected only well C/09's own chunks to be fetched, got: {chunk_requests}"
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=5.0)
+        httpd.server_close()
+
+
+def test_served_plate_stop_frees_the_port(tmp_path):
+    plate_path = tmp_path / "plate.zarr"
+    ensure_plate_exists(plate_path, "test_plate")
+
+    served = serve_plate_over_http(plate_path, port=0)
+    port = served.port
+    served.stop()
+
+    # Re-binding the same port only succeeds if serve_plate_over_http's own
+    # server truly released it.
+    probe = http.server.ThreadingHTTPServer(("127.0.0.1", port), http.server.SimpleHTTPRequestHandler)
+    probe.server_close()
+
+
+def test_serve_plate_over_http_defaults_to_localhost_only():
+    assert inspect.signature(serve_plate_over_http).parameters["host"].default == "127.0.0.1"
+
+
+class _FakeTunnelStderr:
+    def __init__(self, text=""):
+        self._text = text
+
+    def read(self):
+        return self._text
+
+
+class _FakeTunnelProcess:
+    """Stands in for a real ssh subprocess.Popen -- CI has no sshd to
+    connect to, so MirroredTunnels's own restart-on-failure logic is
+    tested against a controllable fake instead of a real ssh process."""
+
+    def __init__(self, stderr_text=""):
+        self.returncode = None
+        self.terminated = False
+        self.stderr = _FakeTunnelStderr(stderr_text)
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def kill(self):
+        self.terminated = True
+
+
+def test_open_mirrored_tunnels_rejects_mismatched_local_ports_length():
+    with pytest.raises(ValueError, match="n_mirrors"):
+        open_mirrored_tunnels(remote_host="compute-node", remote_port=12345, n_mirrors=3, local_ports=[9001, 9002])
+
+
+def test_mirrored_tunnels_urls_builds_one_url_per_local_port(monkeypatch):
+    monkeypatch.setattr(MirroredTunnels, "_spawn", lambda self, local_port: _FakeTunnelProcess())
+    tunnels = open_mirrored_tunnels(
+        remote_host="compute-node", remote_port=12345, local_ports=[9001, 9002], n_mirrors=2, check_interval=60
+    )
+    try:
+        assert tunnels.urls("my_plate.zarr") == [
+            "http://localhost:9001/my_plate.zarr",
+            "http://localhost:9002/my_plate.zarr",
+        ]
+    finally:
+        tunnels.stop()
+
+
+def test_mirrored_tunnels_restarts_a_dead_tunnel(monkeypatch):
+    fake_processes = []
+
+    def fake_spawn(self, local_port):
+        proc = _FakeTunnelProcess()
+        fake_processes.append(proc)
+        return proc
+
+    monkeypatch.setattr(MirroredTunnels, "_spawn", fake_spawn)
+
+    tunnels = open_mirrored_tunnels(
+        remote_host="compute-node", remote_port=12345, local_ports=[9001, 9002], n_mirrors=2, check_interval=0.05
+    )
+    try:
+        assert len(fake_processes) == 2
+        original_second_mirror = tunnels._processes[1]
+
+        # Simulate the first tunnel's ssh process dying (network drop, etc.).
+        fake_processes[0].returncode = 255
+        for _ in range(50):  # generous margin over check_interval=0.05s
+            if len(fake_processes) == 3:
+                break
+            time.sleep(0.05)
+
+        assert len(fake_processes) == 3  # the monitor thread respawned it
+        assert tunnels._processes[0] is fake_processes[2]  # replaced with a fresh process
+        assert tunnels._processes[1] is original_second_mirror  # untouched -- it never died
+    finally:
+        tunnels.stop()
+
+    assert all(proc.terminated for proc in fake_processes[1:])  # stop() terminates every current process
+
+
+def test_mirrored_tunnels_stop_terminates_processes_and_joins_monitor(monkeypatch):
+    monkeypatch.setattr(MirroredTunnels, "_spawn", lambda self, local_port: _FakeTunnelProcess())
+    tunnels = open_mirrored_tunnels(
+        remote_host="compute-node", remote_port=12345, local_ports=[9001], n_mirrors=1, check_interval=0.05
+    )
+    proc = tunnels._processes[0]
+    tunnels.stop(timeout=2.0)
+
+    assert proc.terminated
+    assert not tunnels._monitor_thread.is_alive()
+
+
+def test_mirrored_tunnels_gives_up_after_repeated_consecutive_failures(monkeypatch, caplog):
+    """A tunnel that dies every time it's (re)spawned (bad host key, auth,
+    forwarding disabled) must stop being retried after
+    max_consecutive_failures, not hammer the same broken connection
+    forever."""
+
+    respawn_count = {"n": 0}
+
+    def fake_spawn(self, local_port):
+        respawn_count["n"] += 1
+        proc = _FakeTunnelProcess(stderr_text="Host key verification failed.")
+        proc.returncode = 255  # already dead the instant it's "spawned"
+        return proc
+
+    monkeypatch.setattr(MirroredTunnels, "_spawn", fake_spawn)
+
+    tunnels = open_mirrored_tunnels(
+        remote_host="compute-node",
+        remote_port=12345,
+        local_ports=[9001],
+        n_mirrors=1,
+        check_interval=0.02,
+        max_consecutive_failures=3,
+    )
+    try:
+        for _ in range(200):
+            if tunnels._given_up[0]:
+                break
+            time.sleep(0.02)
+
+        assert tunnels._given_up[0]
+        assert tunnels._fail_streaks[0] >= 3
+        stable_count = respawn_count["n"]
+        time.sleep(0.1)  # a given-up mirror must not keep respawning
+        assert respawn_count["n"] == stable_count
+        assert "Host key verification failed" in caplog.text
+    finally:
+        tunnels.stop()
+
+
+def test_mirrored_tunnels_resets_fail_streak_once_alive(monkeypatch):
+    """A tunnel that fails once but comes back up on the very next check
+    must have its fail streak reset to 0 -- otherwise occasional, unrelated
+    failures spaced apart over a long session could eventually accumulate
+    into a false give-up, rather than only a genuinely persistent failure
+    (dead every single time it's checked, with no live interval in
+    between) triggering one."""
+    call_count = {"n": 0}
+
+    def fake_spawn(self, local_port):
+        call_count["n"] += 1
+        proc = _FakeTunnelProcess()
+        if call_count["n"] == 1:
+            proc.returncode = 255  # only the very first spawn dies
+        # every later spawn (the respawned replacement) stays alive (poll() -> None)
+        return proc
+
+    monkeypatch.setattr(MirroredTunnels, "_spawn", fake_spawn)
+    tunnels = open_mirrored_tunnels(
+        remote_host="compute-node",
+        remote_port=12345,
+        local_ports=[9001],
+        n_mirrors=1,
+        check_interval=0.02,
+        max_consecutive_failures=3,
+    )
+    try:
+        time.sleep(0.3)  # several check_interval ticks while the replacement stays alive
+        assert not tunnels._given_up[0]
+        assert tunnels._fail_streaks[0] == 0
+        assert call_count["n"] == 2  # spawned, died, respawned once, then stayed alive
+    finally:
+        tunnels.stop()
