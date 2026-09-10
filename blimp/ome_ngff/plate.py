@@ -1095,6 +1095,29 @@ def _read_plate_wide_features(
     return pd.concat(feature_frames, ignore_index=True)
 
 
+def _read_zarr_array_node(node: Any) -> np.ndarray:
+    """Read a zarr node's full contents as an array, whether it's a plain
+    ``zarr.Array`` or anndata-on-zarr's "nullable" encoding (a ``zarr.Group``
+    with ``values``/``mask`` sub-arrays) -- newer ``anndata`` versions
+    default at least string-typed columns, including a DataFrame's own
+    index, to the nullable encoding even with no actual missing values,
+    which a bare ``node[:]`` can't read (confirmed directly: this is what
+    made the raw reader below silently fall back to a full read on every
+    well once ``anndata>=0.13`` resolved, until this handled both shapes).
+
+    blimp's own id/label columns are never actually missing data, so a
+    masked entry here means something unexpected wrote this table -- raised
+    rather than silently substituted.
+    """
+    if isinstance(node, zarr.Array):
+        return node[:]
+    values = node["values"][:]
+    mask = node["mask"][:]
+    if mask.any():
+        raise ValueError("Encountered a masked (missing) value in a column expected to be fully populated.")
+    return values
+
+
 def _read_one_feature_column_raw(table_group_path: str, feature_name: str) -> Optional[pd.DataFrame]:
     """Read one named column of an AnnData-backed FeatureTable directly via
     zarr, bypassing ``ngio.FeatureTable.dataframe``'s all-or-nothing read.
@@ -1139,7 +1162,7 @@ def _read_one_feature_column_raw(table_group_path: str, feature_name: str) -> Op
         if attrs.get("type") != "feature_table" or attrs.get("table_version") != "1":
             return None
 
-        var_index = [str(name) for name in group["var"]["_index"][:]]
+        var_index = [str(name) for name in _read_zarr_array_node(group["var"]["_index"])]
         if feature_name not in var_index:
             return None
         feature_idx = var_index.index(feature_name)
@@ -1149,13 +1172,13 @@ def _read_one_feature_column_raw(table_group_path: str, feature_name: str) -> Op
             return None
         column_order = obs_attrs.get("column-order", [])
 
-        labels = group["obs"]["label"][:]
+        labels = _read_zarr_array_node(group["obs"]["label"])
         if attrs.get("index_type") == "int":
             labels = labels.astype(np.int64)
 
         result: Dict[str, np.ndarray] = {"label": labels, feature_name: group["X"][:, feature_idx]}
         if "global_id_numeric" in column_order:
-            result["global_id_numeric"] = group["obs"]["global_id_numeric"][:]
+            result["global_id_numeric"] = _read_zarr_array_node(group["obs"]["global_id_numeric"])
         return pd.DataFrame(result)
     except Exception:
         logger.debug(
