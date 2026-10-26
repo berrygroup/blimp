@@ -44,6 +44,19 @@ def test_convert_operetta_minimal_invocation(tmp_path):
     assert callable(args.func)
 
 
+def test_convert_opera_minimal_invocation(tmp_path):
+    args = _parse(["convert", "opera", "-i", str(tmp_path), "--user", "z1234567"])
+    assert args.input_type == "opera"
+    assert args.output_format == "TIFF"
+    assert callable(args.func)
+
+
+def test_convert_opera_accepts_verify_only_with_mip(tmp_path):
+    args = _parse(["convert", "opera", "-i", str(tmp_path), "--user", "z1234567", "--verify-only", "--mip"])
+    assert args.verify_only is True
+    assert args.mip is True
+
+
 def test_convert_requires_input_type():
     with pytest.raises(SystemExit):
         _parse(["convert", "-i", "."])
