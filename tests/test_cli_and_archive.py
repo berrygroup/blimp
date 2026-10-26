@@ -3,12 +3,16 @@ from pathlib import Path
 import pytest
 
 from blimp.archive import (
+    archive,
     write_archiving_script_nd2,
     write_archiving_batch_files,
     write_archiving_script_operetta,
+    split_opera_files_into_archiving_batches,
     split_operetta_files_into_archiving_batches,
 )
 from blimp.cli.main import _get_full_parser
+
+from .helpers import _make_opera_dataset
 
 
 def _parse(argv):
@@ -42,6 +46,19 @@ def test_convert_operetta_minimal_invocation(tmp_path):
     args = _parse(["convert", "operetta", "-i", str(tmp_path), "--user", "z1234567"])
     assert args.input_type == "operetta"
     assert callable(args.func)
+
+
+def test_convert_opera_minimal_invocation(tmp_path):
+    args = _parse(["convert", "opera", "-i", str(tmp_path), "--user", "z1234567"])
+    assert args.input_type == "opera"
+    assert args.output_format == "TIFF"
+    assert callable(args.func)
+
+
+def test_convert_opera_accepts_verify_only_with_mip(tmp_path):
+    args = _parse(["convert", "opera", "-i", str(tmp_path), "--user", "z1234567", "--verify-only", "--mip"])
+    assert args.verify_only is True
+    assert args.mip is True
 
 
 def test_convert_requires_input_type():
@@ -95,7 +112,7 @@ def test_convert_tiff_output_format_defaults_to_ngff(tmp_path):
     assert args.output_format == "NGFF"
 
 
-@pytest.mark.parametrize("input_type", ["nd2", "operetta"])
+@pytest.mark.parametrize("input_type", ["nd2", "operetta", "opera"])
 def test_archive_subcommands_parse(input_type, tmp_path):
     """-j/--jobscript_path must parse with no explicit value given (default
     ``None``, resolved to cwd at call time), not be required."""
@@ -241,3 +258,64 @@ def test_write_archiving_script_append_mode(tmp_path):
     assert len(text) > first_len
     # the shebang must appear only once
     assert text.count("#!/bin/bash") == 1
+
+
+@pytest.fixture
+def opera_measurement_dir(tmp_path):
+    """Synthetic opera export, plus the metadata files of a real export and
+    blimp-written outputs that should not be archived."""
+    measurement_dir = tmp_path / "experiment" / "7ff28d40-ab05-4813-b326-50cfde35c09d"
+    _make_opera_dataset(measurement_dir, wells=((3, 5), (3, 6)), field_positions=((0.0, 0.0),), n_planes=1)
+    (measurement_dir / "7ff28d40-ab05-4813-b326.xml").touch()
+    (measurement_dir / "flatfieldcorrection").mkdir()
+    (measurement_dir / "flatfieldcorrection" / "155138c0-0062-4414-b93f.xml").touch()
+    (measurement_dir / "images" / "image.index.txt").touch()
+    for output in ["OME-TIFF/r03c05f01.ome.tiff", "OME-NGFF/plate.zarr/zarr.json", "plate.zarr/zarr.json"]:
+        (measurement_dir / output).parent.mkdir(parents=True, exist_ok=True)
+        (measurement_dir / output).touch()
+    return measurement_dir
+
+
+def test_split_opera_files_groups_by_well_plus_metadata(opera_measurement_dir):
+    groups = split_opera_files_into_archiving_batches(opera_measurement_dir)
+    assert set(groups) == {"r03c05", "r03c06", "metadata"}
+    assert groups["r03c05"] == ["images/r03c05/r03c05f01p01-ch01t01.tiff", "images/r03c05/r03c05f01p01-ch02t01.tiff"]
+    assert sorted(groups["metadata"]) == [
+        "7ff28d40-ab05-4813-b326.xml",
+        "flatfieldcorrection/155138c0-0062-4414-b93f.xml",
+        "images/image.index.txt",
+        "images/index.xml",
+    ]
+
+
+def test_split_opera_files_skips_existing_archive(opera_measurement_dir):
+    (opera_measurement_dir / "Archive").mkdir()
+    (opera_measurement_dir / "Archive" / "r03c05.txt").touch()
+    groups = split_opera_files_into_archiving_batches(opera_measurement_dir)
+    assert not any(f.startswith("Archive") for files in groups.values() for f in files)
+
+
+def test_archive_opera_writes_batches_and_script(opera_measurement_dir, tmp_path, monkeypatch):
+    monkeypatch.setattr("blimp.archive.check_config_file", lambda: True)
+    job_path = tmp_path / "jobs"
+    job_path.mkdir()
+    archive(
+        in_path=tmp_path / "experiment",
+        jobscript_path=job_path,
+        first_name="Ada",
+        project_name="PROJ",
+        input_type="opera",
+    )
+
+    archive_dir = opera_measurement_dir / "Archive"
+    assert sorted(p.name for p in archive_dir.glob("*.txt")) == ["metadata.txt", "r03c05.txt", "r03c06.txt"]
+    batch = (archive_dir / "r03c06.txt").read_text().splitlines()
+    assert batch == [str(opera_measurement_dir / "images" / "r03c06" / f"r03c06f01p01-ch0{c}t01.tiff") for c in (1, 2)]
+
+    (script_path,) = job_path.glob("archive_data_blimp_*.sh")
+    text = script_path.read_text()
+    assert f"tar -cvzf '{archive_dir / 'r03c05.tar.gz'}' -T '{archive_dir / 'r03c05.txt'}'" in text
+    assert f"'{archive_dir}'" in text
+    assert "Compute checksums locally" in text
+    assert "OME-TIFF" not in text
+    assert "zarr" not in "".join(p.read_text() for p in archive_dir.glob("*.txt"))

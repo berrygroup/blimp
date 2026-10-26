@@ -22,6 +22,10 @@ File handling
     preprocessing.operetta_to_ome_tiff
     preprocessing.operetta_parse_metadata.get_image_metadata
     preprocessing.operetta_parse_metadata.get_plate_metadata
+    preprocessing.convert_opera
+    preprocessing.opera_to_ome_tiff
+    preprocessing.opera_parse_metadata.get_image_metadata
+    preprocessing.opera_parse_metadata.get_plate_metadata
 
 Processing
 ~~~~~~~~~~

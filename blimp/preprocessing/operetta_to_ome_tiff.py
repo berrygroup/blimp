@@ -145,7 +145,7 @@ def _get_zyx_resolution(
     ChannelID: int,
     TimepointID: int,
 ) -> PhysicalPixelSizes:
-    """Determines the z,y,x resolution from the metadata.
+    """Determines the z,y,x resolution (in micrometres) from the metadata.
 
     Parameters
     ----------
@@ -167,7 +167,7 @@ def _get_zyx_resolution(
     Returns
     -------
     PhysicalPixelSizes
-        BioImage object for containing pixel dimensions
+        Voxel dimensions in micrometres (Z is None for single planes)
     """
 
     # z resolution is not directly provided in the image metadata,
@@ -187,10 +187,12 @@ def _get_zyx_resolution(
 
     xyz = image_metadata.query(query)[["ImageResolutionX", "ImageResolutionY", "AbsPositionZ"]].drop_duplicates()
 
+    # metadata is in metres, OME-TIFF expects micrometres
+    n_planes = xyz.shape[0]
     return PhysicalPixelSizes(
-        Z=(xyz.AbsPositionZ.max() - xyz.AbsPositionZ.min()) / (xyz.shape[0] - 1),
-        Y=xyz.ImageResolutionY.iloc[0],
-        X=xyz.ImageResolutionX.iloc[0],
+        Z=1e6 * (xyz.AbsPositionZ.max() - xyz.AbsPositionZ.min()) / (n_planes - 1) if n_planes > 1 else None,
+        Y=1e6 * xyz.ImageResolutionY.iloc[0],
+        X=1e6 * xyz.ImageResolutionX.iloc[0],
     )
 
 
@@ -247,9 +249,9 @@ def _aggregate_TCZ_metadata(image_metadata: pd.DataFrame, mip: bool = False) -> 
     """
     # get average absolute time for each unique imaging site
     mean_acq_time = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["AbsTime"].mean()
-    n_planes = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["id"].count()
+    n_planes = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["PlaneID"].nunique()
     n_planes.name = "NPlanes"
-    n_channels = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["ChannelID"].max()
+    n_channels = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["ChannelID"].nunique()
     n_channels.name = "NChannels"
 
     # drop columns that don't make sense after merging multiple files
