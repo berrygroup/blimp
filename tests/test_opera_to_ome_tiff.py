@@ -130,8 +130,8 @@ def test_opera_to_ome_tiff_saves_metadata_files(opera_dataset):
         metadata = pd.read_csv(path / "image_metadata.csv")
         assert len(metadata) == 4
         assert pd.read_pickle(path / "image_metadata.pkl").shape == metadata.shape
-    assert (measurement_dir / "images" / "plate_metadata.csv").exists()
-    assert (measurement_dir / "images" / "image_metadata.csv").exists()
+    assert (measurement_dir / "plate_metadata.csv").exists()
+    assert (measurement_dir / "image_metadata.csv").exists()
 
 
 def test_opera_to_ome_tiff_batches_cover_all_sites(opera_dataset):

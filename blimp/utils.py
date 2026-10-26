@@ -1,5 +1,7 @@
 """Miscellaneous utilities for blimp"""
 from typing import List, Tuple, Union, Optional
+from pathlib import Path
+import re
 import logging
 
 from bioio import BioImage
@@ -270,6 +272,39 @@ def pbs_array_directive(n_batches: int) -> Tuple[str, str]:
     if n_batches > 1:
         return f"#PBS -J 0-{n_batches - 1}", "${PBS_ARRAY_INDEX}"
     return "", "0"
+
+
+def user_output_path(source_dir: Union[str, Path], user: Optional[str], output_name: str) -> Path:
+    """Path to write converted output for ``source_dir`` to, in ``user``'s
+    own directory.
+
+    Source data often belongs to another user, whose directories the person
+    running the conversion cannot write to. The first zID in ``source_dir``
+    (e.g. ``/srv/scratch/berrylab/z1234567/...``) is replaced by ``user``,
+    so output is written to the same relative path under ``user``'s
+    directory. Paths without a zID, or ``user=None``, are left unchanged.
+
+    Parameters
+    ----------
+    source_dir
+        Directory containing (or representing) the source data.
+    user
+        zID of the user running the conversion.
+    output_name
+        Name of the output directory or store, e.g. "OME-TIFF".
+
+    Returns
+    -------
+    pathlib.Path
+        ``<source_dir, with zID replaced>/<output_name>``
+    """
+    source_dir = str(source_dir)
+    if user is not None:
+        user_dir = re.sub(r"/z\d{7}(?=/|$)", f"/{user}", source_dir, count=1)
+        if user_dir != source_dir:
+            logger.info(f"zID in input path does not match user's zID, writing output to {user_dir}")
+        source_dir = user_dir
+    return Path(source_dir) / output_name
 
 
 def check_correct_dimension_order(images: Union[BioImage, List[BioImage]]) -> bool:

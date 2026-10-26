@@ -317,6 +317,7 @@ def _convert_operetta(args) -> None:
             in_path=args.input_path,
             save_metadata_files=True,
             mip=args.mip,
+            user=args.user,
         )
     else:
         convert_operetta(
@@ -345,6 +346,7 @@ def _convert_opera(args) -> None:
             in_path=args.input_path,
             save_metadata_files=True,
             mip=args.mip,
+            user=args.user,
             keep_stacks=args.keep_stacks,
         )
     else:

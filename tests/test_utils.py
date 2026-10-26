@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from bioio import BioImage
 from bioio_base.types import PhysicalPixelSizes
 import numpy as np
@@ -445,3 +447,21 @@ def test_smooth_image_invalid_input():
     # Check that an invalid input type raises a TypeError
     with pytest.raises(TypeError):
         blimp.utils.smooth_image(image_data, sigma=1, method="gaussian")
+
+
+@pytest.mark.parametrize(
+    "source_dir,user,expected",
+    [
+        # another user's data is mapped to the same path under user's own zID
+        ("/srv/scratch/berrylab/z1111111/exp/plate", "z2222222", "/srv/scratch/berrylab/z2222222/exp/plate/OME-TIFF"),
+        # only the first zID is replaced
+        ("/srv/scratch/z1111111/data/z3333333", "z2222222", "/srv/scratch/z2222222/data/z3333333/OME-TIFF"),
+        # a path without a zID, or no user, is left unchanged
+        ("/data/exp/plate", "z2222222", "/data/exp/plate/OME-TIFF"),
+        ("/srv/scratch/z1111111/exp", None, "/srv/scratch/z1111111/exp/OME-TIFF"),
+        # only a whole path component is treated as a zID
+        ("/srv/scratch/z11111112/exp", "z2222222", "/srv/scratch/z11111112/exp/OME-TIFF"),
+    ],
+)
+def test_user_output_path(source_dir, user, expected):
+    assert blimp.utils.user_output_path(source_dir, user, "OME-TIFF") == Path(expected)

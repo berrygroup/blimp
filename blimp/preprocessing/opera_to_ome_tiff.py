@@ -175,8 +175,10 @@ def opera_to_ome_tiff(
     if in_path == out_path:
         raise ValueError("Input and output paths are the same.")
 
-    plate_metadata_file = in_path / "plate_metadata.csv" if save_metadata_files else None
-    image_metadata_file = in_path / "image_metadata.csv" if save_metadata_files else None
+    # the parsed (per-plane) metadata is written next to the output, since
+    # the input directory may belong to another user
+    plate_metadata_file = out_path.parent / "plate_metadata.csv" if save_metadata_files else None
+    image_metadata_file = out_path.parent / "image_metadata.csv" if save_metadata_files else None
 
     # make output directories
     if not out_path.exists():

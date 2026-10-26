@@ -1,12 +1,11 @@
 """Convert Nikon nd2 files to standard open microscopy environment formats."""
 from typing import List, Union
 from pathlib import Path
-import re
 import glob
 import logging
 import subprocess
 
-from blimp.utils import read_template, pbs_array_directive
+from blimp.utils import read_template, user_output_path, pbs_array_directive
 from blimp.ome_ngff import ensure_plate_exists
 
 logger = logging.getLogger(__name__)
@@ -277,23 +276,7 @@ def convert_nd2(
     # output is a single "plate.zarr", not a per-field "OME-TIFF" folder.
     output_name = "OME-TIFF" if image_format == "TIFF" else "plate.zarr"
 
-    # check that zID of input path matches user's zID (otherwise no write access for output)
-    out_paths: List[Path] = []
-    # find the zID in the path
-    pattern = re.compile(r"/z\d{7}")
-    for path in nd2_parent_paths:
-        path_str = str(path)
-        match = pattern.search(path_str)
-        if match is not None:
-            # Replace the zID in input folder name with the user's zID
-            out_path = Path(path_str.replace(match.group(), f"/{user}")) / output_name
-            logger.info(f"zID in input path does not match user's zID, adjusting output path to {str(out_path)}")
-        else:
-            # Or if zIDs match, just add the original path
-            # to the output path list
-            out_path = path / output_name
-            logger.debug(f"zID in input path matches user's zID, output path is {str(out_path)}")
-        out_paths.append(out_path)
+    out_paths = [user_output_path(path, user, output_name) for path in nd2_parent_paths]
 
     # read template from file
     if template_path is None:
