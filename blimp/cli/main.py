@@ -418,6 +418,20 @@ def _archive_operetta(args) -> None:
     return None
 
 
+def _archive_opera(args) -> None:
+    """Wrapper for archive(input_type=="opera")"""
+    from blimp.archive import archive
+
+    archive(
+        in_path=args.input_path,
+        jobscript_path=args.jobscript_path if args.jobscript_path is not None else os.getcwd(),
+        input_type="opera",
+        first_name=args.first_name,
+        project_name=args.project_name,
+    )
+    return None
+
+
 def _get_full_parser() -> argparse.ArgumentParser:
     # ----------- #
     # BASE PARSER #
@@ -565,6 +579,19 @@ def _get_full_parser() -> argparse.ArgumentParser:
     )
     archive_operetta_subparser.set_defaults(func=_archive_operetta)
     _add_archive_args(archive_operetta_subparser)
+
+    # Archive - Opera
+    archive_opera_header = """
+        * opera: archive Perkin-Elmer (Revvity) Opera Phenix files.
+    """
+    archive_opera_subparser = archive_subparsers.add_parser(
+        "opera",
+        help="Perkin-Elmer (Revvity) Opera Phenix",
+        description="".join([header, archive_header, archive_opera_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    archive_opera_subparser.set_defaults(func=_archive_opera)
+    _add_archive_args(archive_opera_subparser)
 
     return parser
 
