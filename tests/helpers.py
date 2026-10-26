@@ -182,3 +182,107 @@ def _make_opera_dataset(
 
     ET.ElementTree(root).write(images_dir / "index.xml", encoding="utf-8", xml_declaration=True)
     return pixels
+
+
+# -- SYNTHETIC OPERETTA DATASET ---
+
+OPERETTA_NS_URI = "http://www.perkinelmer.com/PEHH/HarmonyV5"
+
+
+def _make_operetta_dataset(
+    experiment_dir: Union[str, Path],
+    wells: Tuple[Tuple[int, int], ...] = ((3, 5), (3, 6)),
+    field_positions: Tuple[Tuple[float, float], ...] = ((1e-4, 0.0), (0.0, 0.0)),
+    n_planes: int = 3,
+    channel_names: Tuple[str, ...] = ("DAPI", "GFP"),
+    n_timepoints: int = 1,
+    image_size: int = 16,
+) -> Dict[Tuple[int, int, int, int, int, int], np.ndarray]:
+    """Write a minimal Operetta export to ``experiment_dir``.
+
+    Mirrors the layout of a real export: ``Images/Index.idx.xml`` (HarmonyV5
+    namespace, channel settings repeated in every image entry) next to the
+    single-plane TIFFs, with 0-indexed timepoints. As for
+    ``_make_opera_dataset``, image entries are in reverse plane order and
+    ``StandardFieldID`` is the reverse of ``FieldID``.
+
+    Returns
+    -------
+    dict
+        pixel data keyed by (Row, Col, FieldID, PlaneID, ChannelID, TimepointID)
+    """
+    images_dir = Path(experiment_dir) / "Images"
+    images_dir.mkdir(parents=True)
+
+    def sub(parent, tag, text=None, **attrib):
+        element = ET.SubElement(parent, f"{{{OPERETTA_NS_URI}}}{tag}", attrib)
+        if text is not None:
+            element.text = str(text)
+        return element
+
+    root = ET.Element(f"{{{OPERETTA_NS_URI}}}EvaluationInputData", {"Version": "1"})
+    plate = sub(sub(root, "Plates"), "Plate")
+    sub(plate, "PlateID", "synthetic")
+    sub(plate, "Name", "synthetic")
+    sub(plate, "PlateTypeName", "96 Greiner uClear")
+    sub(plate, "PlateRows", 8)
+    sub(plate, "PlateColumns", 12)
+
+    rng = np.random.default_rng(0)
+    pixels = {}
+    images = sub(root, "Images")
+    for row, col in wells:
+        for field_id, (x, y) in enumerate(field_positions, start=1):
+            for timepoint_id in range(n_timepoints):
+                for channel_id, channel_name in enumerate(channel_names, start=1):
+                    for plane_id in reversed(range(1, n_planes + 1)):
+                        filename = (
+                            f"r{row:02d}c{col:02d}f{field_id:02d}p{plane_id:02d}"
+                            + f"-ch{channel_id}sk{timepoint_id + 1}fk1fl1.tiff"
+                        )
+                        data = rng.integers(0, 4096, size=(image_size, image_size), dtype=np.uint16)
+                        tifffile.imwrite(images_dir / filename, data)
+                        pixels[(row, col, field_id, plane_id, channel_id, timepoint_id)] = data
+
+                        image = sub(images, "Image", Version="1")
+                        for tag, text in [
+                            ("id", f"{row:02d}{col:02d}K{timepoint_id + 1}F{field_id}P{plane_id}R{channel_id}"),
+                            ("State", "Ok"),
+                            ("URL", filename),
+                            ("Row", row),
+                            ("Col", col),
+                            ("FieldID", field_id),
+                            ("PlaneID", plane_id),
+                            ("TimepointID", timepoint_id),
+                            ("ChannelID", channel_id),
+                            ("FlimID", 1),
+                            ("ChannelName", channel_name),
+                            ("ImageType", "Signal"),
+                            ("AcquisitionType", "NipkowConfocal"),
+                            ("IlluminationType", "Epifluorescence"),
+                            ("ChannelType", "Fluorescence"),
+                            ("ImageResolutionX", "1E-07"),
+                            ("ImageResolutionY", "1E-07"),
+                            ("ImageSizeX", image_size),
+                            ("ImageSizeY", image_size),
+                            ("BinningX", 1),
+                            ("BinningY", 1),
+                            ("MaxIntensity", 65535),
+                            ("CameraType", "AndorZylaCam"),
+                            ("PositionX", x),
+                            ("PositionY", y),
+                            ("PositionZ", (plane_id - 1) * 5e-7),
+                            ("AbsPositionZ", 0.1 + (plane_id - 1) * 5e-7),
+                            ("MeasurementTimeOffset", 0),
+                            ("AbsTime", f"2022-07-20T16:{30 + timepoint_id:02d}:{field_id:02d}.5+10:00"),
+                            ("MainExcitationWavelength", 400 + 100 * channel_id),
+                            ("MainEmissionWavelength", 450 + 100 * channel_id),
+                            ("ObjectiveMagnification", 40),
+                            ("ObjectiveNA", 1.1),
+                            ("ExposureTime", 0.08),
+                            ("OrientationMatrix", "[[1.000013,-0.000160,0,-78.9],[-0.000220,-0.999911,0,-82.6]]"),
+                        ]:
+                            sub(image, tag, text)
+
+    ET.ElementTree(root).write(images_dir / "Index.idx.xml", encoding="utf-8", xml_declaration=True)
+    return pixels

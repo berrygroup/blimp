@@ -1,5 +1,6 @@
 import xml.etree.ElementTree as ET
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -10,6 +11,8 @@ from blimp.preprocessing.operetta_parse_metadata import (
     get_image_metadata,
     get_plate_metadata,
 )
+
+from .helpers import _make_operetta_dataset
 
 NS_URI = "http://www.perkinelmer.com/PEHH/HarmonyV5"
 NS = {"harmony": NS_URI}
@@ -83,3 +86,32 @@ def test_get_image_metadata_raises_on_malformed_xml(tmp_path):
 def test_get_plate_metadata_raises_on_missing_file(tmp_path):
     with pytest.raises((FileNotFoundError, OSError)):
         get_plate_metadata(tmp_path / "does_not_exist.xml")
+
+
+@pytest.fixture
+def metadata_file(tmp_path):
+    _make_operetta_dataset(tmp_path / "experiment")
+    return tmp_path / "experiment" / "Images" / "Index.idx.xml"
+
+
+def test_get_plate_metadata_parses_valid_xml(metadata_file):
+    plate_metadata = get_plate_metadata(metadata_file)
+    assert len(plate_metadata) == 1
+    assert plate_metadata.loc[0, "Name"] == "synthetic"
+
+
+def test_get_image_metadata_parses_valid_xml(metadata_file):
+    image_metadata = get_image_metadata(metadata_file)
+    # 2 wells x 2 fields x 3 planes x 2 channels
+    assert len(image_metadata) == 24
+    assert set(image_metadata["ChannelName"]) == {"DAPI", "GFP"}
+    assert set(image_metadata["WellName"]) == {"C05", "C06"}
+    assert image_metadata["PlaneID"].dtype == np.uint16
+    field_ids = image_metadata[["FieldID", "StandardFieldID"]].drop_duplicates().set_index("FieldID")
+    assert field_ids.loc[1, "StandardFieldID"] == 2
+
+
+def test_get_image_metadata_abs_time_converted_to_utc(metadata_file):
+    image_metadata = get_image_metadata(metadata_file)
+    assert image_metadata["AbsTime"].dt.tz is None
+    assert image_metadata["AbsTime"].min() == pd.Timestamp("2022-07-20T06:30:01.5")
