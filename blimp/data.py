@@ -113,6 +113,7 @@ def download_figshare_file(repository_id: str, output_filename: str) -> str:
 TEST_DATA_REQUIRED_PATHS = [
     os.path.join("resources", "affine.txt"),
     os.path.join("datasets", "opera_phenix"),
+    os.path.join("datasets", "operetta"),
 ]
 
 

@@ -1,10 +1,14 @@
 """Tests for operetta_to_ome_tiff.py -- conversion of a synthetic Operetta
-export (see tests/helpers.py) to OME-TIFF."""
+export (see tests/helpers.py) and of a small real export from the reference
+dataset to OME-TIFF."""
+from pathlib import Path
+import shutil
 
 from bioio import BioImage
 import numpy as np
 import pandas as pd
 import pytest
+import tifffile
 
 from blimp.preprocessing.operetta_to_ome_tiff import (
     _get_zyx_resolution,
@@ -93,3 +97,49 @@ def test_operetta_to_ome_tiff_writes_stacks_and_mips(operetta_dataset):
     metadata = pd.read_csv(out_path / "image_metadata.csv")
     assert len(metadata) == 4
     assert (metadata["NPlanes"] == 3).all()
+
+
+@pytest.fixture
+def reference_images_dir(test_data, tmp_path):
+    """A small (cropped) real Operetta CLS export from the reference dataset,
+    copied so that converted files are not written into the dataset."""
+    measurement = "20240905_Cycle1_4i_experiment__2024-09-05T20_03_34-Measurement_1"
+    src = Path(test_data) / "datasets" / "operetta" / measurement
+    return Path(shutil.copytree(src, tmp_path / measurement)) / "Images"
+
+
+def test_operetta_to_ome_tiff_reference_data(reference_images_dir):
+    out_path = reference_images_dir.parent / "OME-TIFF"
+    operetta_to_ome_tiff(
+        in_path=reference_images_dir, out_path=out_path, metadata_file="Index.idx.xml", mip=True, keep_stacks=True
+    )
+
+    # output filenames keep the instrument's FieldID
+    assert sorted(p.name for p in out_path.glob("*.ome.tiff")) == [
+        "r02c02f01-fk1fl1.ome.tiff",
+        "r02c02f04-fk1fl1.ome.tiff",
+    ]
+    stack = BioImage(out_path / "r02c02f04-fk1fl1.ome.tiff")
+    assert stack.shape == (1, 3, 3, 128, 128)
+    assert list(stack.channel_names) == ["Alexa 568", "Alexa 647", "DAPI"]
+    assert stack.physical_pixel_sizes.X == pytest.approx(0.149494, rel=1e-5)
+    # planes 1, 8 and 14 of a 2 um stack
+    assert stack.physical_pixel_sizes.Z == pytest.approx(13.0, rel=1e-3)
+
+    raw = np.stack(
+        [
+            np.stack(
+                [tifffile.imread(reference_images_dir / f"r02c02f04p{p:02d}-ch{c}sk1fk1fl1.tiff") for p in (1, 8, 14)]
+            )
+            for c in (1, 2, 3)
+        ]
+    )
+    np.testing.assert_array_equal(stack.data[0], raw)
+
+    mip = BioImage(reference_images_dir.parent / "OME-TIFF-MIP" / "r02c02f04-fk1fl1-mip.ome.tiff")
+    np.testing.assert_array_equal(mip.data[0, :, 0], raw.max(axis=1))
+
+    metadata = pd.read_csv(out_path / "image_metadata.csv")
+    assert len(metadata) == 2
+    assert (metadata["NPlanes"] == 3).all()
+    assert (metadata["NChannels"] == 3).all()

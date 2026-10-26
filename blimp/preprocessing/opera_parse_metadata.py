@@ -228,7 +228,9 @@ def get_image_metadata(metadata_file: Union[str, Path], out_file: Union[str, Pat
     )
 
     # AbsTime includes a UTC offset, store as (timezone-naive) UTC
-    image_metadata["AbsTime"] = pd.to_datetime(image_metadata["AbsTime"], utc=True).dt.tz_localize(None)
+    image_metadata["AbsTime"] = pd.to_datetime(image_metadata["AbsTime"], utc=True, format="ISO8601").dt.tz_localize(
+        None
+    )
 
     # add a "WellName" identifier
     image_metadata["WellName"] = image_metadata[["Row", "Col"]].apply(lambda x: _to_well_name(x.Row, x.Col), axis=1)
