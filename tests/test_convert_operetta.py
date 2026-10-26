@@ -15,12 +15,13 @@ from .helpers import _make_operetta_dataset
 
 def test_generate_pbs_script_formats_template():
     template = (
-        "{INPUT_DIR}|{LOG_DIR}|{USER}|{USER_EMAIL}|{N_BATCHES}|{ARRAY_DIRECTIVE}|{BATCH_ID_EXPR}|"
+        "{INPUT_DIR}|{OUTPUT_DIR}|{LOG_DIR}|{USER}|{USER_EMAIL}|{N_BATCHES}|{ARRAY_DIRECTIVE}|{BATCH_ID_EXPR}|"
         "{MIP}|{KEEP_STACKS}|{SAVE_METADATA_FILES}|{CONDA_ENV}"
     )
     result = generate_pbs_script(
         template=template,
         input_dir="/in",
+        output_dir="/out",
         log_dir="/log",
         user="z1234567",
         email="a@b.com",
@@ -30,7 +31,9 @@ def test_generate_pbs_script_formats_template():
         save_metadata_files=True,
         conda_env="env",
     )
-    assert result == ("/in|/log|z1234567|a@b.com|4|#PBS -J 0-3|${PBS_ARRAY_INDEX}|--mip||--save_metadata_files|env")
+    assert result == (
+        "/in|/out|/log|z1234567|a@b.com|4|#PBS -J 0-3|${PBS_ARRAY_INDEX}|--mip||--save_metadata_files|env"
+    )
 
 
 @pytest.fixture
@@ -76,3 +79,29 @@ def test_check_convert_operetta_dir_ignores_digits_in_parent_dirs(tmp_path):
         keep_stacks=True,
     )
     assert check_convert_operetta_dir(images_dir) == {("03", "06", "01"), ("03", "06", "02")}
+
+
+def test_convert_operetta_writes_to_users_own_directory(tmp_path):
+    """Source data under another user's zID is converted into the same
+    relative path under the converting user's zID, without writing to the
+    source directory."""
+    source_dir = tmp_path / "z1111111" / "operetta_cls" / "experiment"
+    _make_operetta_dataset(source_dir)
+    for p in [source_dir, *source_dir.rglob("*")]:
+        p.chmod(0o555 if p.is_dir() else 0o444)
+    out_path = tmp_path / "z2222222" / "operetta_cls" / "experiment" / "OME-TIFF"
+    try:
+        convert_operetta(
+            in_path=tmp_path / "z1111111", job_path=tmp_path / "jobs", image_format="TIFF", user="z2222222"
+        )
+        content = (tmp_path / "jobs" / "batch_convert_operetta_experiment.pbs").read_text()
+        assert f'OUTPUT_DIR="{out_path.resolve()}"' in content
+
+        operetta_to_ome_tiff(
+            in_path=source_dir / "Images", out_path=out_path, metadata_file="Index.idx.xml", keep_stacks=True
+        )
+        assert (out_path.parent / "image_metadata.csv").exists()
+        assert check_convert_operetta_dir(source_dir / "Images", user="z2222222") == set()
+    finally:
+        for p in [source_dir, *source_dir.rglob("*")]:
+            p.chmod(0o755)

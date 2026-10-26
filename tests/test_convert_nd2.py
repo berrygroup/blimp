@@ -126,3 +126,14 @@ def test_convert_nd2_ngff_writes_jobscript_and_creates_plate(nd2_source_dir, tmp
     # already exist on disk without ever running the generated jobscript.
     plate = open_ome_zarr_plate(store=str(plate_path), mode="r")
     assert plate.rows == [chr(c) for c in range(ord("A"), ord("A") + 16)]
+
+
+def test_convert_nd2_tiff_writes_to_users_own_directory(tmp_path):
+    source_dir = tmp_path / "z1111111" / "nd2" / "WellA01"
+    source_dir.mkdir(parents=True)
+    (source_dir / "WellA01.nd2").write_bytes(b"")
+    convert_nd2(in_path=source_dir, job_path=tmp_path / "jobs", image_format="TIFF", user="z2222222")
+
+    content = (tmp_path / "jobs" / "batch_convert_nd2_WellA01.pbs").read_text()
+    out_path = tmp_path / "z2222222" / "nd2" / "WellA01" / "OME-TIFF"
+    assert f'OUTPUT_DIR="{out_path.resolve()}"' in content
