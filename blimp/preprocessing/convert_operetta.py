@@ -265,8 +265,8 @@ def check_convert_operetta_dir(
                 logger.info(f"Metadata files found in {str(out_path_mip)}")
 
     # get a list of imaging sites from filenames in in_path
-    unique_input_sites = {tuple(re.findall(r"(?<=r|c|f)\d+", str(s))) for s in in_path.glob("*.tiff")}
-    unique_output_sites = {tuple(re.findall(r"(?<=r|c|f)\d+", str(s))) for s in out_path.glob("*.tiff")}
+    unique_input_sites = {tuple(re.findall(r"(?<=r|c|f)\d+", s.name)) for s in in_path.glob("*.tiff")}
+    unique_output_sites = {tuple(re.findall(r"(?<=r|c|f)\d+", s.name)) for s in out_path.glob("*.tiff")}
 
     missing_sites = unique_input_sites.difference(unique_output_sites)
 
@@ -284,7 +284,7 @@ def check_convert_operetta_dir(
 
     if mip:
         logger.info(f"Checking MIP output directory...")
-        unique_output_sites_mip = {tuple(re.findall(r"(?<=r|c|f)\d+", str(s))) for s in out_path_mip.glob("*.tiff")}
+        unique_output_sites_mip = {tuple(re.findall(r"(?<=r|c|f)\d+", s.name)) for s in out_path_mip.glob("*.tiff")}
         missing_sites_mip = unique_input_sites.difference(unique_output_sites_mip)
 
         if len(missing_sites_mip) != 0:

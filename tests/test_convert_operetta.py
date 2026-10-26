@@ -60,3 +60,19 @@ def test_check_convert_operetta_dir_reports_missing_then_complete(experiment_dir
 
     operetta_to_ome_tiff(batch_id=1, **convert)
     assert check_convert_operetta_dir(images_dir) == set()
+
+
+def test_check_convert_operetta_dir_ignores_digits_in_parent_dirs(tmp_path):
+    # e.g. macOS temporary directories such as /var/folders/.../f2113800000/
+    experiment_dir = tmp_path / "rc1" / "experiment"
+    _make_operetta_dataset(experiment_dir)
+    images_dir = experiment_dir / "Images"
+    operetta_to_ome_tiff(
+        in_path=images_dir,
+        out_path=experiment_dir / "OME-TIFF",
+        metadata_file="Index.idx.xml",
+        n_batches=2,
+        batch_id=0,
+        keep_stacks=True,
+    )
+    assert check_convert_operetta_dir(images_dir) == {("03", "06", "01"), ("03", "06", "02")}
