@@ -107,13 +107,27 @@ def download_figshare_file(repository_id: str, output_filename: str) -> str:
     return str(output_path)
 
 
+# Paths (relative to tests/_data) provided by the current Figshare version of
+# the test dataset. When uploading a new version, add a path from the new
+# dataset here so that existing local copies are recognised as out of date.
+TEST_DATA_REQUIRED_PATHS = [
+    os.path.join("resources", "affine.txt"),
+    os.path.join("datasets", "opera_phenix"),
+]
+
+
+def is_test_data_complete(data_dir: Path_t) -> bool:
+    """Whether ``data_dir`` holds the current version of the test dataset."""
+    return all(os.path.exists(os.path.join(data_dir, p)) for p in TEST_DATA_REQUIRED_PATHS)
+
+
 def load_test_data() -> str:
     """
     Download the reference test dataset to ``SCRIPTS_DIR/tests``.
 
-    Extracts an existing ``_data.zip`` if present, otherwise downloads it from
-    Figshare. Does nothing when the dataset is already extracted, so this is
-    cheap to call repeatedly.
+    Extracts an existing ``_data.zip`` if present, otherwise (or if that
+    archive is out of date) downloads it from Figshare. Does nothing when the
+    current dataset is already extracted, so this is cheap to call repeatedly.
 
     Returns
     -------
@@ -124,23 +138,25 @@ def load_test_data() -> str:
     base_dir = os.path.join(SCRIPTS_DIR, "tests")
     logger.debug(f"Test data base_dir = {base_dir}")
     archive_path = os.path.join(base_dir, "_data.zip")
+    data_dir = os.path.join(base_dir, "_data")
     # check if is downloaded already
-    if os.path.exists(os.path.join(base_dir, "_data")) and os.path.exists(os.path.join(base_dir, "_experiments")):
-        datacontent = os.listdir(os.path.join(base_dir, "_data", "resources"))
-        if "affine.txt" in datacontent:
-            logger.info(
-                f"Using previously downloaded/extracted test data. Delete {os.path.join(base_dir, '_data')} directory to force re-download."
-            )
-            return os.path.join(base_dir, "_data")
+    if os.path.exists(os.path.join(base_dir, "_experiments")) and is_test_data_complete(data_dir):
+        logger.info(
+            f"Using previously downloaded/extracted test data. Delete {data_dir} directory to force re-download."
+        )
+        return data_dir
     # have to unpack/redownload
     if os.path.exists(archive_path):
         logger.info(f"Extracting test data. Delete {archive_path} directory to force re-download.")
         shutil.unpack_archive(archive_path, base_dir)
+        if is_test_data_complete(data_dir):
+            return data_dir
+        logger.info(f"{archive_path} is out of date. Attempting to download the current version from Figshare...")
     else:
         logger.info(f"{archive_path} or dataset does not yet exist. Attempting to download from Figshare...")
-        archive_path = download_figshare_file(repository_id, output_filename=archive_path)
-        shutil.unpack_archive(archive_path, base_dir)
-    return os.path.join(base_dir, "_data")
+    archive_path = download_figshare_file(repository_id, output_filename=archive_path)
+    shutil.unpack_archive(archive_path, base_dir)
+    return data_dir
 
 
 def load_dataset(dataset_path: Path_t, fname: str, backup_url: str) -> Path_t:

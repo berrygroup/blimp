@@ -108,11 +108,10 @@ def blimp_test_config(_experiment_dir, monkeypatch):
 
 
 def _dataset_is_present():
+    from blimp.data import is_test_data_complete
     from blimp.constants import SCRIPTS_DIR
 
-    base = os.path.join(SCRIPTS_DIR, "tests")
-    resources = os.path.join(base, "_data", "resources")
-    return os.path.isdir(os.path.join(base, "_data")) and os.path.isfile(os.path.join(resources, "affine.txt"))
+    return is_test_data_complete(os.path.join(SCRIPTS_DIR, "tests", "_data"))
 
 
 @pytest.fixture(scope="session")

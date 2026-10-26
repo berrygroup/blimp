@@ -1,10 +1,14 @@
 """Tests for opera_to_ome_tiff.py -- conversion of a synthetic Opera Phenix
-export (see tests/helpers.py) to OME-TIFF."""
+export (see tests/helpers.py) and of a small real export from the reference
+dataset to OME-TIFF."""
+from pathlib import Path
+import shutil
 
 from bioio import BioImage
 import numpy as np
 import pandas as pd
 import pytest
+import tifffile
 
 from blimp.preprocessing.opera_to_ome_tiff import (
     opera_to_ome_tiff,
@@ -158,3 +162,30 @@ def test_opera_to_ome_tiff_rejects_same_in_and_out_path(opera_dataset):
     measurement_dir, _ = opera_dataset
     with pytest.raises(ValueError, match="same"):
         opera_to_ome_tiff(in_path=measurement_dir / "images", out_path=measurement_dir / "images", mip=True)
+
+
+@pytest.fixture
+def reference_measurement_dir(test_data, tmp_path):
+    """A small (cropped) real Opera Phenix export from the reference dataset,
+    copied so that converted files are not written into the dataset."""
+    measurement = "7ff28d40-ab05-4813-b326-50cfde35c09d"
+    src = Path(test_data) / "datasets" / "opera_phenix" / measurement
+    return Path(shutil.copytree(src, tmp_path / measurement))
+
+
+def test_opera_to_ome_tiff_reference_data(reference_measurement_dir):
+    images_dir = reference_measurement_dir / "images"
+    opera_to_ome_tiff(in_path=images_dir, out_path=reference_measurement_dir / "OME-TIFF", mip=True, keep_stacks=True)
+
+    stack = BioImage(reference_measurement_dir / "OME-TIFF" / "r03c05f02.ome.tiff")
+    assert stack.shape == (1, 1, 3, 128, 128)
+    assert list(stack.channel_names) == ["DAPI"]
+    assert stack.physical_pixel_sizes.X == pytest.approx(0.0941867, rel=1e-5)
+    # planes 1, 8 and 15 of a 0.5 um stack
+    assert stack.physical_pixel_sizes.Z == pytest.approx(3.5, rel=1e-3)
+
+    raw = np.stack([tifffile.imread(images_dir / "r03c05" / f"r03c05f02p{p:02d}-ch01t01.tiff") for p in (1, 8, 15)])
+    np.testing.assert_array_equal(stack.data[0, 0], raw)
+
+    mip = BioImage(reference_measurement_dir / "OME-TIFF-MIP" / "r03c05f02-mip.ome.tiff")
+    np.testing.assert_array_equal(mip.data[0, 0, 0], raw.max(axis=0))
