@@ -122,13 +122,19 @@ def is_test_data_complete(data_dir: Path_t) -> bool:
     return all(os.path.exists(os.path.join(data_dir, p)) for p in TEST_DATA_REQUIRED_PATHS)
 
 
-def load_test_data() -> str:
+def load_test_data(base_dir: Optional[Path_t] = None) -> str:
     """
-    Download the reference test dataset to ``SCRIPTS_DIR/tests``.
+    Download the reference test dataset to ``base_dir``.
 
     Extracts an existing ``_data.zip`` if present, otherwise (or if that
     archive is out of date) downloads it from Figshare. Does nothing when the
     current dataset is already extracted, so this is cheap to call repeatedly.
+
+    Parameters
+    ----------
+    base_dir
+        Directory to extract ``_data`` and ``_experiments`` into. Defaults
+        to ``SCRIPTS_DIR/tests``.
 
     Returns
     -------
@@ -136,7 +142,9 @@ def load_test_data() -> str:
         Path to the extracted ``_data`` directory.
     """
     repository_id = "23972244"
-    base_dir = os.path.join(SCRIPTS_DIR, "tests")
+    if base_dir is None:
+        base_dir = os.path.join(SCRIPTS_DIR, "tests")
+    base_dir = str(base_dir)
     logger.debug(f"Test data base_dir = {base_dir}")
     archive_path = os.path.join(base_dir, "_data.zip")
     data_dir = os.path.join(base_dir, "_data")
