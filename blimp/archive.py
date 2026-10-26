@@ -15,8 +15,9 @@ from blimp.preprocessing.convert_operetta import find_images_dirs
 logger = logging.getLogger(__name__)
 
 # top-level directories of an opera measurement written by blimp
-# (rather than the microscope), which are not archived
-OPERA_EXCLUDED_DIRS = ["Archive", "OME-TIFF", "OME-TIFF-MIP"]
+# (rather than the microscope), which are not archived. OME-Zarr
+# stores (e.g. plate.zarr) are also excluded.
+OPERA_EXCLUDED_DIRS = ["Archive", "OME-TIFF", "OME-TIFF-MIP", "OME-NGFF"]
 
 
 def check_config_file() -> bool:
@@ -102,7 +103,8 @@ def split_opera_files_into_archiving_batches(measurement_dir: Union[Path, str]) 
     Each well subdirectory of 'images' (e.g. 'images/r03c05') forms one
     batch. All other files (measurement, index and flatfield metadata, and
     the image index files in 'images') form a 'metadata' batch, excluding
-    directories written by blimp (see ``OPERA_EXCLUDED_DIRS``).
+    directories written by blimp (see ``OPERA_EXCLUDED_DIRS``) and
+    OME-Zarr stores.
 
     Parameters
     ----------
@@ -120,7 +122,8 @@ def split_opera_files_into_archiving_batches(measurement_dir: Union[Path, str]) 
 
     for path in sorted(measurement_dir.rglob("*")):
         relative_path = path.relative_to(measurement_dir)
-        if path.is_dir() or relative_path.parts[0] in OPERA_EXCLUDED_DIRS:
+        top_level = relative_path.parts[0]
+        if path.is_dir() or top_level in OPERA_EXCLUDED_DIRS or top_level.endswith(".zarr"):
             continue
         if (
             len(relative_path.parts) == 3

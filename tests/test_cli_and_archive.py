@@ -270,8 +270,9 @@ def opera_measurement_dir(tmp_path):
     (measurement_dir / "flatfieldcorrection").mkdir()
     (measurement_dir / "flatfieldcorrection" / "155138c0-0062-4414-b93f.xml").touch()
     (measurement_dir / "images" / "image.index.txt").touch()
-    (measurement_dir / "OME-TIFF").mkdir()
-    (measurement_dir / "OME-TIFF" / "r03c05f01.ome.tiff").touch()
+    for output in ["OME-TIFF/r03c05f01.ome.tiff", "OME-NGFF/plate.zarr/zarr.json", "plate.zarr/zarr.json"]:
+        (measurement_dir / output).parent.mkdir(parents=True, exist_ok=True)
+        (measurement_dir / output).touch()
     return measurement_dir
 
 
@@ -317,3 +318,4 @@ def test_archive_opera_writes_batches_and_script(opera_measurement_dir, tmp_path
     assert f"'{archive_dir}'" in text
     assert "Compute checksums locally" in text
     assert "OME-TIFF" not in text
+    assert "zarr" not in "".join(p.read_text() for p in archive_dir.glob("*.txt"))
