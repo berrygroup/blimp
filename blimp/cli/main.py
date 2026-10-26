@@ -104,6 +104,10 @@ def _add_convert_operetta_args(parser: argparse.ArgumentParser) -> None:
     return None
 
 
+def _add_convert_opera_args(parser: argparse.ArgumentParser) -> None:
+    return None
+
+
 def _add_convert_nd2_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-y",
@@ -332,6 +336,35 @@ def _convert_operetta(args) -> None:
     return None
 
 
+def _convert_opera(args) -> None:
+    """Wrapper for convert_opera()"""
+    from blimp.preprocessing.convert_opera import convert_opera, check_convert_opera
+
+    if args.verify_only:
+        check_convert_opera(
+            in_path=args.input_path,
+            save_metadata_files=True,
+            mip=args.mip,
+            keep_stacks=args.keep_stacks,
+        )
+    else:
+        convert_opera(
+            in_path=args.input_path,
+            job_path=args.jobscript_path,
+            image_format=args.output_format,
+            n_batches=args.batch,
+            save_metadata_files=True,
+            mip=args.mip,
+            keep_stacks=args.keep_stacks,
+            submit=args.submit,
+            user=args.user,
+            email=args.email,
+            conda_env=args.conda_env,
+            dryrun=False,
+        )
+    return None
+
+
 def _add_archive_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-i", "--input_path", help="Top-level directory to search for images to be converted (required)", required=True
@@ -379,6 +412,20 @@ def _archive_operetta(args) -> None:
         in_path=args.input_path,
         jobscript_path=args.jobscript_path if args.jobscript_path is not None else os.getcwd(),
         input_type="operetta",
+        first_name=args.first_name,
+        project_name=args.project_name,
+    )
+    return None
+
+
+def _archive_opera(args) -> None:
+    """Wrapper for archive(input_type=="opera")"""
+    from blimp.archive import archive
+
+    archive(
+        in_path=args.input_path,
+        jobscript_path=args.jobscript_path if args.jobscript_path is not None else os.getcwd(),
+        input_type="opera",
         first_name=args.first_name,
         project_name=args.project_name,
     )
@@ -474,6 +521,20 @@ def _get_full_parser() -> argparse.ArgumentParser:
     _add_convert_args(convert_operetta_subparser)
     _add_convert_operetta_args(convert_operetta_subparser)
 
+    # Convert - Opera
+    convert_opera_header = """
+        * opera: Convert Perkin-Elmer (Revvity) Opera Phenix files.
+    """
+    convert_opera_subparser = convert_subparsers.add_parser(
+        "opera",
+        help="Perkin-Elmer (Revvity) Opera Phenix",
+        description="".join([header, convert_header, convert_opera_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    convert_opera_subparser.set_defaults(func=_convert_opera)
+    _add_convert_args(convert_opera_subparser)
+    _add_convert_opera_args(convert_opera_subparser)
+
     # Convert - TIFF pipeline
     convert_tiff_header = """
         * tiff: Assemble an existing OME-TIFF pipeline's output
@@ -518,6 +579,19 @@ def _get_full_parser() -> argparse.ArgumentParser:
     )
     archive_operetta_subparser.set_defaults(func=_archive_operetta)
     _add_archive_args(archive_operetta_subparser)
+
+    # Archive - Opera
+    archive_opera_header = """
+        * opera: archive Perkin-Elmer (Revvity) Opera Phenix files.
+    """
+    archive_opera_subparser = archive_subparsers.add_parser(
+        "opera",
+        help="Perkin-Elmer (Revvity) Opera Phenix",
+        description="".join([header, archive_header, archive_opera_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    archive_opera_subparser.set_defaults(func=_archive_opera)
+    _add_archive_args(archive_opera_subparser)
 
     return parser
 
