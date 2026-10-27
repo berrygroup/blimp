@@ -1,13 +1,13 @@
 """Convert Perkin-Elmer (Revvity) Opera Phenix image files to standard open
 microscopy environment formats."""
-from typing import Union
+from typing import Union, Optional
 from pathlib import Path
 import re
 import glob
 import logging
 import subprocess
 
-from blimp.utils import read_template, pbs_array_directive
+from blimp.utils import read_template, user_output_path, pbs_array_directive
 from blimp.preprocessing.opera_to_ome_tiff import opera_regex_filename_pattern
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ def find_images_dirs(basepath: Union[str, Path]):
 def generate_pbs_script(
     template: str,
     input_dir: str,
+    output_dir: str,
     log_dir: str,
     user: str,
     email: str,
@@ -53,6 +54,8 @@ def generate_pbs_script(
         PBS jobscript template
     input_dir
         full path to the measurement directory (containing "images")
+    output_dir
+        full path to the output OME-TIFF directory
     log_dir
         full path to where output logs should be written
     user
@@ -79,6 +82,7 @@ def generate_pbs_script(
 
     return template.format(
         INPUT_DIR=input_dir,
+        OUTPUT_DIR=output_dir,
         LOG_DIR=log_dir,
         USER=user,
         USER_EMAIL=email,
@@ -168,6 +172,7 @@ def convert_opera(
         jobscript = generate_pbs_script(
             template=jobscript_template,
             input_dir=str(images_parent_path.resolve()),
+            output_dir=str(user_output_path(images_parent_path.resolve(), user, "OME-TIFF")),
             log_dir=str(log_path.resolve()),
             user=user,
             email=email,
@@ -195,7 +200,11 @@ def convert_opera(
 
 
 def check_convert_opera(
-    in_path: Union[str, Path], mip: bool = False, keep_stacks: bool = True, save_metadata_files: bool = True
+    in_path: Union[str, Path],
+    mip: bool = False,
+    keep_stacks: bool = True,
+    save_metadata_files: bool = True,
+    user: Optional[str] = None,
 ) -> None:
     """Check that all files were converted.
 
@@ -209,6 +218,9 @@ def check_convert_opera(
         whether to also check for stacks
     save_metadata_files
         whether the metadata files should be saved after XML parsing
+    user
+        zID of the user who ran the conversion. Output is looked for under
+        this user's directory (see :func:`blimp.utils.user_output_path`).
     """
     # search recursively for "images" directories
     logger.info("Searching for 'images' directories...")
@@ -221,6 +233,7 @@ def check_convert_opera(
             mip=mip,
             keep_stacks=keep_stacks,
             save_metadata_files=save_metadata_files,
+            user=user,
         )
 
     return
@@ -245,7 +258,11 @@ def _format_site(site: tuple) -> str:
 
 
 def check_convert_opera_dir(
-    in_path: Union[str, Path], mip: bool = False, keep_stacks: bool = True, save_metadata_files: bool = True
+    in_path: Union[str, Path],
+    mip: bool = False,
+    keep_stacks: bool = True,
+    save_metadata_files: bool = True,
+    user: Optional[str] = None,
 ) -> set:
     """Check that all files were converted (single directory).
 
@@ -259,6 +276,9 @@ def check_convert_opera_dir(
         whether to also check for stacks
     save_metadata_files
         whether the metadata files should be saved after XML parsing
+    user
+        zID of the user who ran the conversion. Output is looked for under
+        this user's directory (see :func:`blimp.utils.user_output_path`).
 
     Returns
     -------
@@ -266,7 +286,7 @@ def check_convert_opera_dir(
     """
 
     in_path = Path(in_path)
-    out_path = in_path.parent / "OME-TIFF"
+    out_path = user_output_path(in_path.parent, user, "OME-TIFF")
     out_path_mip = out_path.parent / (str(out_path.stem) + "-MIP")
 
     # check directories exist
