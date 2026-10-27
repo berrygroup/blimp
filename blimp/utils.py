@@ -1,9 +1,11 @@
 """Miscellaneous utilities for blimp"""
 from typing import List, Tuple, Union, Optional
+from pathlib import Path
+import re
 import logging
 
+from bioio import BioImage
 from welford import Welford
-from aicsimageio import AICSImage
 import numpy as np
 import mahotas as mh
 import dask.array as da
@@ -35,12 +37,12 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
     uint_types = [np.uint8, np.uint16, np.uint32, np.uint64]
     float_types = [np.float16, np.float32, np.float64]
     allowed_types = int_types + uint_types + float_types
-    if not dtype in allowed_types:
-        raise TypeError("``dtype`` = {dtype} is either not recognised or not allowed")
+    if dtype not in allowed_types:
+        raise TypeError(f"``dtype`` = {dtype} is either not recognised or not allowed")
 
     # convert input to a numpy array
     if isinstance(arr, da.core.Array):
-        arr = np.ndarray(arr)
+        arr = np.asarray(arr)
     if not isinstance(arr, np.ndarray):
         raise TypeError("``arr`` is not a ``numpy.ndarray``")
 
@@ -56,21 +58,21 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
     if old_dtype == new_dtype:
         pass
 
-    elif old_dtype.kind == 'u':  # unsigned integer
+    elif old_dtype.kind == "u":  # unsigned integer
         # convert from uint
         if np.can_cast(old_dtype, new_dtype):
             new = new.astype(new_dtype)
         else:
             raise TypeError(f"Cannot cast {old_dtype} to {new_dtype}")
 
-    elif old_dtype.kind == 'i':  # signed integer
+    elif old_dtype.kind == "i":  # signed integer
         # convert from int
         if np.can_cast(old_dtype, new_dtype):
             new = new.astype(new_dtype)
         else:
             raise TypeError(f"Cannot cast {old_dtype} to {new_dtype}")
 
-    elif old_dtype.kind == 'f':  # float
+    elif old_dtype.kind == "f":  # float
         # convert from float
         if not round_floats_if_necessary:
             if np.can_cast(old_dtype, new_dtype):
@@ -96,9 +98,9 @@ def convert_array_dtype(arr, dtype, round_floats_if_necessary=False, copy=True):
     return new
 
 
-def convert_image_dtype(image: AICSImage, dtype: np.dtype) -> AICSImage:
+def convert_image_dtype(image: BioImage, dtype: np.dtype) -> BioImage:
     """
-    Change the dtype of an AICSImage object.
+    Change the dtype of a BioImage object.
 
     This function converts the data type of the image's data using the
     `convert_array_dtype` function. It preserves the channel
@@ -106,18 +108,18 @@ def convert_image_dtype(image: AICSImage, dtype: np.dtype) -> AICSImage:
 
     Parameters
     ----------
-    image : AICSImage
-        The input AICSImage object containing the image data.
+    image : BioImage
+        The input BioImage object containing the image data.
     dtype : np.dtype
         The target dtype to convert the image data to.
 
     Returns
     -------
-    AICSImage
-        A new AICSImage object with the updated dtype,
+    BioImage
+        A new BioImage object with the updated dtype,
         retaining the original channel names and physical pixel sizes.
     """
-    return AICSImage(
+    return BioImage(
         convert_array_dtype(image.data, dtype),
         channel_names=image.channel_names,
         physical_pixel_sizes=image.physical_pixel_sizes,
@@ -149,7 +151,7 @@ def equal_dims(a, b, dimensions="TCZYX"):
 
 
 def _axis_str_to_int(axis: Union[str, int]) -> int:
-    """Convert AICSImage dimension character to corresponding int."""
+    """Convert BioImage dimension character to corresponding int."""
     if isinstance(axis, str):
         if axis not in AXIS_STR_TO_INT.keys():
             raise ValueError(f"Unknown axis : {axis}")
@@ -165,7 +167,7 @@ def _axis_str_to_int(axis: Union[str, int]) -> int:
 
 
 def _axis_int_to_str(axis: Union[str, int]) -> str:
-    """Convert int to corresponding AICSImage dimension character."""
+    """Convert int to corresponding BioImage dimension character."""
     if isinstance(axis, int):
         if axis not in AXIS_INT_TO_STR.keys():
             raise ValueError(f"Unknown axis : {axis}")
@@ -214,16 +216,16 @@ def confirm_array_rank(
     return None
 
 
-def make_channel_names_unique(image: AICSImage) -> AICSImage:
+def make_channel_names_unique(image: BioImage) -> BioImage:
     if image.channel_names == None or image.channel_names == []:
-        out = AICSImage(
+        out = BioImage(
             image.data,
             channel_names=[f"Channel_{index}" for index in range(image.dims.C)],
             physical_pixel_sizes=image.physical_pixel_sizes,
         )
         logger.warning(f"Channel names missing or empty, renaming to {out.channel_names}")
     elif len(set(image.channel_names)) != image.dims.C:
-        out = AICSImage(
+        out = BioImage(
             image.data,
             channel_names=[f"{name}_{index}" for index, name in enumerate(image.channel_names)],
             physical_pixel_sizes=image.physical_pixel_sizes,
@@ -243,14 +245,76 @@ def read_template(template_name: str) -> str:
     return pkg_resources.read_text(templates, template_name)
 
 
-def check_correct_dimension_order(images: Union[AICSImage, List[AICSImage]]) -> bool:
+def pbs_array_directive(n_batches: int) -> Tuple[str, str]:
+    """Build the ``#PBS -J`` array directive and the batch-index expression
+    for a PBS jobscript template, given how many batches it splits work into.
+
+    A single-batch job (``n_batches == 1``) skips the ``-J`` directive
+    entirely and hardcodes batch index ``0``, rather than submitting a
+    single-subjob array via ``-J 0-0`` -- confirmed against a real cluster
+    that some PBS Pro deployments reject that as an "illegal -J value"
+    (start must be strictly less than end), so relying on it would break
+    the common, default single-batch case outright.
+
+    Parameters
+    ----------
+    n_batches
+        Number of batches the job splits its work into.
+
+    Returns
+    -------
+    Tuple[str, str]
+        ``(array_directive, batch_id_expr)`` -- the first is either
+        ``"#PBS -J 0-{n_batches - 1}"`` or ``""``; the second is either
+        ``"${PBS_ARRAY_INDEX}"`` (to be read from the array environment at
+        runtime) or the literal ``"0"``.
+    """
+    if n_batches > 1:
+        return f"#PBS -J 0-{n_batches - 1}", "${PBS_ARRAY_INDEX}"
+    return "", "0"
+
+
+def user_output_path(source_dir: Union[str, Path], user: Optional[str], output_name: str) -> Path:
+    """Path to write converted output for ``source_dir`` to, in ``user``'s
+    own directory.
+
+    Source data often belongs to another user, whose directories the person
+    running the conversion cannot write to. The first zID in ``source_dir``
+    (e.g. ``/srv/scratch/berrylab/z1234567/...``) is replaced by ``user``,
+    so output is written to the same relative path under ``user``'s
+    directory. Paths without a zID, or ``user=None``, are left unchanged.
+
+    Parameters
+    ----------
+    source_dir
+        Directory containing (or representing) the source data.
+    user
+        zID of the user running the conversion.
+    output_name
+        Name of the output directory or store, e.g. "OME-TIFF".
+
+    Returns
+    -------
+    pathlib.Path
+        ``<source_dir, with zID replaced>/<output_name>``
+    """
+    source_dir = str(source_dir)
+    if user is not None:
+        user_dir = re.sub(r"/z\d{7}(?=/|$)", f"/{user}", source_dir, count=1)
+        if user_dir != source_dir:
+            logger.info(f"zID in input path does not match user's zID, writing output to {user_dir}")
+        source_dir = user_dir
+    return Path(source_dir) / output_name
+
+
+def check_correct_dimension_order(images: Union[BioImage, List[BioImage]]) -> bool:
     """
     Check that the order of dimensions is 'TCZYX'.
 
     Parameters
     ----------
     images
-        A single `AICSImage` or a list of `AICSImage`s to check the dimension order of.
+        A single `BioImage` or a list of `BioImage`s to check the dimension order of.
 
     Returns
     -------
@@ -260,37 +324,37 @@ def check_correct_dimension_order(images: Union[AICSImage, List[AICSImage]]) -> 
     Raises
     ------
     TypeError
-        If input is not an AICSImage or a list of AICSImages.
-        If input is a list and not all elements are of type AICSImage.
+        If input is not a BioImage or a list of BioImages.
+        If input is a list and not all elements are of type BioImage.
     """
     if isinstance(images, list):
-        if all([isinstance(el, AICSImage) for el in images]):
+        if all([isinstance(el, BioImage) for el in images]):
             dim_orders = [image.dims.order for image in images]
             result = all([element == "TCZYX" for element in dim_orders])
         else:
-            raise TypeError("Not all list elements are of type AICSImage")
+            raise TypeError("Not all list elements are of type BioImage")
             result = False
-    elif isinstance(images, AICSImage):
+    elif isinstance(images, BioImage):
         result = images.dims.order == "TCZYX"
     else:
-        raise TypeError("Input is not an AICSImage or list of AICSImages")
+        raise TypeError("Input is not a BioImage or list of BioImages")
         result = False
 
     return result
 
 
 def check_uniform_dimension_sizes(
-    images: Union[AICSImage, List[AICSImage]],
+    images: Union[BioImage, List[BioImage]],
     omit: Union[int, str, None] = None,
     check_dtype: bool = True,
 ) -> bool:
     """
-    Check that the dimensions of a list of AICSImages are uniform.
+    Check that the dimensions of a list of BioImages are uniform.
 
     Parameters
     ----------
     images
-        A single AICSImage or a list of AICSImages to check for matching
+        A single BioImage or a list of BioImages to check for matching
         dimension sizes.
     omit
         Integer or string designating a single axis to be omitted
@@ -308,7 +372,7 @@ def check_uniform_dimension_sizes(
     Raises
     ------
     TypeError
-        If input is not an AICSImage or list of AICSImages.
+        If input is not a BioImage or list of BioImages.
     TypeError
         If dtypes are not the same for all elements of the list.
     """
@@ -325,12 +389,12 @@ def check_uniform_dimension_sizes(
     # then check that the dimension sizes match
     if correct_dimension_order:
         if isinstance(images, list):
-            if all([isinstance(el, AICSImage) for el in images]):
+            if all([isinstance(el, BioImage) for el in images]):
                 # check that dtypes are the same
                 first_dtype = images[0].dtype
                 if check_dtype:
                     if not all([image.dtype == first_dtype for image in images]):
-                        raise TypeError("List of AICSImages have non-matching data types")
+                        raise TypeError("List of BioImages have non-matching data types")
                 # compare sizes
                 dim_sizes = [image.dims.shape for image in images]
                 first = dim_sizes[0]
@@ -343,19 +407,81 @@ def check_uniform_dimension_sizes(
                     result = all(
                         [(ds[:omit] + ds[omit + 1 :]) == (first[:omit] + first[omit + 1 :]) for ds in dim_sizes]
                     )
-        elif isinstance(images, AICSImage):
+        elif isinstance(images, BioImage):
             # only one image passed
             result = True
         else:
-            raise TypeError("Input is not an AICSImage or list of AICSImages")
+            raise TypeError("Input is not a BioImage or list of BioImages")
     else:
-        logger.error("Not all AICSImages in list have the same dimension order")
+        logger.error("Not all BioImages in list have the same dimension order")
         result = False
 
     return result
 
 
-def mean_std_welford(images: List[AICSImage], log_transform: bool = False) -> tuple:
+def safe_log10(array: np.ndarray) -> np.ndarray:
+    """Base-10 logarithm of an integer intensity image, with zeros mapped to 0.
+
+    ``log10(0)`` is ``-inf``, which propagates into any statistic computed from
+    it and, after a cast back to an integer dtype, silently becomes ``0`` or the
+    dtype maximum. Zero-valued pixels are therefore replaced by ``1`` before the
+    transform, so they map to ``log10(1) == 0``.
+
+    Restricted to unsigned and signed integer arrays deliberately. Substituting
+    ``1`` is only meaningful when ``1`` is the smallest representable non-zero
+    intensity, i.e. one detector count. On a float array -- normalised to
+    ``[0, 1]``, background-subtracted, or already log-scaled -- ``1`` may be the
+    maximum of the data or well outside its range, so the substitution would
+    corrupt rather than protect. Such input is rejected rather than silently
+    mishandled.
+
+    Negative values are also rejected. ``log10`` of a negative number is
+    ``NaN``, and ``NaN`` is not caught by an ``isinf`` check, so it passes
+    silently into a running accumulator and poisons that pixel for every
+    subsequent image. Negatives in raw intensity data indicate a prior
+    background subtraction or an out-of-range cast, which the caller should
+    resolve rather than have this function guess at.
+
+    Parameters
+    ----------
+    array
+        Integer intensity image. Not modified.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``float64`` array of base-10 logarithms, with zero-valued pixels mapped
+        to ``0.0``.
+
+    Raises
+    ------
+    TypeError
+        If ``array`` does not have an integer dtype.
+    ValueError
+        If ``array`` contains negative values.
+    """
+    if array.dtype.kind not in ("u", "i"):
+        raise TypeError(
+            f"``safe_log10`` requires an integer intensity array, got dtype {array.dtype}. "
+            "Zeros are replaced by 1 before the log transform, which is only meaningful "
+            "when 1 is one detector count. For float input (normalised, background-"
+            "subtracted, or already log-scaled) rescale to integer counts first."
+        )
+    if array.dtype.kind == "i" and array.min() < 0:
+        raise ValueError(
+            f"``safe_log10`` requires non-negative intensities, found minimum {array.min()}. "
+            "``log10`` of a negative value is NaN, which is not caught by ``isinf`` checks "
+            "and would silently corrupt any statistic computed from it."
+        )
+
+    n_zero = int(np.count_nonzero(array == 0))
+    if n_zero:
+        logger.debug(f"Replacing {n_zero} zero-valued pixels with 1 before log10 transform")
+    # np.where builds a new array, so the caller's input is never modified.
+    return np.log10(np.where(array == 0, 1, array).astype(np.float64))
+
+
+def mean_std_welford(images: List[BioImage], log_transform: bool = False) -> tuple:
     n_c = images[0].dims.C
     w = [Welford() for i in range(n_c)]
     for image in images:
@@ -363,26 +489,26 @@ def mean_std_welford(images: List[AICSImage], log_transform: bool = False) -> tu
             array_lazy = image.get_image_dask_data("YX", C=c, T=0, Z=0)
             array = array_lazy.compute()
             if log_transform:
-                is_zero = array == 0
-                if np.any(is_zero):
-                    logger.warning("image contains zero values")
-                array = np.log10(array)
-                # The log10 transform sets zero pixel values to -inf
-                array[is_zero] = 0
-            if np.any(np.isinf(array)):
-                logger.warning("skip image because it contains infinite values")
+                # Maps zeros to log10(1) == 0 and rejects float and negative
+                # input rather than producing NaN. See ``safe_log10``.
+                array = safe_log10(array)
+            if np.any(~np.isfinite(array)):
+                # NaN as well as +/-inf: NaN is not caught by ``isinf`` and would
+                # otherwise enter the accumulator and poison that pixel for every
+                # subsequent image.
+                logger.warning("skip image because it contains non-finite values")
             else:
                 w[c].add(array)
 
     mean_arrays = [w[c].mean for c in range(n_c)]
     std_arrays = [np.sqrt(w[c].var_s) for c in range(n_c)]
 
-    m = AICSImage(
+    m = BioImage(
         np.stack(mean_arrays, axis=0)[np.newaxis, :, np.newaxis, :, :],
         channel_names=images[0].channel_names,
         physical_pixel_sizes=images[0].physical_pixel_sizes,
     )
-    s = AICSImage(
+    s = BioImage(
         np.stack(std_arrays, axis=0)[np.newaxis, :, np.newaxis, :, :],
         channel_names=images[0].channel_names,
         physical_pixel_sizes=images[0].physical_pixel_sizes,
@@ -391,18 +517,18 @@ def mean_std_welford(images: List[AICSImage], log_transform: bool = False) -> tu
     return m, s
 
 
-def average_images(images: List[AICSImage], keep_same_type: bool = True) -> AICSImage:
+def average_images(images: List[BioImage], keep_same_type: bool = True) -> BioImage:
     """
     Calculate the average of multiple images.
 
     Parameters
     ----------
     image_list
-        A list of `AICSImage` objects to be averaged.
+        A list of `BioImage` objects to be averaged.
 
     Returns
     -------
-    AICSImage
+    BioImage
         The averaged image.
 
     Raise
@@ -442,21 +568,21 @@ def average_images(images: List[AICSImage], keep_same_type: bool = True) -> AICS
         else:
             arr = arr.astype(images[0].dtype)
 
-    return AICSImage(arr, channel_names=images[0].channel_names, physical_pixel_sizes=images[0].physical_pixel_sizes)
+    return BioImage(arr, channel_names=images[0].channel_names, physical_pixel_sizes=images[0].physical_pixel_sizes)
 
 
-def std_images(images: List[AICSImage], keep_same_type: bool = True) -> AICSImage:
+def std_images(images: List[BioImage], keep_same_type: bool = True) -> BioImage:
     """
     Calculate the standard deviation (per pixel) of multiple images.
 
     Parameters
     ----------
     image_list
-        A list of `AICSImage` objects.
+        A list of `BioImage` objects.
 
     Returns
     -------
-    AICSImage
+    BioImage
         The standard deviation image.
 
     Raise
@@ -496,19 +622,19 @@ def std_images(images: List[AICSImage], keep_same_type: bool = True) -> AICSImag
         else:
             arr = arr.astype(images[0].dtype)
 
-    return AICSImage(arr, channel_names=images[0].channel_names, physical_pixel_sizes=images[0].physical_pixel_sizes)
+    return BioImage(arr, channel_names=images[0].channel_names, physical_pixel_sizes=images[0].physical_pixel_sizes)
 
 
 def smooth_image(
-    image: AICSImage, sigma: int = 1, method: str = "gaussian", keep_same_type: bool = True, filter_3d: bool = False
-) -> AICSImage:
+    image: BioImage, sigma: int = 1, method: str = "gaussian", keep_same_type: bool = True, filter_3d: bool = False
+) -> BioImage:
     """
     Smooth an image using a Gaussian filter.
 
     Parameters
     ----------
     image
-        An `AICSImage` object to be smoothed.
+        An `BioImage` object to be smoothed.
     sigma
         The standard deviation of the Gaussian filter. Default = 1.
     keep_same_type
@@ -519,16 +645,16 @@ def smooth_image(
         filtered separately. Default = False.
     Returns
     -------
-    AICSImage
+    BioImage
         The smoothed image.
 
     Raise
     ------
     TypeError
-        If input is not an AICSImage.
+        If input is not a BioImage.
     """
-    if not isinstance(image, AICSImage):
-        raise TypeError("Input must be an AICSImage")
+    if not isinstance(image, BioImage):
+        raise TypeError("Input must be a BioImage")
     if method not in ["gaussian", "median"]:
         raise ValueError("Method must be either 'gaussian' or 'median'")
 
@@ -558,19 +684,19 @@ def smooth_image(
     if keep_same_type:
         smoothed_data = convert_array_dtype(smoothed_data, image.dtype)
 
-    return AICSImage(smoothed_data, channel_names=image.channel_names, physical_pixel_sizes=image.physical_pixel_sizes)
+    return BioImage(smoothed_data, channel_names=image.channel_names, physical_pixel_sizes=image.physical_pixel_sizes)
 
 
 def concatenate_images(
-    images: Union[AICSImage, List[AICSImage]], axis: Union[int, str] = 0, order: str = "interleave"
-) -> AICSImage:
+    images: Union[BioImage, List[BioImage]], axis: Union[int, str] = 0, order: str = "interleave"
+) -> BioImage:
     """
-    Concatenates multiple `AICSImage` instances along specified dimensions.
+    Concatenates multiple `BioImage` instances along specified dimensions.
 
     Parameters
     ----------
     images
-        A list of `AICSImage` instances to be concatenated.
+        A list of `BioImage` instances to be concatenated.
     axis
         An integer or character representing the axis to concatenate
         (e.g. 'T' or 0 for time axis, or 'C' or 1 for channel axis. Order is
@@ -581,7 +707,7 @@ def concatenate_images(
 
     Returns
     -------
-    AICSImage
+    BioImage
         The concatenated images
 
     Raises
@@ -592,7 +718,7 @@ def concatenate_images(
 
     Notes
     -----
-    If a single `AICSImage` instance is passed as the `images` argument,
+    If a single `BioImage` instance is passed as the `images` argument,
     the function will return that single image.
     """
     axis_int = _axis_str_to_int(axis)
@@ -601,7 +727,7 @@ def concatenate_images(
     except TypeError:
         raise TypeError("Cannot concatenate list elements of different types")
 
-    if isinstance(images, AICSImage):
+    if isinstance(images, BioImage):
         logger.warning("Tried to concatenate a single image, result is unchanged")
         return images
 
@@ -648,7 +774,7 @@ def concatenate_images(
                 axis=2,
             )
 
-    return AICSImage(arr, channel_names=channel_names, physical_pixel_sizes=physical_pixel_sizes)
+    return BioImage(arr, channel_names=channel_names, physical_pixel_sizes=physical_pixel_sizes)
 
 
 def translate_array(img: np.ndarray, y: int, x: int):
@@ -686,34 +812,32 @@ def translate_array(img: np.ndarray, y: int, x: int):
     return shifted_img
 
 
-def _vollath_f4(arr: np.ndarray):
-    """Vollath's F4 function.
+def _vollath_f4(arr: np.ndarray) -> float:
+    """Vollath's F4 autocorrelation-based focus measure.
 
     Described in https://doi.org/10.1002/jemt.24035
 
-    Code adapted from
-    https://github.com/aquimb/Autofocus-URJC/blob/d3b83382a82315e27e248d09519e3da4dbac40f6/Code/algorithms.py#L200
+    Notes
+    -----
+    The accumulation is performed in ``float64``. Computing this metric in the
+    input's native dtype silently overflows for integer images: for ``uint16``
+    microscopy data, products reach ~4.3e9 and wrap modulo 65536, which can
+    change the selected focus plane. The result is therefore a Python float,
+    independent of input dtype.
     """
-    sum1 = 0
-    sum2 = 0
-    rows = arr.shape[0]
-    cols = arr.shape[1]
-    for i in range(rows - 1):
-        sum1 = sum1 + (arr[i] * arr[i + 1])
+    a = np.asarray(arr, dtype=np.float64)
+    if a.ndim != 2:
+        raise ValueError(f"``arr`` must be rank 2, got rank {a.ndim}")
+    if a.shape[0] < 3:
+        raise ValueError(f"``arr`` must have at least 3 rows, got {a.shape[0]}")
 
-    for i in range(rows - 2):
-        sum2 = sum2 + (arr[i] * arr[i + 2])
-
-    sum3 = sum1 - sum2
-    res = 0
-    for i in range(cols):
-        res = res + sum3[i]  # type: ignore
-
-    return res
+    sum1 = (a[:-1] * a[1:]).sum()
+    sum2 = (a[:-2] * a[2:]).sum()
+    return float(sum1 - sum2)
 
 
 def estimate_focus_plane(
-    image: AICSImage, C: Optional[int], sliding_window: Optional[int] = None, crop: float = 1.0
+    image: BioImage, C: Optional[int], sliding_window: Optional[int] = None, crop: float = 1.0
 ) -> int:
     """
     Estimate the focus plane of a given image using Vollath's F4 method.
@@ -744,10 +868,10 @@ def estimate_focus_plane(
         If `crop` is not less than 1.
     """
 
+    if not isinstance(image, BioImage):
+        raise TypeError("``image`` must be a ``bioio.BioImage``")
     if not isinstance(crop, float):
         raise TypeError("``crop`` must be of type float")
-    if not isinstance(crop, AICSImage):
-        raise TypeError("``image`` must be an ``aicsimageio.AICSImage``")
 
     if C is None:
         logger.warning("Using default channel (C = 0) to calculate focus_plane")
@@ -769,7 +893,9 @@ def estimate_focus_plane(
     # out-of-focus images from stack
     # e.g. intensity = [np.mean(arr) for arr in arrays]
 
-    if sliding_window is not None:
+    if sliding_window is None:
+        max_pos = np.argmax(f4)
+    else:
         if sliding_window > 0:
             logger.debug(f"cropping image with window size {crop}")
             # average using sliding window
@@ -789,14 +915,14 @@ def estimate_focus_plane(
     return int(max_pos)
 
 
-def get_channel_names(image: AICSImage, input: Optional[Union[int, str, List[Union[int, str]]]] = None) -> List[str]:
+def get_channel_names(image: BioImage, input: Optional[Union[int, str, List[Union[int, str]]]] = None) -> List[str]:
     """
     Get the channel names based on input.
 
     Parameters
     ----------
     image
-        An instance of AICSImage with channel_names attribute.
+        An instance of BioImage with channel_names attribute.
     input
         The input specifying channels as integer(s) or string(s).
         Defaults to None.
@@ -1015,12 +1141,12 @@ def _object_middle_planes_3D(intensity_array: np.ndarray, label_array: np.ndarra
 
 
 def concatenated_projection_image_3D(
-    intensity_image: AICSImage,
-    label_image: AICSImage,
+    intensity_image: BioImage,
+    label_image: BioImage,
     label_channel: int = 0,
     label_name: str = "Nuclei-3D-MIP",
     projection_type: str = "MIP",
-) -> Tuple[AICSImage, AICSImage]:
+) -> Tuple[BioImage, BioImage]:
     """
     Generate concatenated projections (MIPs or middle planes) for 3D intensity and label images.
 
@@ -1033,10 +1159,10 @@ def concatenated_projection_image_3D(
 
     Parameters
     ----------
-    intensity_image : AICSImage
-        AICSImage object containing the 3D intensity data.
-    label_image : AICSImage
-        AICSImage object containing the 3D label data.
+    intensity_image : BioImage
+        BioImage object containing the 3D intensity data.
+    label_image : BioImage
+        BioImage object containing the 3D label data.
     label_channel : int, optional
         The channel index in `label_image` to be used for generating the label projection,
         by default 0.
@@ -1046,8 +1172,8 @@ def concatenated_projection_image_3D(
 
     Returns
     -------
-    Tuple[AICSImage, AICSImage]
-        A tuple containing two AICSImage objects: the concatenated projection of the intensity
+    Tuple[BioImage, BioImage]
+        A tuple containing two BioImage objects: the concatenated projection of the intensity
         image and the concatenated projection of the label image.
 
     Raises
@@ -1089,7 +1215,7 @@ def concatenated_projection_image_3D(
         [np.pad(m, pad_width=(y_extent - m.shape[0], 0), constant_values=0) for m in label_projection_arrays], axis=1
     )
 
-    projection_label_image = AICSImage(
+    projection_label_image = BioImage(
         concat_label_projection_arrays[np.newaxis, np.newaxis, np.newaxis, :, :],
         channel_names=[label_name],
         physical_pixel_sizes=label_image.physical_pixel_sizes,
@@ -1112,7 +1238,7 @@ def concatenated_projection_image_3D(
 
     concat_intensity_projection_stack = np.stack(concat_intensity_projection_arrays, axis=0)
 
-    projection_intensity_image = AICSImage(
+    projection_intensity_image = BioImage(
         concat_intensity_projection_stack[np.newaxis, :, np.newaxis, :, :],
         channel_names=intensity_image.channel_names,
         physical_pixel_sizes=intensity_image.physical_pixel_sizes,

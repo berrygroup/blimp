@@ -1,13 +1,12 @@
 """Extract and parse metadata from Perkin-Elmer Operetta metadata files."""
 from typing import List, Union, Pattern
 from pathlib import Path
-import os
 import re
 import logging
 
-from aicsimageio import AICSImage
-from aicsimageio.types import PhysicalPixelSizes
-from aicsimageio.writers import OmeTiffWriter
+from bioio import BioImage
+from bioio_base.types import PhysicalPixelSizes
+from bioio_ome_tiff.writers import OmeTiffWriter
 import numpy as np
 import pandas as pd
 
@@ -73,7 +72,7 @@ def _read_images_single_site(
     StandardFieldID: int,
     ChannelID: int,
     TimepointID: int,
-) -> List[AICSImage]:
+) -> List[BioImage]:
     """Load a set of image files for a single site.
 
     Reads a set of images corresponding to a single imaging site (field of
@@ -101,7 +100,7 @@ def _read_images_single_site(
     Returns
     -------
     PhysicalPixelSizes
-        AICSImage object for containing pixel dimensions
+        BioImage object for containing pixel dimensions
     """
 
     query = (
@@ -134,7 +133,7 @@ def _read_images_single_site(
         .URL.tolist()
     )
     filepath_list = [Path(in_path) / filename for filename in filename_list]
-    images = [AICSImage(filepath) for filepath in filepath_list]
+    images = [BioImage(filepath) for filepath in filepath_list]
     return images
 
 
@@ -146,7 +145,7 @@ def _get_zyx_resolution(
     ChannelID: int,
     TimepointID: int,
 ) -> PhysicalPixelSizes:
-    """Determines the z,y,x resolution from the metadata.
+    """Determines the z,y,x resolution (in micrometres) from the metadata.
 
     Parameters
     ----------
@@ -168,7 +167,7 @@ def _get_zyx_resolution(
     Returns
     -------
     PhysicalPixelSizes
-        AICSImage object for containing pixel dimensions
+        Voxel dimensions in micrometres (Z is None for single planes)
     """
 
     # z resolution is not directly provided in the image metadata,
@@ -188,10 +187,12 @@ def _get_zyx_resolution(
 
     xyz = image_metadata.query(query)[["ImageResolutionX", "ImageResolutionY", "AbsPositionZ"]].drop_duplicates()
 
+    # metadata is in metres, OME-TIFF expects micrometres
+    n_planes = xyz.shape[0]
     return PhysicalPixelSizes(
-        Z=(xyz.AbsPositionZ.max() - xyz.AbsPositionZ.min()) / (xyz.shape[0] - 1),
-        Y=xyz.ImageResolutionY.iloc[0],
-        X=xyz.ImageResolutionX.iloc[0],
+        Z=1e6 * (xyz.AbsPositionZ.max() - xyz.AbsPositionZ.min()) / (n_planes - 1) if n_planes > 1 else None,
+        Y=1e6 * xyz.ImageResolutionY.iloc[0],
+        X=1e6 * xyz.ImageResolutionX.iloc[0],
     )
 
 
@@ -248,9 +249,9 @@ def _aggregate_TCZ_metadata(image_metadata: pd.DataFrame, mip: bool = False) -> 
     """
     # get average absolute time for each unique imaging site
     mean_acq_time = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["AbsTime"].mean()
-    n_planes = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["id"].count()
+    n_planes = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["PlaneID"].nunique()
     n_planes.name = "NPlanes"
-    n_channels = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["ChannelID"].max()
+    n_channels = image_metadata.groupby(["Row", "Col", "FieldID", "TimepointID"])["ChannelID"].nunique()
     n_channels.name = "NChannels"
 
     # drop columns that don't make sense after merging multiple files
@@ -328,11 +329,12 @@ def operetta_to_ome_tiff(
         out_path_mip = out_path.parent / (str(out_path.stem) + "-MIP")
 
     if in_path == out_path:
-        logger.error("Input and output paths are the same.")
-        os._exit(1)
+        raise ValueError("Input and output paths are the same.")
 
-    plate_metadata_file = in_path / "plate_metadata.csv" if save_metadata_files else None
-    image_metadata_file = in_path / "image_metadata.csv" if save_metadata_files else None
+    # the parsed (per-plane) metadata is written next to the output, since
+    # the input directory may belong to another user
+    plate_metadata_file = out_path.parent / "plate_metadata.csv" if save_metadata_files else None
+    image_metadata_file = out_path.parent / "image_metadata.csv" if save_metadata_files else None
 
     # make output directories
     if not out_path.exists():
@@ -447,7 +449,6 @@ def operetta_to_ome_tiff(
                 dim_order="TCZYX",
                 channel_names=channel_names,
                 physical_pixel_sizes=voxel_dimensions,
-                parser="lxml",
             )
 
         # write MIP to OME TIFF
@@ -458,7 +459,6 @@ def operetta_to_ome_tiff(
                 dim_order="TCZYX",
                 channel_names=channel_names,
                 physical_pixel_sizes=voxel_dimensions,
-                parser="lxml",
             )
     return
 

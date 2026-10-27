@@ -14,6 +14,7 @@ from datetime import datetime
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
+import os
 import sys
 
 HERE = Path(__file__).parent
@@ -82,6 +83,17 @@ intersphinx_mapping = dict(  # noqa: C408
     ),
 )
 
+# Escape hatch for strict builds. Sphinx emits one warning per mapping target
+# whose inventories all fail to fetch, and that warning carries no
+# `[type.subtype]` tag, so `suppress_warnings` cannot single it out. Under `-W`
+# that makes any of the 15 hosts above a single point of failure for an
+# unrelated build. CI sets this so the gate tests our documentation rather than
+# third-party uptime; link reachability is check-docs' job (`-b linkcheck`).
+# Nothing is lost by dropping the mappings: unresolved external references are
+# only warnings when nitpicky is on, and it is off.
+if os.environ.get("BLIMP_DOCS_OFFLINE"):
+    intersphinx_mapping = {}
+
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
 
@@ -89,23 +101,6 @@ templates_path = ["_templates"]
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
-
-# spelling
-spelling_lang = "en_GB"
-spelling_warning = True
-spelling_word_list_filename = "spelling_wordlist.txt"
-spelling_add_pypi_package_names = True
-spelling_show_suggestions = False
-# see: https://pyenchant.github.io/pyenchant/api/enchant.tokenize.html
-spelling_filters = [
-    "enchant.tokenize.URLFilter",
-    "enchant.tokenize.EmailFilter",
-    "enchant.tokenize.MentionFilter",
-    "docs.source.utils.ModnameFilter",
-    "docs.source.utils.MDLinkFilter",
-    "docs.source.utils.SignatureFilter",
-]
-# spelling_exclude_patterns = ["*<autosummary>*"]
 
 # -- Options for HTML output -------------------------------------------------
 

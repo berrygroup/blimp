@@ -1,15 +1,16 @@
 __author__ = __maintainer__ = "Scott Berry"
 __email__ = "scott.berry@unsw.edu.au"
-__version__ = "0.1.0"
 
-from importlib.metadata import version
-
-from packaging.version import parse
+# Version comes from the git tags via setuptools_scm; the fallback covers
+# import without installation, where there is no metadata to read.
+from importlib.metadata import version as _version, PackageNotFoundError
 
 try:
-    __full_version__ = parse(version(__name__))
-    __full_version__ = f"{__version__}+{__full_version__.local}" if __full_version__.local else __version__
-except ImportError:
-    __full_version__ = __version__
+    __version__ = _version(__name__)
+except PackageNotFoundError:
+    __version__ = "0.0.0+unknown"
 
-del version, parse
+# Retained for backwards compatibility.
+__full_version__ = __version__
+
+del _version, PackageNotFoundError

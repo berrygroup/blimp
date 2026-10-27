@@ -15,10 +15,17 @@ File handling
 
     preprocessing.convert_nd2
     preprocessing.nd2_to_ome_tiff
+    preprocessing.nd2_to_ome_ngff
+    preprocessing.convert_tiff
+    preprocessing.tiff_to_ome_ngff
     preprocessing.convert_operetta
     preprocessing.operetta_to_ome_tiff
     preprocessing.operetta_parse_metadata.get_image_metadata
     preprocessing.operetta_parse_metadata.get_plate_metadata
+    preprocessing.convert_opera
+    preprocessing.opera_to_ome_tiff
+    preprocessing.opera_parse_metadata.get_image_metadata
+    preprocessing.opera_parse_metadata.get_plate_metadata
 
 Processing
 ~~~~~~~~~~
@@ -30,4 +37,5 @@ Processing
     :toctree: api
 
     processing.segment.segment_nuclei_cellpose
+    processing.segment.compute_rescaling_limits
     processing.quantify.quantify

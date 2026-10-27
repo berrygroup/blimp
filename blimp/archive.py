@@ -9,21 +9,25 @@ import stat
 import logging
 
 from blimp.preprocessing.convert_nd2 import find_nd2_files
+from blimp.preprocessing.convert_opera import find_images_dirs as find_opera_images_dirs
 from blimp.preprocessing.convert_operetta import find_images_dirs
 
 logger = logging.getLogger(__name__)
+
+# top-level directories of an opera measurement written by blimp
+# (rather than the microscope), which are not archived. OME-Zarr
+# stores (e.g. plate.zarr) are also excluded.
+OPERA_EXCLUDED_DIRS = ["Archive", "OME-TIFF", "OME-TIFF-MIP", "OME-NGFF"]
 
 
 def check_config_file() -> bool:
     """Check that the config file exists in the correct location"""
     config_path = Path.home() / "config.cfg"
     if not config_path.exists():
-        logger.error(
+        raise FileNotFoundError(
             f"Config file not found at {config_path}. Please use get-config-file from UNSW's data archive module"
         )
-        os._exit(1)
-    else:
-        return True
+    return True
 
 
 def write_archiving_script_nd2(
@@ -93,6 +97,47 @@ def split_operetta_files_into_archiving_batches(images_dir: Union[Path, str]) ->
     return groups
 
 
+def split_opera_files_into_archiving_batches(measurement_dir: Union[Path, str]) -> Dict[str, List[str]]:
+    """Splits the files of an opera measurement into archiving batches.
+
+    Each well subdirectory of 'images' (e.g. 'images/r03c05') forms one
+    batch. All other files (measurement, index and flatfield metadata, and
+    the image index files in 'images') form a 'metadata' batch, excluding
+    directories written by blimp (see ``OPERA_EXCLUDED_DIRS``) and
+    OME-Zarr stores.
+
+    Parameters
+    ----------
+        measurement_dir: string or pathlib.Path of the measurement
+        directory (containing 'images').
+
+    Returns
+    -------
+        A dictionary containing groups of file paths (relative to
+        measurement_dir) as values, with 'r00c00' patterns or
+        'metadata' as keys.
+    """
+    measurement_dir = Path(measurement_dir)
+    groups: Dict[str, List[str]] = {}
+
+    for path in sorted(measurement_dir.rglob("*")):
+        relative_path = path.relative_to(measurement_dir)
+        top_level = relative_path.parts[0]
+        if path.is_dir() or top_level in OPERA_EXCLUDED_DIRS or top_level.endswith(".zarr"):
+            continue
+        if (
+            len(relative_path.parts) == 3
+            and relative_path.parts[0] == "images"
+            and re.fullmatch(r"r\d{2}c\d{2}", relative_path.parts[1])
+        ):
+            key = relative_path.parts[1]
+        else:
+            key = "metadata"
+        groups.setdefault(key, []).append(str(relative_path))
+
+    return groups
+
+
 def write_archiving_batch_files(
     archive_dir: Union[Path, str], images_dir: Union[Path, str], groups: Dict[str, List[str]]
 ) -> None:
@@ -142,6 +187,8 @@ def write_archiving_script_operetta(
 
     file_mode = "a" if append else "w"
     file_paths = [str(f) for f in file_paths]
+    archive_path = None
+    archive_batch_files: List[str] = []
     try:
         with open(Path(script_path), file_mode) as f:
             if not append:
@@ -151,7 +198,7 @@ def write_archiving_script_operetta(
                 f.write(f"##     First name: {first_name}\n")
                 f.write(f"##     Project:    {project_name}\n\n")
                 f.write("module add unswdataarchive/2021-02-17\n\n")
-                f.write("export CONFIG_FILE=${HOME}/config.cfg")
+                f.write("export CONFIG_FILE=${HOME}/config.cfg")  # noqa: FS003  (shell var, not f-string)
             for file_path in file_paths:
                 # Identify Archive directory by name and write compression commands
                 if Path(file_path).stem == "Archive":
@@ -232,7 +279,7 @@ def archive(
     jobscript_path
         The path to the job directory where the archiving script will be written.
     input_type
-        The type of input, either "nd2" or "operetta".
+        The type of input, either "nd2", "operetta" or "opera".
 
     Returns
     -------
@@ -241,7 +288,7 @@ def archive(
     Raises
     ------
     ValueError
-        If input_type is not "nd2" or "operetta".
+        If input_type is not "nd2", "operetta" or "opera".
     """
 
     check_config_file()
@@ -287,8 +334,33 @@ def archive(
                 logger.debug(f"Appending to existing archving script in {jobscript_path}")
                 write_archiving_script_operetta(archive_dirs, jobscript_path, first_name, project_name, append=True)
 
+    elif input_type == "opera":
+        logger.debug("Setting up opera file archive")
+        # Archive each measurement directory after compressing into
+        # batches (one per well, plus one for metadata)
+        image_dirs = find_opera_images_dirs(in_path)
+        for i, image_dir in enumerate(image_dirs):
+            measurement_dir = Path(image_dir).parent
+            # create archive directory if it does not exist
+            archive_dir = measurement_dir / "Archive"
+            if not archive_dir.exists():
+                logger.debug(f"Archive directory does not exist. Creating {archive_dir}")
+                archive_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                logger.debug(f"Found existing archive directory at {archive_dir}")
+            # split file list into batches and write as text files
+            batches = split_opera_files_into_archiving_batches(measurement_dir)
+            write_archiving_batch_files(archive_dir=archive_dir, images_dir=measurement_dir, groups=batches)
+
+            if i == 0:
+                logger.debug(f"Creating new archiving script in {jobscript_path}")
+                write_archiving_script_operetta([archive_dir], jobscript_path, first_name, project_name, append=False)
+            else:
+                logger.debug(f"Appending to existing archving script in {jobscript_path}")
+                write_archiving_script_operetta([archive_dir], jobscript_path, first_name, project_name, append=True)
+
     else:
-        logger.error(f"input_type {input_type} not recognised. Please specify 'nd2' or 'operetta' input_type.")
+        logger.error(f"input_type {input_type} not recognised. Please specify 'nd2', 'operetta' or 'opera' input_type.")
         raise ValueError("Input type not recognised")
 
     os.chmod(jobscript_path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IROTH)

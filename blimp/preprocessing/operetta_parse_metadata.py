@@ -4,7 +4,6 @@ Scott Berry <scott.berry@unsw.edu.au>
 """
 from typing import Union
 from pathlib import Path
-import os
 import logging
 import xml.etree.ElementTree as ET
 
@@ -42,7 +41,6 @@ image_metadata_dtypes = {
     "PositionZ": float,
     "AbsPositionZ": float,
     "MeasurementTimeOffset": float,
-    "AbsTime": "datetime64[ns]",
     "MainExcitationWavelength": np.uint16,
     "MainEmissionWavelength": np.uint16,
     "ObjectiveMagnification": np.uint8,
@@ -157,8 +155,7 @@ def get_plate_metadata(metadata_file: Union[str, Path], out_file: Union[str, Pat
     if isinstance(plates_xml, ET.Element):
         plates_xml = plates_xml.findall("harmony:Plate", namespaces=ns)
     else:
-        logger.error("Operetta plate metadata XML not parsed correctly")
-        os._exit(1)
+        raise ValueError("Operetta plate metadata XML not parsed correctly")
 
     # convert to dataframe
     plate_metadata = _xml_to_df(plates_xml, "harmony", ns)
@@ -199,8 +196,7 @@ def get_image_metadata(metadata_file: Union[str, Path], out_file: Union[str, Pat
     if isinstance(images_xml, ET.Element):
         images_xml = images_xml.findall("harmony:Image", namespaces=ns)
     else:
-        logger.error("Operetta image metadata XML not parsed correctly")
-        os._exit(1)
+        raise ValueError("Operetta image metadata XML not parsed correctly")
 
     # convert to dataframe
     image_metadata = _xml_to_df(images_xml, "harmony", ns)
@@ -226,6 +222,11 @@ def get_image_metadata(metadata_file: Union[str, Path], out_file: Union[str, Pat
 
     image_metadata = image_metadata.astype(image_metadata_dtypes)
 
+    # AbsTime includes a UTC offset, store as (timezone-naive) UTC
+    image_metadata["AbsTime"] = pd.to_datetime(image_metadata["AbsTime"], utc=True, format="ISO8601").dt.tz_localize(
+        None
+    )
+
     # add a "WellName" identifier
     image_metadata["WellName"] = image_metadata[["Row", "Col"]].apply(lambda x: _to_well_name(x.Row, x.Col), axis=1)
 
@@ -237,7 +238,6 @@ def get_image_metadata(metadata_file: Union[str, Path], out_file: Union[str, Pat
         elif Path(out_file).suffix == ".pkl":
             image_metadata.to_pickle(out_file)
 
-    print(out_file)
     return image_metadata
 
 

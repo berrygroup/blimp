@@ -3,18 +3,17 @@ from pathlib import Path
 import pickle
 import logging
 
+from bioio import BioImage
 from matplotlib import pyplot as plt
-from aicsimageio import AICSImage
-from aicsimageio.transforms import reshape_data
+from bioio_base.transforms import reshape_data
 import numpy as np
 import dask.array as da
 
 from blimp.utils import (
     equal_dims,
+    safe_log10,
     smooth_image,
-    average_images,
     mean_std_welford,
-    concatenate_images,
     convert_array_dtype,
     check_uniform_dimension_sizes,
 )
@@ -26,7 +25,7 @@ class IlluminationCorrection:
     def __init__(
         self,
         method: Literal["pixel_z_score"] = "pixel_z_score",
-        reference_images: Union[List[AICSImage], List[str], List[Path], None] = None,
+        reference_images: Union[List[BioImage], List[str], List[Path], None] = None,
         timelapse: Union[bool, Literal["multiplicative"], Literal["additive"], None] = None,
         from_file: Union[str, Path, None] = None,
         **kwargs,
@@ -54,11 +53,11 @@ class IlluminationCorrection:
                 raise TypeError("``reference images`` must be a list")
             else:
                 # check ``reference_images`` input lists
-                is_input_AICSImage = all(isinstance(image, AICSImage) for image in reference_images)
+                is_input_BioImage = all(isinstance(image, BioImage) for image in reference_images)
                 is_input_files = all(isinstance(image, (str, Path)) for image in reference_images)
-                if (not is_input_AICSImage) and (not is_input_files):
+                if (not is_input_BioImage) and (not is_input_files):
                     raise TypeError(
-                        "``reference images`` must be a list of ``AICSImage``s or file paths "
+                        "``reference images`` must be a list of ``BioImage``s or file paths "
                         + "(``str`` or ``pathlib.Path``)"
                     )
                 if is_input_files and not all(Path(image).is_file() for image in reference_images):  # type: ignore
@@ -72,10 +71,10 @@ class IlluminationCorrection:
                     )
 
                 # call the fit method to initialise self._correctors
-                if is_input_AICSImage:
+                if is_input_BioImage:
                     self.fit(reference_images, **kwargs)  # type: ignore
                 elif is_input_files:
-                    images = [AICSImage(image) for image in reference_images]
+                    images = [BioImage(image) for image in reference_images]
                     self.fit(images, **kwargs)
 
         # 2. Read from a file using load()
@@ -84,16 +83,16 @@ class IlluminationCorrection:
             self.file_path = from_file
             self.load(self._file_path)  # type: ignore
             if self._timelapse is None:
-                raise ValueError("``timelapse`` is not specified in file {self._file_path}")
+                raise ValueError(f"``timelapse`` is not specified in file {self._file_path}")
             if self._method is None:
-                raise ValueError("``method`` is not specified in file {self._file_path}")
+                raise ValueError(f"``method`` is not specified in file {self._file_path}")
             elif self._method == "pixel_z_score":
                 # FIXME: recompute mean_mean and mean_std on loading as these seem to not be stored in file
-                if isinstance(self._mean_image, AICSImage) and self._dims is not None:
+                if isinstance(self._mean_image, BioImage) and self._dims is not None:
                     self._mean_mean_image = [
                         np.mean(self._mean_image.get_image_data("YX", C=c)) for c in range(self._dims.C)
                     ]
-                if isinstance(self._std_image, AICSImage) and self._dims is not None:
+                if isinstance(self._std_image, BioImage) and self._dims is not None:
                     self._mean_std_image = [
                         np.mean(self._std_image.get_image_data("YX", C=c)) for c in range(self._dims.C)
                     ]
@@ -138,14 +137,14 @@ class IlluminationCorrection:
     def is_smoothed(self):
         return self._is_smoothed
 
-    def fit(self, reference_images: List[AICSImage], timelapse: bool = False, **kwargs):
+    def fit(self, reference_images: List[BioImage], timelapse: bool = False, **kwargs):
         try:
             if not check_uniform_dimension_sizes(reference_images):
                 raise ValueError(
                     "Check input. One or more of the ``reference_images`` has non-uniform or incorrect dimensionality"
                 )
         except TypeError:
-            raise TypeError("All reference images should be ``AICSImage``s")
+            raise TypeError("All reference images should be ``BioImage``s")
 
         self._dims = reference_images[0].dims
 
@@ -166,7 +165,7 @@ class IlluminationCorrection:
 
     def plot(self, log_transform: bool = True):
         if self._method == "pixel_z_score":
-            if isinstance(self._mean_image, AICSImage):
+            if isinstance(self._mean_image, BioImage):
                 fig, axes = plt.subplots(self.dims.C, 2, figsize=(9, 3 * self.dims.C), squeeze=False)
                 for i in range(self.dims.C):
                     im_dat = self.mean_image.get_image_data("YX", C=i)
@@ -208,7 +207,7 @@ class IlluminationCorrection:
             logger.info(f"Smoothing correction matrices with kernel size of {sigma} (pixels)")
             self._mean_image = smooth_image(image=self._mean_image, sigma=sigma)
             self._std_image = smooth_image(image=self._std_image, sigma=sigma)
-            if isinstance(self._mean_image, AICSImage) and isinstance(self._std_image, AICSImage):
+            if isinstance(self._mean_image, BioImage) and isinstance(self._std_image, BioImage):
                 self._mean_mean_image = [
                     np.mean(self._mean_image.get_image_data("YX", C=c)) for c in range(self._mean_image.dims.C)
                 ]
@@ -244,8 +243,8 @@ class IlluminationCorrection:
         self.file_path = path
         if self._method == "pixel_z_score":
             if (
-                isinstance(self._mean_image, AICSImage)
-                and isinstance(self._std_image, AICSImage)
+                isinstance(self._mean_image, BioImage)
+                and isinstance(self._std_image, BioImage)
                 and isinstance(self._file_path, Path)
             ):
                 with open(self._file_path, "wb") as f:  # type: ignore
@@ -254,9 +253,7 @@ class IlluminationCorrection:
                 self._mean_image.save(self._file_path.parent / (self._file_path.stem + "_mean_image.ome.tiff"))
                 self._std_image.save(self._file_path.parent / (self._file_path.stem + "_std_image.ome.tiff"))
             else:
-                raise RuntimeError(
-                    "Cannot save ``IlluminationCorrection`` if mean and std have not been calculated"
-                )
+                raise RuntimeError("Cannot save ``IlluminationCorrection`` if mean and std have not been calculated")
 
     def load(self, path: Union[str, Path, None] = None):
         # 1. Check inputs
@@ -303,10 +300,82 @@ class IlluminationCorrection:
 
     def correct(
         self,
-        image: Union[AICSImage, np.ndarray, da.core.Array, List[AICSImage], List[np.ndarray], List[da.core.Array]],
+        image: Union[BioImage, np.ndarray, da.core.Array, List[BioImage], List[np.ndarray], List[da.core.Array]],
         smooth: Optional[int] = None,
     ):
         return correct_illumination(image, self, smooth)
+
+
+def _floor_zero_std(std_image: np.ndarray) -> np.ndarray:
+    """Replace zero standard deviations with the median positive value.
+
+    A per-pixel standard deviation of exactly zero means every reference image
+    held the same value at that pixel, so the z-score ``(x - mean) / std`` is
+    undefined. Dividing anyway yields ``+/-inf`` (or ``NaN`` where the numerator
+    is also zero), and the subsequent cast to an integer dtype turns those into
+    ``0`` or the dtype maximum. The result looks like a clean image containing
+    dead and saturated pixels, so the failure is silent.
+
+    Zero standard deviations arise when the correction is estimated from few
+    reference images: with two images, any pixel whose two values coincide gets
+    a standard deviation of zero. On the packaged two-image reference dataset
+    this affects 3.95% of pixels, which are ordinary mid-intensity signal
+    (around 935 counts), not background.
+
+    Such pixels are treated as varying by a typical amount for the channel: the
+    zero entries are replaced by the median of the positive standard deviations.
+    This is a deliberate modelling assumption, not a measurement -- the true
+    variance at these pixels was not sampled. It keeps the correction finite and
+    well-conditioned, and the corrections it produces are mild and bounded. Note
+    that flooring at the smallest positive value instead would divide by a
+    near-zero number and produce extreme corrections driven by numerical noise.
+
+    ``pixel_z_score`` is called with one channel of one plane at a time, so the
+    median here is a per-channel quantity.
+
+    Parameters
+    ----------
+    std_image
+        Per-pixel standard deviation of the reference images, for a single
+        channel.
+
+    Returns
+    -------
+    numpy.ndarray
+        A copy of ``std_image`` with zeros replaced by the median positive
+        standard deviation. Returned unchanged if it contains no zeros. If
+        *every* entry is zero there is no positive value to floor with, so the
+        array is returned unchanged and the caller will produce non-finite
+        values -- a correction estimated from identical reference images carries
+        no information and should be rebuilt from more images.
+    """
+    zero = std_image == 0
+    n_zero = int(zero.sum())
+    if n_zero == 0:
+        return std_image
+
+    positive = std_image[~zero]
+    if positive.size == 0:
+        logger.warning(
+            "Reference standard deviation is zero at every pixel; the illumination "
+            "correction carries no information. Rebuild it from more reference images."
+        )
+        return std_image
+
+    floor = float(np.median(positive))
+    # Warned on every call rather than deduplicated: the fraction below is an
+    # imputed quantity entering the corrected image, and a per-plane record of
+    # it is what makes that auditable afterwards.
+    logger.warning(
+        f"Reference standard deviation is zero at {n_zero} of {std_image.size} pixels "
+        f"({100 * n_zero / std_image.size:.2f}%), where the z-score is undefined. "
+        f"Flooring these to the median positive standard deviation ({floor:.4g}). "
+        "This is an assumption, not a measurement: estimate the correction from more "
+        "reference images to reduce the affected fraction."
+    )
+    std_image = std_image.copy()
+    std_image[zero] = floor
+    return std_image
 
 
 def pixel_z_score(
@@ -318,13 +387,18 @@ def pixel_z_score(
     log_transform: bool = True,
 ) -> np.ndarray:
     original_dtype = original.dtype
-    original = original.astype(np.float64)
 
     if log_transform:
         logger.debug("Log-transforming input image for pixel-wise z-score correction")
-        original[original == 0] = 1e-10
-        original = np.log10(original)
-        original[original == 0] = 0
+        # Zeros must map to log10(1) == 0, the convention ``mean_std_welford``
+        # uses when building the reference statistics. Clamping to 1e-10 instead
+        # puts them at -10, ten decades from the reference path, which makes the
+        # z-score of a zero pixel arbitrarily large and negative.
+        original = safe_log10(original)
+    else:
+        original = original.astype(np.float64)
+
+    std_image = _floor_zero_std(std_image)
 
     z = (original - mean_image) / std_image
     corrected = mean_mean_image + (mean_std_image * z)
@@ -332,7 +406,7 @@ def pixel_z_score(
     if log_transform:
         corrected = 10**corrected
 
-    if original.dtype.kind in ["i", "u"]:
+    if original_dtype.kind in ["i", "u"]:
         corrected = np.rint(corrected).astype(original_dtype)
     else:
         corrected = corrected.astype(original_dtype)
@@ -341,25 +415,25 @@ def pixel_z_score(
 
 
 def _correct_illumination(
-    image: Union[AICSImage, np.ndarray, da.core.Array],
+    image: Union[BioImage, np.ndarray, da.core.Array],
     illumination_correction: IlluminationCorrection,
     smooth: Optional[int] = None,
     dimension_order_in: Optional[str] = None,
-) -> Union[AICSImage, np.ndarray]:
-    # 1. check input types and convert to AICSImage
+) -> Union[BioImage, np.ndarray]:
+    # 1. check input types and convert to BioImage
     if isinstance(image, np.ndarray):
         if dimension_order_in is None:
             raise ValueError("``dimension_order_in`` must be specified for array inputs to ``_correct_illumination``")
-        im = AICSImage(reshape_data(data=image, given_dims=dimension_order_in, return_dims="TCZYX"))
+        im = BioImage(reshape_data(data=image, given_dims=dimension_order_in, return_dims="TCZYX"))
         out_type = "ndarray"
     elif isinstance(image, da.core.Array):
         if dimension_order_in is None:
             raise ValueError("``dimension_order_in`` must be specified for array inputs to ``_correct_illumination``")
-        im = AICSImage(reshape_data(data=image, given_dims=dimension_order_in, return_dims="TCZYX"))
+        im = BioImage(reshape_data(data=image, given_dims=dimension_order_in, return_dims="TCZYX"))
         out_type = "ndarray"
-    elif isinstance(image, AICSImage):
+    elif isinstance(image, BioImage):
         im = image
-        out_type = "AICSImage"
+        out_type = "BioImage"
     else:
         out_type = None
         raise TypeError(f"Unknown input image type {type(image)}")
@@ -438,26 +512,26 @@ def _correct_illumination(
     # check dtype has not changed during correction
     if corr.dtype != im.dtype:
         corr = convert_array_dtype(corr, im.dtype, round_floats_if_necessary=True, copy=False)
-    if out_type == "AICSImage":
-        return AICSImage(corr, physical_pixel_sizes=im.physical_pixel_sizes, channel_names=im.channel_names)
+    if out_type == "BioImage":
+        return BioImage(corr, physical_pixel_sizes=im.physical_pixel_sizes, channel_names=im.channel_names)
     else:
         return reshape_data(data=corr, given_dims="TCZYX", return_dims=dimension_order_in)
 
 
 def correct_illumination(
-    images: Union[AICSImage, np.ndarray, da.core.Array, List[AICSImage], List[np.ndarray], List[da.core.Array]],
+    images: Union[BioImage, np.ndarray, da.core.Array, List[BioImage], List[np.ndarray], List[da.core.Array]],
     illumination_correction: IlluminationCorrection,
     smooth: Optional[int] = None,
     dimension_order_in: str = "TCZYX",
-) -> Union[AICSImage, np.ndarray, List[AICSImage], List[np.ndarray]]:
+) -> Union[BioImage, np.ndarray, List[BioImage], List[np.ndarray]]:
     # individual input -> individual output
-    if isinstance(images, (AICSImage, np.ndarray, da.core.Array)):
+    if isinstance(images, (BioImage, np.ndarray, da.core.Array)):
         res = _correct_illumination(
             images, illumination_correction, smooth=smooth, dimension_order_in=dimension_order_in
         )
     # list input -> list output
     elif isinstance(images, list):
-        if all(isinstance(image, AICSImage) for image in images):
+        if all(isinstance(image, BioImage) for image in images):
             res = [_correct_illumination(image, illumination_correction, smooth=smooth) for image in images]
         elif all(isinstance(image, np.ndarray) for image in images):
             res = [

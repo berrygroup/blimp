@@ -1,5 +1,4 @@
 import os
-import sys
 import argparse
 
 from blimp.log import configure_logging
@@ -54,7 +53,7 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--output_format",
         default="TIFF",
-        help="Output format for images (TIFF or NGFF, currently only TIFF implemented)",
+        help="Output format for images (TIFF or NGFF)",
     )
     parser.add_argument(
         "--mip",
@@ -82,6 +81,11 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
         help="Whether to submit jobs after creating jobscripts (default = False)",
     )
     parser.add_argument(
+        "--conda_env",
+        default="berrylab-py311",
+        help="Name of the conda environment to activate on the compute node (default = berrylab-py311)",
+    )
+    parser.add_argument(
         "--verify-only",
         default=False,
         action="store_true",
@@ -97,6 +101,10 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_convert_operetta_args(parser: argparse.ArgumentParser) -> None:
+    return None
+
+
+def _add_convert_opera_args(parser: argparse.ArgumentParser) -> None:
     return None
 
 
@@ -117,12 +125,158 @@ def _add_convert_nd2_args(parser: argparse.ArgumentParser) -> None:
     """,
     )
     parser.add_argument(
+        "-x",
+        "--x_direction",
+        default="left",
+        help="""
+        --output_format NGFF only: direction of increasing (stage)
+        x-coordinates relative to the image ("left" or "right").
+        Default "left" -- override per-instrument if a microscope
+        needs "right" instead.
+    """,
+    )
+    parser.add_argument(
+        "--placement",
+        default="grid",
+        choices=["grid", "exact"],
+        help="""
+        --output_format NGFF only: "grid" (default) snaps fields to a
+        tile grid, discarding stage jitter; "exact" uses the raw stage
+        offset directly -- see nd2_to_ome_ngff.get_field_layout.
+    """,
+    )
+    parser.add_argument(
         "-c",
         "--channel_names",
         type=str,
         nargs="+",
         default=None,
         help="List of channel names",
+    )
+    return None
+
+
+def _add_convert_tiff_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "-i",
+        "--input_path",
+        help="Directory containing field TIFFs and metadata CSVs for one plate (required)",
+        required=True,
+    )
+    parser.add_argument(
+        "-o",
+        "--plate_path",
+        help="Path to the shared plate .zarr store (required). Also its name: a bare folder "
+        "becomes <folder>/plate.zarr (named 'plate'); a path ending in .zarr is used as-is "
+        "(named after its own stem)",
+        required=True,
+    )
+    parser.add_argument(
+        "-l",
+        "--label_dir",
+        default=None,
+        help="Directory containing one (possibly multi-channel) label TIFF per field",
+    )
+    parser.add_argument(
+        "-f",
+        "--feature_csv_dir",
+        default=None,
+        help="Directory containing one already-aggregated quantify() CSV per field",
+    )
+    parser.add_argument(
+        "-j",
+        "--jobscript_path",
+        default=os.getcwd(),
+        help="Directory to save PBS jobscripts (default = current working directory)",
+    )
+    parser.add_argument(
+        "--output_format",
+        default="NGFF",
+        help="Output format (only NGFF is currently supported for this input type)",
+    )
+    parser.add_argument("--user", metavar="ZID", help="Your zID for HPC submission (required)", required=True)
+    parser.add_argument("--email", help="Email address for job notifications", required=False)
+    parser.add_argument(
+        "--batch",
+        default=1,
+        help="When using batch processing, provide the number of batches, by well (default = 1)",
+    )
+    parser.add_argument(
+        "--submit",
+        default=False,
+        action="store_true",
+        help="Whether to submit jobs after creating jobscripts (default = False)",
+    )
+    parser.add_argument(
+        "--conda_env",
+        default="berrylab-py311",
+        help="Name of the conda environment to activate on the compute node (default = berrylab-py311)",
+    )
+    parser.add_argument(
+        "-y",
+        "--y_direction",
+        default="down",
+        help='Direction of increasing (stage) y-coordinates ("up" or "down")',
+    )
+    parser.add_argument(
+        "-x",
+        "--x_direction",
+        default="left",
+        help='Direction of increasing (stage) x-coordinates ("left" or "right")',
+    )
+    parser.add_argument(
+        "--placement",
+        default="grid",
+        choices=["grid", "exact"],
+        help='"grid" (default) snaps fields to a tile grid, discarding stage jitter; '
+        '"exact" uses the raw stage offset directly',
+    )
+    parser.add_argument(
+        "--exclude_channel_names",
+        type=str,
+        nargs="+",
+        default=None,
+        help="Channel names to leave out of the written intensity image entirely (applied after "
+        "illumination correction, if any)",
+    )
+    parser.add_argument(
+        "--point_object_channel_names",
+        type=str,
+        nargs="+",
+        default=None,
+        help="Label channel names, if any, with no stable per-pixel identity (see quantify()'s point_objects)",
+    )
+    parser.add_argument(
+        "--illumination_correction",
+        default=None,
+        help="Path to an already-fitted IlluminationCorrection .pkl file, applied to every field before stitching",
+    )
+    return None
+
+
+def _convert_tiff(args) -> None:
+    """Wrapper for convert_tiff()"""
+    from blimp.preprocessing.convert_tiff import convert_tiff
+
+    convert_tiff(
+        in_path=args.input_path,
+        plate_path=args.plate_path,
+        image_format=args.output_format,
+        label_dir=args.label_dir,
+        feature_csv_dir=args.feature_csv_dir,
+        point_object_channel_names=args.point_object_channel_names,
+        illumination_correction=args.illumination_correction,
+        n_batches=args.batch,
+        y_direction=args.y_direction,
+        x_direction=args.x_direction,
+        placement=args.placement,
+        exclude_channel_names=args.exclude_channel_names,
+        job_path=args.jobscript_path,
+        submit=args.submit,
+        user=args.user,
+        email=args.email,
+        conda_env=args.conda_env,
+        dryrun=False,
     )
     return None
 
@@ -139,10 +293,13 @@ def _convert_nd2(args) -> None:
         mip=args.mip,
         keep_stacks=args.keep_stacks,
         y_direction=args.y_direction,
+        x_direction=args.x_direction,
+        placement=args.placement,
         channel_names=args.channel_names,
         submit=args.submit,
         user=args.user,
         email=args.email,
+        conda_env=args.conda_env,
         dryrun=False,
     )
     return None
@@ -160,6 +317,7 @@ def _convert_operetta(args) -> None:
             in_path=args.input_path,
             save_metadata_files=True,
             mip=args.mip,
+            user=args.user,
         )
     else:
         convert_operetta(
@@ -173,6 +331,37 @@ def _convert_operetta(args) -> None:
             submit=args.submit,
             user=args.user,
             email=args.email,
+            conda_env=args.conda_env,
+            dryrun=False,
+        )
+    return None
+
+
+def _convert_opera(args) -> None:
+    """Wrapper for convert_opera()"""
+    from blimp.preprocessing.convert_opera import convert_opera, check_convert_opera
+
+    if args.verify_only:
+        check_convert_opera(
+            in_path=args.input_path,
+            save_metadata_files=True,
+            mip=args.mip,
+            user=args.user,
+            keep_stacks=args.keep_stacks,
+        )
+    else:
+        convert_opera(
+            in_path=args.input_path,
+            job_path=args.jobscript_path,
+            image_format=args.output_format,
+            n_batches=args.batch,
+            save_metadata_files=True,
+            mip=args.mip,
+            keep_stacks=args.keep_stacks,
+            submit=args.submit,
+            user=args.user,
+            email=args.email,
+            conda_env=args.conda_env,
             dryrun=False,
         )
     return None
@@ -186,9 +375,8 @@ def _add_archive_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-j",
         "--jobscript_path",
-        default=os.getcwd(),
+        default=None,
         help="Directory to save jobscripts (default = current working directory)",
-        required=True,
     )
 
     parser.add_argument(
@@ -210,7 +398,7 @@ def _archive_nd2(args) -> None:
 
     archive(
         in_path=args.input_path,
-        jobscript_path=args.jobscript_path,
+        jobscript_path=args.jobscript_path if args.jobscript_path is not None else os.getcwd(),
         input_type="nd2",
         first_name=args.first_name,
         project_name=args.project_name,
@@ -224,8 +412,22 @@ def _archive_operetta(args) -> None:
 
     archive(
         in_path=args.input_path,
-        jobscript_path=args.jobscript_path,
+        jobscript_path=args.jobscript_path if args.jobscript_path is not None else os.getcwd(),
         input_type="operetta",
+        first_name=args.first_name,
+        project_name=args.project_name,
+    )
+    return None
+
+
+def _archive_opera(args) -> None:
+    """Wrapper for archive(input_type=="opera")"""
+    from blimp.archive import archive
+
+    archive(
+        in_path=args.input_path,
+        jobscript_path=args.jobscript_path if args.jobscript_path is not None else os.getcwd(),
+        input_type="opera",
         first_name=args.first_name,
         project_name=args.project_name,
     )
@@ -255,11 +457,16 @@ def _get_full_parser() -> argparse.ArgumentParser:
         description="".join([header, setup_header]),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    setup_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="create default configuration file without asking for user input.",
+    )
     setup_parser.set_defaults(func=prepare_config)
 
     convert_header = """
     * convert: Convert raw microscope files to standard
-    image formats such as OME-TIFF and OME-NGFF.
+      image formats such as OME-TIFF and OME-NGFF.
     """
     convert_parser = subparsers.add_parser(
         "convert",
@@ -270,7 +477,7 @@ def _get_full_parser() -> argparse.ArgumentParser:
 
     archive_header = """
     * archive: archive original files on UNSW's Data
-    Archive.
+      Archive.
     """
     archive_parser = subparsers.add_parser(
         "archive",
@@ -316,6 +523,34 @@ def _get_full_parser() -> argparse.ArgumentParser:
     _add_convert_args(convert_operetta_subparser)
     _add_convert_operetta_args(convert_operetta_subparser)
 
+    # Convert - Opera
+    convert_opera_header = """
+        * opera: Convert Perkin-Elmer (Revvity) Opera Phenix files.
+    """
+    convert_opera_subparser = convert_subparsers.add_parser(
+        "opera",
+        help="Perkin-Elmer (Revvity) Opera Phenix",
+        description="".join([header, convert_header, convert_opera_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    convert_opera_subparser.set_defaults(func=_convert_opera)
+    _add_convert_args(convert_opera_subparser)
+    _add_convert_opera_args(convert_opera_subparser)
+
+    # Convert - TIFF pipeline
+    convert_tiff_header = """
+        * tiff: Assemble an existing OME-TIFF pipeline's output
+          (intensity, labels, features) into a whole-plate OME-NGFF store.
+    """
+    convert_tiff_subparser = convert_subparsers.add_parser(
+        "tiff",
+        help="Existing OME-TIFF pipeline output",
+        description="".join([header, convert_header, convert_tiff_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    convert_tiff_subparser.set_defaults(func=_convert_tiff)
+    _add_convert_tiff_args(convert_tiff_subparser)
+
     # Archive
 
     archive_subparsers = archive_parser.add_subparsers(dest="input_type", help="Input type")
@@ -347,6 +582,19 @@ def _get_full_parser() -> argparse.ArgumentParser:
     archive_operetta_subparser.set_defaults(func=_archive_operetta)
     _add_archive_args(archive_operetta_subparser)
 
+    # Archive - Opera
+    archive_opera_header = """
+        * opera: archive Perkin-Elmer (Revvity) Opera Phenix files.
+    """
+    archive_opera_subparser = archive_subparsers.add_parser(
+        "opera",
+        help="Perkin-Elmer (Revvity) Opera Phenix",
+        description="".join([header, archive_header, archive_opera_header]),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    archive_opera_subparser.set_defaults(func=_archive_opera)
+    _add_archive_args(archive_opera_subparser)
+
     return parser
 
 
@@ -360,9 +608,7 @@ def main():
     # call function provided as default for the subparser
     if args.func == prepare_config:
         # setup requires user input so needs a slightly different interface
-        setup_parser = _get_setup_parser()
-        setup_args = setup_parser.parse_args(sys.argv[sys.argv.index("setup") + 1 :])
-        prepare_config(**vars(setup_args))
+        prepare_config(quiet=args.quiet)
     else:
         args.func(args)
 

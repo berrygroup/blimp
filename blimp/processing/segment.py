@@ -1,8 +1,8 @@
-from typing import Union, Optional, List
+from typing import List, Tuple, Union, Optional
 from pathlib import Path
 import logging
 
-from aicsimageio import AICSImage
+from bioio import BioImage
 import numpy as np
 import mahotas as mh
 
@@ -12,15 +12,16 @@ logger = logging.getLogger(__name__)
 
 
 def segment_nuclei_cellpose(
-    intensity_image: AICSImage,
+    intensity_image: BioImage,
     nuclei_channel: int = 0,
     pretrained_model: Union[str, Path, None] = None,
     diameter: Optional[int] = None,
     threshold: float = 0,
     flow_threshold: float = 0.4,
     normalize: Union[bool, dict] = True,
+    rescale_limits: Optional[Tuple[float, float]] = None,
     gpu: bool = False,
-) -> AICSImage:
+) -> BioImage:
     """Segment nuclei in 2D images across all timepoints using cellpose 4.
 
     Parameters
@@ -39,18 +40,23 @@ def segment_nuclei_cellpose(
         flow error threshold for filtering masks
     normalize
         normalization settings, can be bool or dict of parameters
+    rescale_limits
+        optional (lower, upper) absolute pixel intensity limits to rescale to instead
+        of cellpose's per-image percentile normalization; see `compute_rescaling_limits`
     gpu
         whether to use GPU acceleration, by default False
 
     Returns
     -------
-    AICSImage
+    BioImage
         label image with segmented nuclei for all timepoints
-        
+
     Raises
     ------
     ValueError
         If input image has Z dimension > 1 (3D images not supported)
+    ValueError
+        If `rescale_limits` is given but `normalize` disables normalization
     """
     from cellpose import models
 
@@ -61,6 +67,24 @@ def segment_nuclei_cellpose(
             f"Input image has Z={intensity_image.dims.Z}. "
             f"For 3D segmentation, use cellpose with do_3D=True directly."
         )
+
+    # Resolve the effective `normalize` argument passed to cellpose. Explicit dicts
+    # (rather than a bare bool) avoid a cellpose-internal quirk where passing a bool
+    # mutates its shared module-level `normalize_default` dict across calls.
+    normalize_effective: Union[bool, dict]
+    if rescale_limits is not None:
+        normalize_disabled = normalize is False or (isinstance(normalize, dict) and normalize.get("normalize") is False)
+        if normalize_disabled:
+            raise ValueError(
+                "rescale_limits was provided but `normalize` disables normalization "
+                "entirely; set normalize=True (the default) or omit it."
+            )
+        base = normalize if isinstance(normalize, dict) else {}
+        normalize_effective = {**base, "lowhigh": list(rescale_limits)}
+    elif normalize is True:
+        normalize_effective = {"percentile": [1.0, 99.0], "normalize": True}
+    else:
+        normalize_effective = normalize
 
     # Initialize model once for all timepoints
     if pretrained_model is None:
@@ -73,17 +97,17 @@ def segment_nuclei_cellpose(
     # Segment all timepoints
     all_masks = []
     n_timepoints = intensity_image.dims.T
-    
+
     for t in range(n_timepoints):
         logger.debug(f"Segmenting nuclei at timepoint {t}/{n_timepoints-1}")
-        
+
         # Extract single 2D image
         nuclei_image = intensity_image.get_image_data("YX", C=nuclei_channel, T=t, Z=0)
-        
+
         # Add channel dimension (YX -> CYX)
         # Cellpose's convert_image will automatically convert to 3 channels
         nuclei_image_with_channel = nuclei_image[np.newaxis, :, :]
-        
+
         # Run segmentation
         # Note: cellpose 4 cpsam model returns 3 values (masks, flows, styles)
         results = cellpose_model.eval(
@@ -92,23 +116,87 @@ def segment_nuclei_cellpose(
             diameter=diameter,
             flow_threshold=flow_threshold,
             cellprob_threshold=threshold,
-            normalize=normalize,
+            normalize=normalize_effective,
             do_3D=False,
         )
-        
+
         # Extract masks (first element of returned tuple)
         masks = results[0]
         all_masks.append(masks)
 
-    # Stack all timepoints and convert to AICSImage format (add C and Z dimensions)
+    # Stack all timepoints and convert to BioImage format (add C and Z dimensions)
     masks_stack = np.stack(all_masks)[:, np.newaxis, np.newaxis, :, :]
-    segmentation = AICSImage(
+    segmentation = BioImage(
         masks_stack,
         channel_names=["Nuclei"],
         physical_pixel_sizes=intensity_image.physical_pixel_sizes,
     )
 
     return segmentation
+
+
+def compute_rescaling_limits(
+    images: Union[BioImage, np.ndarray, str, Path, List[Union[BioImage, np.ndarray, str, Path]]],
+    channel: int = 0,
+    percentile: Tuple[float, float] = (1.0, 99.0),
+    aggregation: str = "mean",
+) -> Tuple[float, float]:
+    """Compute stable (lower, upper) rescaling limits from a representative set of images.
+
+    Intended for `segment_nuclei_cellpose(rescale_limits=...)`, so segmentation uses a
+    fixed rescale window instead of cellpose's default per-image percentile normalization,
+    which is unstable (and can trigger phantom objects) on sparse images.
+
+    Parameters
+    ----------
+    images
+        one or more images, as BioImage objects, numpy arrays, or paths to image files
+    channel
+        channel index to extract from BioImage/path inputs; ignored for numpy arrays,
+        which are used as-is
+    percentile
+        (lower, upper) percentile pair, 0-100 scale, matching cellpose's own convention
+    aggregation
+        how to combine per-image percentiles across images: "mean" or "median"
+
+    Returns
+    -------
+    Tuple[float, float]
+        (lower, upper) rescaling limits
+
+    Raises
+    ------
+    ValueError
+        If `images` is empty, `percentile` is not a valid ascending 0-100 pair, or
+        `aggregation` is not "mean" or "median"
+    """
+    if not isinstance(images, list):
+        images = [images]
+    if len(images) == 0:
+        raise ValueError("images must not be empty")
+    if not (0 <= percentile[0] < percentile[1] <= 100):
+        raise ValueError(f"percentile must satisfy 0 <= low < high <= 100, got {percentile}")
+    if aggregation not in ("mean", "median"):
+        raise ValueError(f"aggregation must be 'mean' or 'median', got {aggregation!r}")
+
+    lowers = []
+    uppers = []
+    for image in images:
+        if isinstance(image, (str, Path)):
+            pixels = BioImage(image).get_image_data("TZYX", C=channel)
+        elif isinstance(image, BioImage):
+            pixels = image.get_image_data("TZYX", C=channel)
+        else:
+            pixels = image
+
+        low, high = np.percentile(pixels, [percentile[0], percentile[1]])
+        lowers.append(low)
+        uppers.append(high)
+
+    if aggregation == "mean":
+        return float(np.mean(lowers)), float(np.mean(uppers))
+    else:
+        return float(np.median(lowers)), float(np.median(uppers))
 
 
 def expand_objects_watershed(
@@ -278,26 +366,25 @@ def segment_secondary(
             secondary_label_image = np.zeros(primary_label_image.shape, dtype=np.int32)
 
     n_objects = len(np.unique(secondary_label_image)[1:])
-    logger.info("identified {n_objects} objects")
+    logger.info(f"identified {n_objects} objects")
 
     return secondary_label_image
 
 
-
 def resolve_multi_parent_objects(
-    label_image: AICSImage, 
-    measure_object: Optional[Union[int, str, List[Union[int, str]]]] = None, 
-    parent_object: Union[int, str] = 0, 
-    timepoint: int = 0, 
-    in_place: bool = True
-) -> AICSImage | None:
+    label_image: BioImage,
+    measure_object: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    parent_object: Union[int, str] = 0,
+    timepoint: int = 0,
+    in_place: bool = True,
+) -> BioImage | None:
     """
     Resolve child objects that span multiple parent objects by removing pixels
     to ensure each child object is fully contained within a single parent.
-    
+
     When a child object overlaps with multiple parent objects, pixels are assigned
     to the parent with which the child object has the largest overlap.
-    
+
     Parameters
     ----------
     label_image
@@ -311,12 +398,12 @@ def resolve_multi_parent_objects(
         Timepoint at which to resolve objects, by default 0.
     in_place
         If True, modify the input label_image in place. If False, return a new
-        AICSImage with resolved objects, by default True.
-        
+        BioImage with resolved objects, by default True.
+
     Returns
     -------
-    AICSImage | None
-        If in_place=False, returns a new AICSImage with resolved child objects.
+    BioImage | None
+        If in_place=False, returns a new BioImage with resolved child objects.
         If in_place=True, returns None and modifies the input label_image.
     """
 
@@ -329,50 +416,62 @@ def resolve_multi_parent_objects(
         # Process all channels except parent_object_index
         measure_indices = [i for i in range(label_image.dims.C) if i != parent_object_index]
         measure_names = [label_image.channel_names[i] for i in measure_indices]
-        logger.info(f"Resolving multi-parent conflicts for all objects except parent object {parent_object_name} (index {parent_object_index}): {measure_names}")
+        logger.info(
+            f"Resolving multi-parent conflicts for all objects except parent object {parent_object_name} (index {parent_object_index}): {measure_names}"
+        )
     else:
         # Convert measure_object to list of names and indices
         measure_names = get_channel_names(label_image, measure_object)
         measure_indices = [label_image.channel_names.index(name) for name in measure_names]
-        
+
         # Check if any measure object is the same as parent object
         if parent_object_index in measure_indices:
             logger.warning(f"Parent object '{parent_object_name}' is also in measure_objects. Skipping it.")
             measure_indices = [i for i in measure_indices if i != parent_object_index]
             measure_names = [label_image.channel_names[i] for i in measure_indices]
-        
+
         if not measure_indices:
             logger.warning("No valid measure objects to process after removing parent object.")
             return None
-    
+
     # If not in_place, create a copy of the data
     if not in_place:
         new_label_stack = label_image.data.copy()
-    
+
     # Process each measure channel
     for current_measure_index in measure_indices:
         _resolve_single_measure_object(
-            label_image, current_measure_index, parent_object_index, timepoint, in_place, new_label_stack if not in_place else None
+            label_image,
+            current_measure_index,
+            parent_object_index,
+            timepoint,
+            in_place,
+            new_label_stack if not in_place else None,
         )
-    
-    # Return new AICSImage if not in_place, otherwise return None
+
+    # Return new BioImage if not in_place, otherwise return None
     if not in_place:
-        resolved_label_image = AICSImage(
+        resolved_label_image = BioImage(
             new_label_stack,
             channel_names=label_image.channel_names,
-            physical_pixel_sizes=label_image.physical_pixel_sizes
+            physical_pixel_sizes=label_image.physical_pixel_sizes,
         )
         return resolved_label_image
-    
+
     return None
 
 
 def _resolve_single_measure_object(
-    label_image: AICSImage, measure_object_index: int, parent_object_index: int, timepoint: int, in_place: bool, new_label_stack: Optional[np.ndarray] = None
+    label_image: BioImage,
+    measure_object_index: int,
+    parent_object_index: int,
+    timepoint: int,
+    in_place: bool,
+    new_label_stack: Optional[np.ndarray] = None,
 ) -> None:
     """
     Helper function to resolve multi-parent conflicts for a single measure object channel.
-    
+
     Parameters
     ----------
     label_image
@@ -391,20 +490,24 @@ def _resolve_single_measure_object(
 
     # Get the appropriate arrays based on dimensionality
     if label_image.dims.Z == 1:
-        logger.debug(f"Processing channel {measure_object_index} ({label_image.channel_names[measure_object_index]}) in 2D.")
+        logger.debug(
+            f"Processing channel {measure_object_index} ({label_image.channel_names[measure_object_index]}) in 2D."
+        )
         label_array = label_image.get_image_data("YX", C=measure_object_index, T=timepoint, Z=0).copy()
         parent_label_array = label_image.get_image_data("YX", C=parent_object_index, T=timepoint, Z=0)
         is_2d = True
     elif label_image.dims.Z > 1:
-        logger.debug(f"Processing channel {measure_object_index} ({label_image.channel_names[measure_object_index]}) in 3D ({label_image.dims.Z} Z-planes).")
+        logger.debug(
+            f"Processing channel {measure_object_index} ({label_image.channel_names[measure_object_index]}) in 3D ({label_image.dims.Z} Z-planes)."
+        )
         label_array = label_image.get_image_data("ZYX", C=measure_object_index, T=timepoint).copy()
         parent_label_array = label_image.get_image_data("ZYX", C=parent_object_index, T=timepoint)
         is_2d = False
-    
+
     # Find all unique child object labels
     child_labels = np.unique(label_array[label_array > 0])
     conflicts_resolved = 0
-    
+
     # Skip child objects that are only a single pixel
     child_sizes = np.bincount(label_array.ravel())[child_labels]
     valid_child_labels = child_labels[child_sizes > 1]
@@ -413,71 +516,79 @@ def _resolve_single_measure_object(
     for child_label in valid_child_labels:
         # Get mask for current child object
         child_mask = label_array == child_label
-        
+
         # Find all parent labels that overlap with this child
         overlapping_parents = np.unique(parent_label_array[child_mask])
         overlapping_parents = overlapping_parents[overlapping_parents > 0]  # Remove background
-        
+
         if len(overlapping_parents) > 1:
             # Child spans multiple parents - need to resolve
             conflicts_resolved += 1
-            logger.debug(f"Resolving child object {child_label} spanning {len(overlapping_parents)} parents: {overlapping_parents}")
-            
+            logger.debug(
+                f"Resolving child object {child_label} spanning {len(overlapping_parents)} parents: {overlapping_parents}"
+            )
+
             # Calculate overlap counts
             overlap_counts = np.zeros(len(overlapping_parents), dtype=np.int64)
             for i, parent_label in enumerate(overlapping_parents):
                 overlap_counts[i] = np.sum(child_mask & (parent_label_array == parent_label))
-            
+
             # Find parent with largest overlap
             best_parent_idx = np.argmax(overlap_counts)
             best_parent = overlapping_parents[best_parent_idx]
             overlap_count = overlap_counts[best_parent_idx]
-            
+
             logger.debug(f"Assigning to parent {best_parent} (overlap: {overlap_count} pixels)")
-            
+
             # Remove child pixels that don't belong to the best parent
             remove_mask = child_mask & (parent_label_array != best_parent)
             label_array[remove_mask] = 0
-    
-    logger.info(f"Resolved {conflicts_resolved} multi-parent conflicts for {label_image.channel_names[measure_object_index]} objects")
-    
+
+    logger.info(
+        f"Resolved {conflicts_resolved} multi-parent conflicts for {label_image.channel_names[measure_object_index]} objects"
+    )
+
+    # new_label_stack is passed only when in_place is False. Bind the target
+    # once so None is rejected here, rather than reaching the indexed
+    # assignments below and raising an opaque TypeError.
+    if in_place:
+        target = label_image.data
+    elif new_label_stack is None:
+        raise ValueError("new_label_stack must be provided when in_place is False")
+    else:
+        target = new_label_stack
+
     # Update the label image data
     if is_2d:
         # For 2D, update the specific slice
-        if in_place:
-            label_image.data[timepoint, measure_object_index, 0, :, :] = label_array
-        else:
-            new_label_stack[timepoint, measure_object_index, 0, :, :] = label_array
+        target[timepoint, measure_object_index, 0, :, :] = label_array
     else:
         # For 3D, update the entire volume
-        if in_place:
-            label_image.data[timepoint, measure_object_index, :, :, :] = label_array
-        else:
-            new_label_stack[timepoint, measure_object_index, :, :, :] = label_array
+        target[timepoint, measure_object_index, :, :, :] = label_array
 
 
 def mask_child_objects_by_parent(
-    label_image: AICSImage, 
-    measure_object: Optional[Union[int, str, List[Union[int, str]]]] = None, 
-    parent_object: Union[int, str] = 0, 
-    timepoint: int = 0, 
-    in_place: bool = True
-) -> AICSImage | None:
+    label_image: BioImage,
+    measure_object: Optional[Union[int, str, List[Union[int, str]]]] = None,
+    parent_object: Union[int, str] = 0,
+    timepoint: int = 0,
+    in_place: bool = True,
+) -> BioImage | None:
     """
-    Mask child objects by parent objects, removing any pixels that extend 
+    Mask child objects by parent objects, removing any pixels that extend
     beyond parent boundaries.
-    
-    This function masks (sets to zero) any parts of child objects that extend 
-    outside their parent objects, ensuring all child objects are fully contained 
-    within parent boundaries. This is useful for enforcing parent-child 
+
+    This function masks (sets to zero) any parts of child objects that extend
+    outside their parent objects, ensuring all child objects are fully contained
+    within parent boundaries. This is useful for enforcing parent-child
     relationships in multi-channel segmentation data.
-    
+
     Parameters
     ----------
     label_image
         The labeled image containing objects in separate channels.
     measure_object
-        The child object(s) to be masked. Can be channel index, channel name, 
+        The child object(s) to be masked. Can be channel index, channel name,
         or list of indices/names. If None (default), mask all channels except parent_object.
     parent_object
         The parent object channel used as a mask, can be index or channel name, by default 0.
@@ -485,27 +596,27 @@ def mask_child_objects_by_parent(
         Timepoint at which to mask objects, by default 0.
     in_place
         If True, modify the input label_image in place. If False, return a new
-        AICSImage with masked objects, by default True.
-        
+        BioImage with masked objects, by default True.
+
     Returns
     -------
-    AICSImage | None
-        If in_place=False, returns a new AICSImage with masked child objects.
+    BioImage | None
+        If in_place=False, returns a new BioImage with masked child objects.
         If in_place=True, returns None and modifies the input label_image.
-        
+
     Examples
     --------
     >>> # Mask all objects to be within cell boundaries
     >>> masked_labels = mask_child_objects_by_parent(
-    ...     label_image, 
+    ...     label_image,
     ...     parent_object='Cell',
     ...     in_place=False
     ... )
-    
+
     >>> # Mask specific organelles to be within nuclei
     >>> mask_child_objects_by_parent(
     ...     label_image,
-    ...     measure_object=['Organelle1', 'Organelle2'], 
+    ...     measure_object=['Organelle1', 'Organelle2'],
     ...     parent_object='Nucleus'
     ... )
     """
@@ -519,53 +630,65 @@ def mask_child_objects_by_parent(
         # Process all channels except parent_object_index
         measure_indices = [i for i in range(label_image.dims.C) if i != parent_object_index]
         measure_names = [label_image.channel_names[i] for i in measure_indices]
-        logger.info(f"Masking child objects by parent for all objects except parent object {parent_object_name} (index {parent_object_index}): {measure_names}")
+        logger.info(
+            f"Masking child objects by parent for all objects except parent object {parent_object_name} (index {parent_object_index}): {measure_names}"
+        )
     else:
         # Convert measure_object to list of names and indices
         measure_names = get_channel_names(label_image, measure_object)
         measure_indices = [label_image.channel_names.index(name) for name in measure_names]
-        
+
         # Check if any measure object is the same as parent object
         if parent_object_index in measure_indices:
             logger.warning(f"Parent object '{parent_object_name}' is also in measure_objects. Skipping it.")
             measure_indices = [i for i in measure_indices if i != parent_object_index]
             measure_names = [label_image.channel_names[i] for i in measure_indices]
-        
+
         if not measure_indices:
             logger.warning("No valid measure objects to process after removing parent object.")
             return None
-    
+
     # If not in_place, create a copy of the data
     if not in_place:
         new_label_stack = label_image.data.copy()
-    
+
     # Process each measure channel
     for current_measure_index in measure_indices:
         _mask_single_measure_object_by_parent(
-            label_image, current_measure_index, parent_object_index, timepoint, in_place, new_label_stack if not in_place else None
+            label_image,
+            current_measure_index,
+            parent_object_index,
+            timepoint,
+            in_place,
+            new_label_stack if not in_place else None,
         )
-    
-    # Return new AICSImage if not in_place, otherwise return None
+
+    # Return new BioImage if not in_place, otherwise return None
     if not in_place:
-        masked_label_image = AICSImage(
+        masked_label_image = BioImage(
             new_label_stack,
             channel_names=label_image.channel_names,
-            physical_pixel_sizes=label_image.physical_pixel_sizes
+            physical_pixel_sizes=label_image.physical_pixel_sizes,
         )
         return masked_label_image
-    
+
     return None
 
 
 def _mask_single_measure_object_by_parent(
-    label_image: AICSImage, measure_object_index: int, parent_object_index: int, timepoint: int, in_place: bool, new_label_stack: Optional[np.ndarray] = None
+    label_image: BioImage,
+    measure_object_index: int,
+    parent_object_index: int,
+    timepoint: int,
+    in_place: bool,
+    new_label_stack: Optional[np.ndarray] = None,
 ) -> None:
     """
     Helper function to mask a single child object channel by parent objects.
-    
+
     Removes pixels from child objects that extend outside their parent boundaries,
     ensuring child objects are fully contained within parent objects.
-    
+
     Parameters
     ----------
     label_image
@@ -584,42 +707,51 @@ def _mask_single_measure_object_by_parent(
 
     # Get the appropriate arrays based on dimensionality
     if label_image.dims.Z == 1:
-        logger.debug(f"Masking object channel {measure_object_index} ({label_image.channel_names[measure_object_index]}) by parent in 2D.")
+        logger.debug(
+            f"Masking object channel {measure_object_index} ({label_image.channel_names[measure_object_index]}) by parent in 2D."
+        )
         label_array = label_image.get_image_data("YX", C=measure_object_index, T=timepoint, Z=0).copy()
         parent_label_array = label_image.get_image_data("YX", C=parent_object_index, T=timepoint, Z=0)
         is_2d = True
     elif label_image.dims.Z > 1:
-        logger.debug(f"Masking object channel {measure_object_index} ({label_image.channel_names[measure_object_index]}) by parent in 3D ({label_image.dims.Z} Z-planes).")
+        logger.debug(
+            f"Masking object channel {measure_object_index} ({label_image.channel_names[measure_object_index]}) by parent in 3D ({label_image.dims.Z} Z-planes)."
+        )
         label_array = label_image.get_image_data("ZYX", C=measure_object_index, T=timepoint).copy()
         parent_label_array = label_image.get_image_data("ZYX", C=parent_object_index, T=timepoint)
         is_2d = False
-    
+
     # Count objects before masking
     initial_objects = len(np.unique(label_array[label_array > 0]))
     initial_pixels = np.sum(label_array > 0)
-    
+
     # Set all child object pixels outside parent objects to zero (mask them)
     outside_parent_mask = (label_array > 0) & (parent_label_array == 0)
     label_array[outside_parent_mask] = 0
-    
+
     # Count objects and pixels after masking
     final_objects = len(np.unique(label_array[label_array > 0]))
     final_pixels = np.sum(label_array > 0)
     removed_pixels = initial_pixels - final_pixels
-    
-    logger.info(f"Masked {label_image.channel_names[measure_object_index]} objects by parent: "
-                f"{initial_objects} -> {final_objects} objects, removed {removed_pixels} pixels outside parent")
-    
+
+    logger.info(
+        f"Masked {label_image.channel_names[measure_object_index]} objects by parent: "
+        f"{initial_objects} -> {final_objects} objects, removed {removed_pixels} pixels outside parent"
+    )
+
+    # As in _resolve_single_measure_object: bind the target once so None is
+    # rejected here rather than at the indexed assignments below.
+    if in_place:
+        target = label_image.data
+    elif new_label_stack is None:
+        raise ValueError("new_label_stack must be provided when in_place is False")
+    else:
+        target = new_label_stack
+
     # Update the label image data
     if is_2d:
         # For 2D, update the specific slice
-        if in_place:
-            label_image.data[timepoint, measure_object_index, 0, :, :] = label_array
-        else:
-            new_label_stack[timepoint, measure_object_index, 0, :, :] = label_array
+        target[timepoint, measure_object_index, 0, :, :] = label_array
     else:
         # For 3D, update the entire volume
-        if in_place:
-            label_image.data[timepoint, measure_object_index, :, :, :] = label_array
-        else:
-            new_label_stack[timepoint, measure_object_index, :, :, :] = label_array
+        target[timepoint, measure_object_index, :, :, :] = label_array

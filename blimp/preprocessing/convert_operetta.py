@@ -1,13 +1,13 @@
 """Convert Perkin-Elmer Operetta image files to standard open microscopy
 environment formats."""
-from typing import Union
+from typing import Union, Optional
 from pathlib import Path
-import os
 import re
 import glob
 import logging
+import subprocess
 
-from blimp.utils import read_template
+from blimp.utils import read_template, user_output_path, pbs_array_directive
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ def find_images_dirs(basepath: Union[str, Path]):
 def generate_pbs_script(
     template: str,
     input_dir: str,
+    output_dir: str,
     log_dir: str,
     user: str,
     email: str,
@@ -27,6 +28,7 @@ def generate_pbs_script(
     mip: bool,
     keep_stacks: bool,
     save_metadata_files: bool,
+    conda_env: str = "berrylab-py311",
 ) -> str:
     """Formats a PBS jobscript template using input arguments.
 
@@ -36,6 +38,8 @@ def generate_pbs_script(
         PBS jobscript template
     input_dir
         full path to images directory
+    output_dir
+        full path to the output OME-TIFF directory
     log_dir
         full path to where output logs should be written
     user
@@ -49,21 +53,28 @@ def generate_pbs_script(
         whether to save maximum-intensity-projections
     keep_stacks
         whether to save stacks
+    conda_env
+        name of the conda environment to activate on the compute node
 
     Returns
     -------
     Template as a formatted string to be written to file
     """
+    array_directive, batch_id_expr = pbs_array_directive(n_batches)
+
     return template.format(
         INPUT_DIR=input_dir,
+        OUTPUT_DIR=output_dir,
         LOG_DIR=log_dir,
         USER=user,
         USER_EMAIL=email,
         N_BATCHES=n_batches,
-        BATCH_MAX=n_batches - 1,
+        ARRAY_DIRECTIVE=array_directive,
+        BATCH_ID_EXPR=batch_id_expr,
         MIP="--mip" if mip else "",
         KEEP_STACKS="--keep_stacks" if keep_stacks else "",
         SAVE_METADATA_FILES="--save_metadata_files" if save_metadata_files else "",
+        CONDA_ENV=conda_env,
     )
 
 
@@ -79,6 +90,7 @@ def convert_operetta(
     submit: bool = False,
     user: str = "z1234567",
     email: str = "foo@bar.com",
+    conda_env: str = "berrylab-py311",
     dryrun: bool = False,
 ) -> None:
     """Recursively searches for 'Images' directories and creates a job script
@@ -116,6 +128,8 @@ def convert_operetta(
         username (your zID, must match the path to your data)
     email
         email address for job notifications
+    conda_env
+        name of the conda environment to activate on the compute node
     dryrun
         prepare scripts and echo commands without submitting
     """
@@ -143,6 +157,7 @@ def convert_operetta(
         jobscript = generate_pbs_script(
             template=jobscript_template,
             input_dir=str(images_parent_path.resolve()),
+            output_dir=str(user_output_path(images_parent_path.resolve(), user, "OME-TIFF")),
             log_dir=str(log_path.resolve()),
             user=user,
             email=email,
@@ -150,6 +165,7 @@ def convert_operetta(
             mip=mip,
             keep_stacks=keep_stacks,
             save_metadata_files=save_metadata_files,
+            conda_env=conda_env,
         )
         # write to files
         with open(jobscript_path, "w+") as f:
@@ -158,18 +174,22 @@ def convert_operetta(
     # dryrun
     if dryrun:
         for j in jobscript_paths:
-            os.system("echo qsub " + str(j))
+            logger.info(f"[dryrun] qsub {j}")
 
     # submit jobs
     if submit:
         for j in jobscript_paths:
-            os.system("qsub " + str(j))
+            subprocess.run(["qsub", str(j)], check=True)
 
     return None
 
 
 def check_convert_operetta(
-    in_path: Union[str, Path], mip: bool = False, keep_stacks: bool = True, save_metadata_files: bool = True
+    in_path: Union[str, Path],
+    mip: bool = False,
+    keep_stacks: bool = True,
+    save_metadata_files: bool = True,
+    user: Optional[str] = None,
 ) -> None:
     """Check that all files were converted.
 
@@ -183,6 +203,9 @@ def check_convert_operetta(
         whether to also check for stacks
     save_metadata_files
         whether the metadata files should be saved after XML parsing
+    user
+        zID of the user who ran the conversion. Output is looked for under
+        this user's directory (see :func:`blimp.utils.user_output_path`).
 
     Returns
     -------
@@ -199,13 +222,18 @@ def check_convert_operetta(
             mip=mip,
             keep_stacks=keep_stacks,
             save_metadata_files=save_metadata_files,
+            user=user,
         )
 
     return
 
 
 def check_convert_operetta_dir(
-    in_path: Union[str, Path], mip: bool = False, keep_stacks: bool = True, save_metadata_files: bool = True
+    in_path: Union[str, Path],
+    mip: bool = False,
+    keep_stacks: bool = True,
+    save_metadata_files: bool = True,
+    user: Optional[str] = None,
 ) -> set:
     """Check that all files were converted (single directory).
 
@@ -219,6 +247,9 @@ def check_convert_operetta_dir(
         whether to also check for stacks
     save_metadata_files
         whether the metadata files should be saved after XML parsing
+    user
+        zID of the user who ran the conversion. Output is looked for under
+        this user's directory (see :func:`blimp.utils.user_output_path`).
 
     Returns
     -------
@@ -226,7 +257,7 @@ def check_convert_operetta_dir(
     """
 
     in_path = Path(in_path)
-    out_path = in_path.parent / "OME-TIFF"
+    out_path = user_output_path(in_path.parent, user, "OME-TIFF")
     out_path_mip = out_path.parent / (str(out_path.stem) + "-MIP")
 
     # check directories exist
@@ -254,8 +285,8 @@ def check_convert_operetta_dir(
                 logger.info(f"Metadata files found in {str(out_path_mip)}")
 
     # get a list of imaging sites from filenames in in_path
-    unique_input_sites = {tuple(re.findall(r"(?<=r|c|f)\d+", str(s))) for s in in_path.glob("*.tiff")}
-    unique_output_sites = {tuple(re.findall(r"(?<=r|c|f)\d+", str(s))) for s in out_path.glob("*.tiff")}
+    unique_input_sites = {tuple(re.findall(r"(?<=r|c|f)\d+", s.name)) for s in in_path.glob("*.tiff")}
+    unique_output_sites = {tuple(re.findall(r"(?<=r|c|f)\d+", s.name)) for s in out_path.glob("*.tiff")}
 
     missing_sites = unique_input_sites.difference(unique_output_sites)
 
@@ -273,11 +304,11 @@ def check_convert_operetta_dir(
 
     if mip:
         logger.info(f"Checking MIP output directory...")
-        unique_output_sites_mip = {tuple(re.findall(r"(?<=r|c|f)\d+", str(s))) for s in out_path_mip.glob("*.tiff")}
+        unique_output_sites_mip = {tuple(re.findall(r"(?<=r|c|f)\d+", s.name)) for s in out_path_mip.glob("*.tiff")}
         missing_sites_mip = unique_input_sites.difference(unique_output_sites_mip)
 
-        if len(missing_sites) != 0:
-            logger.warn(f"The following sites are expected in {str(out_path_mip)}, but were not found")
+        if len(missing_sites_mip) != 0:
+            logger.warning(f"The following sites are expected in {str(out_path_mip)}, but were not found")
             for m in missing_sites_mip:
                 logger.warn(
                     f"Plate row {m[0]}; plate col {m[1]}; field {m[2]} (filename string = r{str(m[0]).zfill(2)}c{str(m[1]).zfill(2)}f{str(m[2]).zfill(2)})"

@@ -1,0 +1,48 @@
+# A malformed file here is silently ignored, which looks exactly like Codecov
+# not working. Validate changes:
+#
+#   curl -X POST --data-binary @codecov.yml https://api.codecov.io/validate
+
+codecov:
+    # Wait for all six matrix legs: otherwise the first to finish sets the
+    # status and a PR can be failed on partial data.
+    notify:
+        after_n_builds: 6
+        wait_for_ci: true
+
+coverage:
+    precision: 2
+    round: down
+    # Colour scale spanning the level the project is actually at (~59%).
+    range: 50...90
+
+    status:
+        # The regression guard: fails on a >1% drop against the parent.
+        project:
+            default:
+                target: auto
+                threshold: 1%
+        # Reports but never fails, since a 59% codebase cannot clear 80%
+        # immediately. Set informational: false once new code routinely does.
+        patch:
+            default:
+                target: 80%
+                informational: true
+
+# carryforward: a leg that did not upload (cancelled run, skipped OS) reuses
+# its last known coverage instead of counting as zero.
+flag_management:
+    default_rules:
+        carryforward: true
+
+comment:
+    layout: reach, diff, flags, files
+    after_n_builds: 6
+    require_changes: true
+
+# Already excluded by `source = blimp` in tox.ini; repeated here because
+# Codecov applies its own path handling to the uploaded report.
+ignore:
+-   tests/**
+-   docs/**
+-   setup.py

@@ -1,7 +1,7 @@
 from pathlib import Path
 import logging
 
-from aicsimageio import AICSImage
+from bioio import BioImage
 import numpy as np
 import pytest
 
@@ -9,7 +9,6 @@ from blimp.utils import equal_dims
 from blimp.constants import blimp_config
 import blimp.preprocessing.illumination_correction
 
-from .helpers import _ensure_test_data  # noqa: F401, I252
 from .helpers import _load_test_data
 
 logger = logging.getLogger(__name__)
@@ -52,7 +51,7 @@ def test_IlluminationCorrection_fit_invalid_images():
 
 def test_IlluminationCorrection_fit_non_uniform_images():
     images = _load_test_data("illumination_correction")
-    images[0] = AICSImage(images[0].data[:, :, :, :100, :100])  # Non-uniform dimensions
+    images[0] = BioImage(images[0].data[:, :, :, :100, :100])  # Non-uniform dimensions
     illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
         method="pixel_z_score", timelapse=False
     )
@@ -102,15 +101,48 @@ def test_correct_illumination_invalid_dimension_order():
 
 
 def test_pixel_z_score():
-    images = [np.random.rand(10, 10) for _ in range(5)]
+    """Integer intensity input with log-space reference statistics.
+
+    This previously used ``np.random.rand``, i.e. floats in [0, 1). Those are not
+    intensities: the reference statistics were computed on the raw values while
+    the image itself was log-transformed, so the function was comparing log-space
+    data against linear-space statistics. Only shape and dtype were asserted, so
+    nothing caught it. Integer counts with consistently log-transformed
+    statistics are what the function actually receives in the package.
+    """
+    rng = np.random.default_rng(42)
+    images = [rng.integers(100, 10000, size=(10, 10), dtype=np.uint16) for _ in range(5)]
     original = images[0]
-    mean_image = np.mean(images, axis=0)
-    std_image = np.std(images, axis=0)
+    log_images = [np.log10(im.astype(np.float64)) for im in images]
+    mean_image = np.mean(log_images, axis=0)
+    std_image = np.std(log_images, axis=0)
     mean_mean_image = np.mean(mean_image)
     mean_std_image = np.mean(std_image)
 
     corrected = blimp.preprocessing.illumination_correction.pixel_z_score(
         original, mean_image, std_image, mean_mean_image, mean_std_image
+    )
+    assert corrected.shape == original.shape
+    assert corrected.dtype == original.dtype
+    assert np.all(np.isfinite(corrected.astype(np.float64)))
+
+
+def test_pixel_z_score_float_input_rejected_when_log_transforming():
+    """Float input cannot be log-transformed safely: zeros are replaced by 1,
+    which is only meaningful when 1 is one detector count."""
+    original = np.random.rand(10, 10)
+    ones = np.ones((10, 10))
+    with pytest.raises(TypeError, match="integer intensity array"):
+        blimp.preprocessing.illumination_correction.pixel_z_score(original, ones, ones, 1.0, 1.0, log_transform=True)
+
+
+def test_pixel_z_score_float_input_allowed_without_log_transform():
+    """Float data is legitimate when no log transform is requested, so the
+    integer restriction must not leak into that path."""
+    original = np.random.rand(10, 10)
+    ones = np.ones((10, 10))
+    corrected = blimp.preprocessing.illumination_correction.pixel_z_score(
+        original, ones, ones, 1.0, 1.0, log_transform=False
     )
     assert corrected.shape == original.shape
     assert corrected.dtype == original.dtype
@@ -195,8 +227,8 @@ def test_IlluminationCorrection_init_from_reference_images(_ensure_test_data):
     assert illumination_correction.file_name is None
     assert equal_dims(illumination_correction, images[0])
     assert illumination_correction.method == "pixel_z_score"
-    # invalid: one of the AICSImages has a different size
-    images[0] = AICSImage(images[0].data[:, :, :, :100, :100])
+    # invalid: one of the BioImages has a different size
+    images[0] = BioImage(images[0].data[:, :, :, :100, :100])
     with pytest.raises(ValueError):
         illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
             reference_images=images
@@ -231,7 +263,7 @@ def test_IlluminationCorrection_init_from_reference_image_files(_ensure_test_dat
     assert illumination_correction.timelapse is False
     assert illumination_correction.file_path is None
     assert illumination_correction.file_name is None
-    assert equal_dims(illumination_correction, AICSImage(image_paths[0]))
+    assert equal_dims(illumination_correction, BioImage(image_paths[0]))
     assert illumination_correction.method == "pixel_z_score"
     # valid: str
     illumination_correction = blimp.preprocessing.illumination_correction.IlluminationCorrection(
@@ -240,7 +272,7 @@ def test_IlluminationCorrection_init_from_reference_image_files(_ensure_test_dat
     assert illumination_correction.timelapse is False
     assert illumination_correction.file_path is None
     assert illumination_correction.file_name is None
-    assert equal_dims(illumination_correction, AICSImage(image_paths[0]))
+    assert equal_dims(illumination_correction, BioImage(image_paths[0]))
     assert illumination_correction.method == "pixel_z_score"
 
 
@@ -308,16 +340,16 @@ def test_correct_illumination(_ensure_test_data):
     assert dask_input.shape == dask_output.shape
     assert dask_input.dtype == dask_output.dtype
 
-    # valid AICSImage input
-    AICSImage_input = images[0]
-    AICSImage_output = blimp.preprocessing.illumination_correction._correct_illumination(
-        image=AICSImage_input, illumination_correction=illumination_correction
+    # valid BioImage input
+    BioImage_input = images[0]
+    BioImage_output = blimp.preprocessing.illumination_correction._correct_illumination(
+        image=BioImage_input, illumination_correction=illumination_correction
     )
-    assert isinstance(AICSImage_output, AICSImage)
-    assert AICSImage_input.shape == AICSImage_output.shape
-    assert AICSImage_input.dtype == AICSImage_output.dtype
-    assert AICSImage_input.physical_pixel_sizes == AICSImage_output.physical_pixel_sizes
-    assert AICSImage_input.channel_names == AICSImage_output.channel_names
+    assert isinstance(BioImage_output, BioImage)
+    assert BioImage_input.shape == BioImage_output.shape
+    assert BioImage_input.dtype == BioImage_output.dtype
+    assert BioImage_input.physical_pixel_sizes == BioImage_output.physical_pixel_sizes
+    assert BioImage_input.channel_names == BioImage_output.channel_names
 
 
 def test_IlluminationCorrection_copy(_ensure_test_data):

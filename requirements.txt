@@ -1,16 +1,41 @@
-aicsimageio[nd2]>=4.12.1
+bioio>=3.5.0
+bioio-nd2>=2.4.0
+bioio-ome-tiff>=1.4.0
+# Read-only: lets BioImage(path) open .ome.zarr the same way it already
+# opens .ome.tiff. blimp writes OME-NGFF itself (see nd2_to_ome_ngff.py);
+# only this package's reader plugin is used, never its writer.
+bioio-ome-zarr>=3.8.0
+# Read-only: lets BioImage(path) open the plain (non-OME) per-plane TIFFs
+# exported by the Operetta and Opera, which bioio-ome-tiff rejects.
+bioio-tifffile>=1.3.1
 cellpose>=4.0.0
+# blimp/ome_ngff/plate.py catches filelock.Timeout directly, when
+# retrying a well registration under heavy concurrent-write contention.
+filelock>=3.32.5
 importlib_metadata>=5.1.0
-itk-elastix>=0.18.0
+# 0.18.0 has no abi3 or arm64 wheels, so it cannot install on Python >=3.12 or
+# Apple Silicon. 0.19.2 is the first release with both.
+itk-elastix>=0.19.2
 mahotas>=1.4.13
 matplotlib>=3.6.3
+# nd2_to_ome_ngff.py reads stage-position/voxel-size metadata directly from
+# this package's structured API (nd2.ND2File.experiment / .voxel_size()).
+nd2>=0.11.0
 nd2reader>=3.3.0
+# Pinned to an exact release, not a range: blimp depends only on its
+# plate/well atomic file-locking (see nd2_to_ome_ngff.py); a future ngio
+# release changing that API should not silently change blimp's behaviour.
+ngio==1.1.0
 numpy>=1.23.0
 packaging>=23.0
 pandas>=1.5.2
 pystackreg>=0.2.7
+# blimp/data.py imports requests and tqdm directly; declared explicitly
+# rather than relying on another dependency to happen to supply them.
+requests
 scikit_image>=0.21.0
 SimpleITK>=2.1.0
 tomli>=2.0.1
+tqdm
 typing_extensions>=4.4.0
 welford
