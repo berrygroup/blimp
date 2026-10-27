@@ -1,5 +1,5 @@
 """Shared OME-Zarr plate/well registration and image writing, used by every
-OME-NGFF writer (nd2-sourced, TIFF-sourced, and future Operetta-sourced)."""
+OME-NGFF writer (nd2-, TIFF- and Harmony-sourced)."""
 from typing import Any, Dict, List, Union, Literal, Callable, Optional
 from pathlib import Path
 import time

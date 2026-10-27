@@ -100,11 +100,57 @@ def _add_convert_args(parser: argparse.ArgumentParser) -> None:
     return None
 
 
+def _add_convert_harmony_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "-y",
+        "--y_direction",
+        default=None,
+        choices=["up", "down"],
+        help="""
+        --output_format NGFF only: direction of increasing (stage)
+        y-coordinates in the image. Default is to read this from the
+        image metadata's own OrientationMatrix.
+    """,
+    )
+    parser.add_argument(
+        "-x",
+        "--x_direction",
+        default=None,
+        choices=["left", "right"],
+        help="""
+        --output_format NGFF only: direction of increasing (stage)
+        x-coordinates in the image. Default is to read this from the
+        image metadata's own OrientationMatrix.
+    """,
+    )
+    parser.add_argument(
+        "--placement",
+        default="grid",
+        choices=["grid", "exact"],
+        help="""
+        --output_format NGFF only: "grid" (default) snaps fields to a
+        tile grid, discarding stage jitter; "exact" uses the raw stage
+        offset directly.
+    """,
+    )
+    parser.add_argument(
+        "-c",
+        "--channel_names",
+        type=str,
+        nargs="+",
+        default=None,
+        help="--output_format NGFF only: list of channel names",
+    )
+    return None
+
+
 def _add_convert_operetta_args(parser: argparse.ArgumentParser) -> None:
+    _add_convert_harmony_args(parser)
     return None
 
 
 def _add_convert_opera_args(parser: argparse.ArgumentParser) -> None:
+    _add_convert_harmony_args(parser)
     return None
 
 
@@ -318,6 +364,8 @@ def _convert_operetta(args) -> None:
             save_metadata_files=True,
             mip=args.mip,
             user=args.user,
+            keep_stacks=args.keep_stacks,
+            image_format=args.output_format,
         )
     else:
         convert_operetta(
@@ -328,6 +376,10 @@ def _convert_operetta(args) -> None:
             save_metadata_files=True,
             mip=args.mip,
             keep_stacks=args.keep_stacks,
+            y_direction=args.y_direction,
+            x_direction=args.x_direction,
+            placement=args.placement,
+            channel_names=args.channel_names,
             submit=args.submit,
             user=args.user,
             email=args.email,
@@ -348,6 +400,7 @@ def _convert_opera(args) -> None:
             mip=args.mip,
             user=args.user,
             keep_stacks=args.keep_stacks,
+            image_format=args.output_format,
         )
     else:
         convert_opera(
@@ -358,6 +411,10 @@ def _convert_opera(args) -> None:
             save_metadata_files=True,
             mip=args.mip,
             keep_stacks=args.keep_stacks,
+            y_direction=args.y_direction,
+            x_direction=args.x_direction,
+            placement=args.placement,
+            channel_names=args.channel_names,
             submit=args.submit,
             user=args.user,
             email=args.email,

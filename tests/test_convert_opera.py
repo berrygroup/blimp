@@ -1,15 +1,18 @@
 """Tests for convert_opera.py -- PBS jobscript generation and conversion
 checks for Opera Phenix exports."""
 
+from ngio import open_ome_zarr_plate
 import pytest
 
 from blimp.preprocessing.convert_opera import (
     convert_opera,
     find_images_dirs,
+    check_convert_opera,
     generate_pbs_script,
     check_convert_opera_dir,
 )
 from blimp.preprocessing.opera_to_ome_tiff import opera_to_ome_tiff
+from blimp.preprocessing.harmony_to_ome_ngff import harmony_to_ome_ngff
 
 from .helpers import _make_opera_dataset
 
@@ -68,8 +71,8 @@ def test_find_images_dirs_requires_index_xml(measurement_dir, tmp_path):
 
 
 def test_convert_opera_rejects_unknown_image_format(measurement_dir, tmp_path):
-    with pytest.raises(NotImplementedError, match='"TIFF"'):
-        convert_opera(in_path=measurement_dir, job_path=tmp_path / "jobs", image_format="NGFF")
+    with pytest.raises(NotImplementedError, match='"TIFF" or "NGFF"'):
+        convert_opera(in_path=measurement_dir, job_path=tmp_path / "jobs", image_format="OME-ZARR")
 
 
 def test_convert_opera_writes_jobscript(measurement_dir, tmp_path):
@@ -86,6 +89,31 @@ def test_convert_opera_writes_jobscript(measurement_dir, tmp_path):
     assert '-i "$INPUT_DIR/images"' in content
     assert "--batch 2" in content
     assert "--mip" in content
+
+
+def test_convert_opera_ngff_writes_jobscript_and_creates_plate(measurement_dir, tmp_path):
+    job_path = tmp_path / "jobs"
+    convert_opera(in_path=tmp_path, job_path=job_path, image_format="NGFF", n_batches=2, mip=True, x_direction="left")
+
+    content = (job_path / f"batch_convert_opera_{measurement_dir.name}.pbs").read_text()
+    plate_path = measurement_dir.resolve() / "plate.zarr"
+    assert f'PLATE_PATH="{plate_path}"' in content
+    assert "harmony_to_ome_ngff.py convert" in content
+    assert '-i "$INPUT_DIR/images"' in content
+    assert "--instrument opera" in content
+    assert "--batch 2" in content
+    assert "-x left" in content
+    assert "-y " not in content
+
+    # created at job-generation time, sized from the plate metadata
+    assert open_ome_zarr_plate(store=str(plate_path), mode="r").rows == list("ABCDEFGH")
+
+
+def test_check_convert_opera_ngff(measurement_dir, tmp_path, caplog):
+    harmony_to_ome_ngff(measurement_dir / "images", measurement_dir / "plate.zarr", "opera", mip=True)
+    with caplog.at_level("INFO"):
+        check_convert_opera(tmp_path, mip=True, keep_stacks=False, image_format="NGFF")
+    assert "Conversion appears complete" in caplog.text
 
 
 def test_check_convert_opera_dir_raises_without_output(measurement_dir):

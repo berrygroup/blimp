@@ -1,5 +1,5 @@
 """Field-of-view layout and grid-clustering math shared across every
-OME-NGFF writer (nd2-sourced, TIFF-sourced, and future Operetta-sourced).
+OME-NGFF writer (nd2-, TIFF- and Harmony-sourced).
 
 Nothing in this module reads any particular source format directly -- it
 only operates on already-extracted stage positions, tile shapes, and channel
@@ -191,6 +191,65 @@ def _exact_pixel_offset(stage: np.ndarray, pixel_size: float, reverse: bool) -> 
     if reverse:
         return np.round((stage.max() - stage) / pixel_size).astype(int)
     return np.round((stage - stage.min()) / pixel_size).astype(int)
+
+
+def _field_offsets(
+    stage_x: np.ndarray,
+    stage_y: np.ndarray,
+    tile_shape: Tuple[int, int, int, int, int],
+    pixel_size_x: float,
+    pixel_size_y: float,
+    x_direction: str,
+    y_direction: str,
+    placement: str,
+) -> List[Tuple[int, int]]:
+    """Pixel ``(y0, x0)`` offset of each field within the stitched canvas,
+    from its stage position.
+
+    Parameters
+    ----------
+    stage_x, stage_y
+        Stage coordinates, one per field, in the same units as the pixel
+        sizes.
+    tile_shape
+        ``(T, C, Z, Y, X)`` shape of a single field.
+    pixel_size_x, pixel_size_y
+        Physical pixel size.
+    x_direction
+        Direction of increasing stage-x in the image ("left" or "right").
+    y_direction
+        Direction of increasing stage-y in the image ("up" or "down").
+    placement
+        "grid" clusters fields into rows/columns (see
+        :func:`_cluster_grid_index`) and places each at an exact multiple
+        of the tile size; "exact" uses the raw stage offset (see
+        :func:`_exact_pixel_offset`).
+
+    Returns
+    -------
+    List[Tuple[int, int]]
+        One ``(y0, x0)`` per field, in input order.
+    """
+    if y_direction not in {"up", "down"}:
+        raise ValueError(f'y_direction = {y_direction}, only "up" or "down" are possible')
+    if x_direction not in {"left", "right"}:
+        raise ValueError(f'x_direction = {x_direction}, only "left" or "right" are possible')
+    if placement not in {"grid", "exact"}:
+        raise ValueError(f'placement = {placement}, only "grid" or "exact" are possible')
+
+    if placement == "grid":
+        col_idx = _cluster_grid_index(stage_x, tile_shape[4] * pixel_size_x)
+        row_idx = _cluster_grid_index(stage_y, tile_shape[3] * pixel_size_y)
+        if x_direction == "left":
+            col_idx = col_idx.max() - col_idx
+        if y_direction == "up":
+            row_idx = row_idx.max() - row_idx
+        offset_x_px = col_idx * tile_shape[4]
+        offset_y_px = row_idx * tile_shape[3]
+    else:
+        offset_x_px = _exact_pixel_offset(stage_x, pixel_size_x, reverse=(x_direction == "left"))
+        offset_y_px = _exact_pixel_offset(stage_y, pixel_size_y, reverse=(y_direction == "up"))
+    return list(zip(offset_y_px.tolist(), offset_x_px.tolist()))
 
 
 def _build_fov_roi_table(layout: FieldLayout) -> RoiTable:
