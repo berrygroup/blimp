@@ -26,6 +26,7 @@ File handling
     preprocessing.opera_to_ome_tiff
     preprocessing.opera_parse_metadata.get_image_metadata
     preprocessing.opera_parse_metadata.get_plate_metadata
+    preprocessing.harmony_to_ome_ngff
 
 Processing
 ~~~~~~~~~~

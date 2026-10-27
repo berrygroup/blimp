@@ -1,13 +1,16 @@
 """Tests for convert_operetta.py -- PBS jobscript generation and conversion
 checks for Operetta exports."""
 
+from ngio import open_ome_zarr_plate
 import pytest
 
 from blimp.preprocessing.convert_operetta import (
     convert_operetta,
     generate_pbs_script,
+    check_convert_operetta,
     check_convert_operetta_dir,
 )
+from blimp.preprocessing.harmony_to_ome_ngff import harmony_to_ome_ngff
 from blimp.preprocessing.operetta_to_ome_tiff import operetta_to_ome_tiff
 
 from .helpers import _make_operetta_dataset
@@ -102,6 +105,47 @@ def test_convert_operetta_writes_to_users_own_directory(tmp_path):
         )
         assert (out_path.parent / "image_metadata.csv").exists()
         assert check_convert_operetta_dir(source_dir / "Images", user="z2222222") == set()
+    finally:
+        for p in [source_dir, *source_dir.rglob("*")]:
+            p.chmod(0o755)
+
+
+def test_convert_operetta_rejects_unknown_image_format(experiment_dir, tmp_path):
+    with pytest.raises(NotImplementedError, match='"TIFF" or "NGFF"'):
+        convert_operetta(in_path=tmp_path, job_path=tmp_path / "jobs", image_format="OME-ZARR")
+
+
+def test_convert_operetta_ngff_writes_to_users_own_directory(tmp_path, caplog):
+    source_dir = tmp_path / "z1111111" / "operetta_cls" / "experiment"
+    _make_operetta_dataset(source_dir)
+    for p in [source_dir, *source_dir.rglob("*")]:
+        p.chmod(0o555 if p.is_dir() else 0o444)
+    plate_path = tmp_path / "z2222222" / "operetta_cls" / "experiment" / "plate.zarr"
+    try:
+        convert_operetta(
+            in_path=tmp_path / "z1111111",
+            job_path=tmp_path / "jobs",
+            image_format="NGFF",
+            mip=True,
+            placement="exact",
+            channel_names=["DAPI", "GFP"],
+            user="z2222222",
+        )
+        content = (tmp_path / "jobs" / "batch_convert_operetta_experiment.pbs").read_text()
+        assert f'PLATE_PATH="{plate_path.resolve()}"' in content
+        assert '-i "$INPUT_DIR/Images"' in content
+        assert "--instrument operetta" in content
+        assert "--placement exact" in content
+        assert "--channel_names DAPI GFP" in content
+        assert open_ome_zarr_plate(store=str(plate_path), mode="r").rows == list("ABCDEFGH")
+
+        harmony_to_ome_ngff(source_dir / "Images", plate_path, "operetta", mip=True)
+        assert (plate_path.parent / "image_metadata.csv").exists()
+        with caplog.at_level("INFO"):
+            check_convert_operetta(
+                tmp_path / "z1111111", mip=True, keep_stacks=False, user="z2222222", image_format="NGFF"
+            )
+        assert "Conversion appears complete" in caplog.text
     finally:
         for p in [source_dir, *source_dir.rglob("*")]:
             p.chmod(0o755)

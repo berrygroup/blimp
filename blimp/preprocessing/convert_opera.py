@@ -1,6 +1,6 @@
 """Convert Perkin-Elmer (Revvity) Opera Phenix image files to standard open
 microscopy environment formats."""
-from typing import Union, Optional
+from typing import List, Union, Optional
 from pathlib import Path
 import re
 import glob
@@ -9,6 +9,11 @@ import subprocess
 
 from blimp.utils import read_template, user_output_path, pbs_array_directive
 from blimp.preprocessing.opera_to_ome_tiff import opera_regex_filename_pattern
+from blimp.preprocessing.harmony_to_ome_ngff import (
+    check_harmony_ngff,
+    generate_pbs_script_ngff,
+    ensure_harmony_plate_exists,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +110,10 @@ def convert_opera(
     save_metadata_files: bool = True,
     mip: bool = False,
     keep_stacks: bool = True,
+    y_direction: Optional[str] = None,
+    x_direction: Optional[str] = None,
+    placement: str = "grid",
+    channel_names: Union[str, List[str], None] = None,
     submit: bool = False,
     user: str = "z1234567",
     email: str = "foo@bar.com",
@@ -112,8 +121,9 @@ def convert_opera(
     dryrun: bool = False,
 ) -> None:
     """Recursively searches for opera 'images' directories and creates a job
-    script to submit a batch of opera-generated TIFFs for export in the
-    specified format. Optionally submits the jobs.
+    script to convert opera-generated TIFFs to OME-TIFF (via
+    ``opera_to_ome_tiff``) or stitch them into a whole-plate OME-NGFF store
+    (via ``harmony_to_ome_ngff``). Optionally submits the jobs.
 
     Parameters
     ----------
@@ -122,18 +132,23 @@ def convert_opera(
     job_path
         path where the jobscripts should be saved
     image_format
-        "TIFF" (only TIFF is currently implemented)
+        "TIFF" or "NGFF"
     template_path
         path to a template for the PBS jobscript
-        (default templates/convert_opera_pbs.sh)
+        (default templates/convert_opera_pbs.sh for "TIFF",
+        templates/convert_opera_ngff_pbs.sh for "NGFF")
     n_batches
-        number of batches into which the processing should be split.
+        number of batches into which the processing should be split
+        (by imaging site for "TIFF", by well for "NGFF").
     save_metadata_files
         whether the metadata files should be saved after XML parsing
     mip
         whether to save maximum-intensity-projections
     keep_stacks
         whether to save stacks
+    y_direction, x_direction, placement, channel_names
+        "NGFF" only -- see
+        :func:`blimp.preprocessing.harmony_to_ome_ngff.get_field_layout_from_harmony_metadata`.
     submit
         whether to also submit the batch jobs to the cluster
     user
@@ -146,8 +161,8 @@ def convert_opera(
         prepare scripts and echo commands without submitting
     """
 
-    if image_format != "TIFF":
-        raise NotImplementedError(f'image_format = "{image_format}", only "TIFF" is supported')
+    if image_format not in {"TIFF", "NGFF"}:
+        raise NotImplementedError(f'image_format = "{image_format}", only "TIFF" or "NGFF" are supported')
 
     # create job/log directory if it does not exist
     job_path = Path(job_path)
@@ -163,25 +178,47 @@ def convert_opera(
 
     # read template from file
     if template_path is None:
-        jobscript_template = read_template("convert_opera_pbs.sh")
+        template_name = "convert_opera_pbs.sh" if image_format == "TIFF" else "convert_opera_ngff_pbs.sh"
+        jobscript_template = read_template(template_name)
     else:
         jobscript_template = Path(template_path).read_text()
 
     # create jobscripts using template
-    for images_parent_path, jobscript_path in zip(images_parent_paths, jobscript_paths):
-        jobscript = generate_pbs_script(
-            template=jobscript_template,
-            input_dir=str(images_parent_path.resolve()),
-            output_dir=str(user_output_path(images_parent_path.resolve(), user, "OME-TIFF")),
-            log_dir=str(log_path.resolve()),
-            user=user,
-            email=email,
-            n_batches=int(n_batches),
-            mip=mip,
-            keep_stacks=keep_stacks,
-            save_metadata_files=save_metadata_files,
-            conda_env=conda_env,
-        )
+    for images_path, images_parent_path, jobscript_path in zip(images_paths, images_parent_paths, jobscript_paths):
+        if image_format == "TIFF":
+            jobscript = generate_pbs_script(
+                template=jobscript_template,
+                input_dir=str(images_parent_path.resolve()),
+                output_dir=str(user_output_path(images_parent_path.resolve(), user, "OME-TIFF")),
+                log_dir=str(log_path.resolve()),
+                user=user,
+                email=email,
+                n_batches=int(n_batches),
+                mip=mip,
+                keep_stacks=keep_stacks,
+                save_metadata_files=save_metadata_files,
+                conda_env=conda_env,
+            )
+        else:
+            plate_path = user_output_path(images_parent_path.resolve(), user, "plate.zarr")
+            ensure_harmony_plate_exists(images_path, plate_path, instrument="opera")
+            jobscript = generate_pbs_script_ngff(
+                template=jobscript_template,
+                input_dir=str(images_parent_path.resolve()),
+                plate_path=str(plate_path),
+                log_dir=str(log_path.resolve()),
+                user=user,
+                email=email,
+                n_batches=int(n_batches),
+                mip=mip,
+                keep_stacks=keep_stacks,
+                save_metadata_files=save_metadata_files,
+                y_direction=y_direction,
+                x_direction=x_direction,
+                placement=placement,
+                channel_names=channel_names,
+                conda_env=conda_env,
+            )
         # write to files
         with open(jobscript_path, "w+") as f:
             f.writelines(jobscript)
@@ -205,6 +242,7 @@ def check_convert_opera(
     keep_stacks: bool = True,
     save_metadata_files: bool = True,
     user: Optional[str] = None,
+    image_format: str = "TIFF",
 ) -> None:
     """Check that all files were converted.
 
@@ -221,6 +259,8 @@ def check_convert_opera(
     user
         zID of the user who ran the conversion. Output is looked for under
         this user's directory (see :func:`blimp.utils.user_output_path`).
+    image_format
+        "TIFF" or "NGFF" -- which conversion output to check
     """
     # search recursively for "images" directories
     logger.info("Searching for 'images' directories...")
@@ -228,6 +268,15 @@ def check_convert_opera(
     logger.info(f"Found {len(images_paths)} 'images' directories...")
 
     for images_dir in images_paths:
+        if image_format == "NGFF":
+            check_harmony_ngff(
+                in_path=images_dir,
+                plate_path=user_output_path(Path(images_dir).parent.resolve(), user, "plate.zarr"),
+                instrument="opera",
+                mip=mip,
+                keep_stacks=keep_stacks,
+            )
+            continue
         check_convert_opera_dir(
             in_path=images_dir,
             mip=mip,

@@ -21,7 +21,8 @@ Full documentation on
 **Pre-processing**
 
 - **Convert** — batch conversion of microscope-specific formats (Nikon `nd2`,
-  Operetta, Opera Phenix) to OME-TIFF, extracting metadata to a `pandas` DataFrame.
+  Operetta, Opera Phenix) to OME-TIFF or a stitched, whole-plate OME-NGFF (OME-Zarr)
+  store, extracting metadata to a `pandas` DataFrame.
   Maximum-intensity projection along `z` optionally happens during conversion.
 - **Correct** — illumination bias correction, fitted from a set of reference
   images and optionally smoothed.
