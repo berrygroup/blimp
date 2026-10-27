@@ -61,6 +61,22 @@ def test_convert_opera_accepts_verify_only_with_mip(tmp_path):
     assert args.mip is True
 
 
+@pytest.mark.parametrize("input_type", ["opera", "operetta"])
+def test_convert_harmony_ngff_options(input_type, tmp_path):
+    args = _parse(["convert", input_type, "-i", str(tmp_path), "--user", "z1234567", "--output_format", "NGFF"])
+    assert (args.y_direction, args.x_direction, args.placement, args.channel_names) == (None, None, "grid", None)
+
+    args = _parse(
+        ["convert", input_type, "-i", str(tmp_path), "--user", "z1234567", "--output_format", "NGFF"]
+        + ["-y", "down", "-x", "left", "--placement", "exact", "-c", "DAPI", "GFP"]
+    )
+    assert (args.y_direction, args.x_direction, args.placement) == ("down", "left", "exact")
+    assert args.channel_names == ["DAPI", "GFP"]
+
+    with pytest.raises(SystemExit):
+        _parse(["convert", input_type, "-i", str(tmp_path), "--user", "z1234567", "-y", "sideways"])
+
+
 def test_convert_requires_input_type():
     with pytest.raises(SystemExit):
         _parse(["convert", "-i", "."])

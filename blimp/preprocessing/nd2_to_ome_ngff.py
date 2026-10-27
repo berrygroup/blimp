@@ -16,12 +16,7 @@ import numpy as np
 from blimp.log import configure_logging
 from blimp.ome_ngff import locate_well, NUM_PYRAMID_LEVELS, ensure_plate_exists
 from blimp.ome_ngff.plate import _write_well_image
-from blimp.ome_ngff.layout import (
-    FieldLayout,
-    _parse_well_name,
-    _cluster_grid_index,
-    _exact_pixel_offset,
-)
+from blimp.ome_ngff.layout import FieldLayout, _field_offsets, _parse_well_name
 from blimp.preprocessing.nd2_to_ome_tiff import _get_list_of_files_current_batch
 
 logger = logging.getLogger(__name__)
@@ -60,13 +55,6 @@ def get_field_layout(
     -------
     FieldLayout
     """
-    if y_direction not in {"up", "down"}:
-        raise ValueError(f'y_direction = {y_direction}, only "up" or "down" are possible')
-    if x_direction not in {"left", "right"}:
-        raise ValueError(f'x_direction = {x_direction}, only "left" or "right" are possible')
-    if placement not in {"grid", "exact"}:
-        raise ValueError(f'placement = {placement}, only "grid" or "exact" are possible')
-
     with nd2.ND2File(str(nd2_path)) as f:
         voxel_size = f.voxel_size()
         sizes = f.sizes
@@ -87,27 +75,15 @@ def get_field_layout(
         if positions is None:
             # single-position acquisition: one field at a nominal (0, 0) offset
             position_names: List[Optional[str]] = [None]
-            offsets = [(0, 0)]
+            stage_x = np.zeros(1)
+            stage_y = np.zeros(1)
         else:
             position_names = [p.name for p in positions]
             stage_x = np.array([p.stagePositionUm.x for p in positions])
             stage_y = np.array([p.stagePositionUm.y for p in positions])
-
-            if placement == "grid":
-                tile_extent_x = tile_shape[4] * voxel_size.x
-                tile_extent_y = tile_shape[3] * voxel_size.y
-                col_idx = _cluster_grid_index(stage_x, tile_extent_x)
-                row_idx = _cluster_grid_index(stage_y, tile_extent_y)
-                if x_direction == "left":
-                    col_idx = col_idx.max() - col_idx
-                if y_direction == "up":
-                    row_idx = row_idx.max() - row_idx
-                offset_x_px = col_idx * tile_shape[4]
-                offset_y_px = row_idx * tile_shape[3]
-            else:
-                offset_x_px = _exact_pixel_offset(stage_x, voxel_size.x, reverse=(x_direction == "left"))
-                offset_y_px = _exact_pixel_offset(stage_y, voxel_size.y, reverse=(y_direction == "up"))
-            offsets = list(zip(offset_y_px.tolist(), offset_x_px.tolist()))
+        offsets = _field_offsets(
+            stage_x, stage_y, tile_shape, voxel_size.x, voxel_size.y, x_direction, y_direction, placement
+        )
 
         row, column = _parse_well_name(nd2_path, position_names)
 

@@ -26,12 +26,7 @@ from blimp.ome_ngff.labels import (
     _write_well_labels,
     _write_well_points,
 )
-from blimp.ome_ngff.layout import (
-    FieldLayout,
-    _parse_well_name,
-    _cluster_grid_index,
-    _exact_pixel_offset,
-)
+from blimp.ome_ngff.layout import FieldLayout, _field_offsets, _parse_well_name
 from blimp.ome_ngff.features import _write_well_features
 from blimp.preprocessing.illumination_correction import IlluminationCorrection
 
@@ -108,13 +103,6 @@ def get_field_layout_from_tiff_metadata(
     FileNotFoundError
         If the metadata CSV, or every field TIFF it lists, is missing.
     """
-    if y_direction not in {"up", "down"}:
-        raise ValueError(f'y_direction = {y_direction}, only "up" or "down" are possible')
-    if x_direction not in {"left", "right"}:
-        raise ValueError(f'x_direction = {x_direction}, only "left" or "right" are possible')
-    if placement not in {"grid", "exact"}:
-        raise ValueError(f'placement = {placement}, only "grid" or "exact" are possible')
-
     df = _read_metadata_csv(nd2_stem, tiff_dir)
     field_ids = df["field_id"].tolist()
     stage_x = df["stage_x_abs"].to_numpy()
@@ -136,21 +124,9 @@ def get_field_layout_from_tiff_metadata(
     tile_shape = reference_image.shape
     pixel_size = reference_image.physical_pixel_sizes
 
-    if placement == "grid":
-        tile_extent_x = tile_shape[4] * pixel_size.X
-        tile_extent_y = tile_shape[3] * pixel_size.Y
-        col_idx = _cluster_grid_index(stage_x, tile_extent_x)
-        row_idx = _cluster_grid_index(stage_y, tile_extent_y)
-        if x_direction == "left":
-            col_idx = col_idx.max() - col_idx
-        if y_direction == "up":
-            row_idx = row_idx.max() - row_idx
-        offset_x_px = col_idx * tile_shape[4]
-        offset_y_px = row_idx * tile_shape[3]
-    else:
-        offset_x_px = _exact_pixel_offset(stage_x, pixel_size.X, reverse=(x_direction == "left"))
-        offset_y_px = _exact_pixel_offset(stage_y, pixel_size.Y, reverse=(y_direction == "up"))
-    offsets = list(zip(offset_y_px.tolist(), offset_x_px.tolist()))
+    offsets = _field_offsets(
+        stage_x, stage_y, tile_shape, pixel_size.X, pixel_size.Y, x_direction, y_direction, placement
+    )
 
     row, column = _parse_well_name(nd2_stem, [None])
 
